@@ -1,0 +1,9 @@
+# Activated with SPRING_PROFILES_ACTIVE=local. Seeds a dev admin so the ADMIN-only
+# endpoints can be exercised locally. NEVER active in production.
+paymentflow:
+  dev:
+    admin:
+      enabled: true
+      email: admin@paymentflow.local
+      password: admin12345
+      full-name: Platform Admin

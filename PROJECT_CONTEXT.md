@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M2 (Identity Service) — *pending approval*
-- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅
-- **Pending milestones:** M2–M15
+- **Current milestone:** M3 (Gateway Service) — *pending approval*
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅
+- **Pending milestones:** M3–M15
 
 ---
 
@@ -173,6 +173,13 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D12 | Custom immutable `ApiError` envelope with stable `code` | RFC 9457 `ProblemDetail` | Keeps `common-dto` framework-free; gives clients a stable machine-readable contract; field errors omit rejected values (no leaking secrets) |
 | D13 | Spring Boot 4 native structured (JSON) logging, MDC-fed | logstash-logback-encoder | Zero extra deps; correlation/request ids flow automatically; format chosen per service via property |
 | D14 | Defer the Kafka event envelope to M5 | build it now in `common-dto` | No real producers yet; designing the abstraction without them risks getting it wrong (YAGNI) |
+| D15 | RS256 (asymmetric) JWTs + public JWKS endpoint | HS256 shared secret | Validators (gateway, services) verify with the public key; no secret sharing across the fleet |
+| D16 | Opaque, SHA-256-hashed, rotating refresh tokens in DB | stateless refresh JWT | Revocable (real logout), replay-detectable; a DB leak can't mint tokens; access tokens stay stateless |
+| D17 | Identity also validates its own tokens (resource server) + method `@PreAuthorize` | trust the gateway only | Per-service zero-trust; RBAC demonstrable now, independent of the edge |
+| D18 | Ephemeral RSA keypair if none configured (dev); PEM from Secrets Manager in prod | commit a dev key | No secret in git; JWKS distributes the public key regardless |
+| D19 | **Spring Boot 4 uses Jackson 3** (`tools.jackson.*`), not Jackson 2 | assume `com.fasterxml` | The auto-configured `ObjectMapper` bean is `tools.jackson.databind.ObjectMapper`; inject that. Jackson 2 lingers transitively but has no bean |
+| D20 | Boot 4 **modular auto-config**: add `spring-boot-flyway`, `spring-boot-webmvc-test`; Testcontainers **2.x** renamed artifacts to `testcontainers-*` | rely on Boot 3 coordinates | Autoconfig split out of the monolithic `spring-boot-autoconfigure`; plain `flyway-core` no longer wires Flyway |
+| D21 | Security errors rendered as `ApiError`: filter-chain via handlers, method-security via a service-local `@RestControllerAdvice` | let 403s fall through to 500 | `@PreAuthorize` denials surface at the DispatcherServlet, not the filter chain; common-lib stays security-agnostic |
 
 ---
 
@@ -199,7 +206,8 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 15. Deployment Status
 - Local infra (Postgres/Redis/Kafka/Kafka-UI): **runs, 4/4 healthy** via `docker-compose.infra.yml`.
-- Application services: not yet built. AWS: not yet started.
+- **identity-service:** builds, all tests pass, verified running locally on port 8081 against the compose Postgres (Flyway migrated the `identity` schema; full auth flow + RBAC exercised over HTTP).
+- Other services: skeletons only. AWS: not yet started.
 
 ## 16. Lessons Learned
 - TBD.
@@ -316,3 +324,65 @@ activate for servlet apps and stay inactive for non-web apps.
 
 **Next milestone:** M2 — Identity Service (register/login, BCrypt, JWT access + refresh,
 RBAC, Flyway migrations, Testcontainers integration tests).
+
+---
+
+### M2 — Identity Service ✅ (2026-07-17)
+
+**Objectives:** First bootable Spring Boot application — authentication (BCrypt), RS256
+JWT access + rotating refresh tokens, RBAC, Flyway-managed `identity` schema, reusing
+the M1 foundation, with unit + Testcontainers integration tests.
+
+**Features implemented**
+- Register (USER role), login (BCrypt strength 12), token refresh with **rotation**, logout (revoke).
+- **RS256** access tokens (id/email/roles claims) signed by an RSA key; **JWKS** endpoint.
+- Opaque refresh tokens — only the SHA-256 hash stored; rotated on use; revocable.
+- Resource-server security (validates own tokens); URL + method (`@PreAuthorize`) RBAC.
+- 401/403/errors rendered as the shared `ApiError`; correlation ids via common-lib.
+- Dev admin seeding under the `local` profile only.
+
+**Endpoints added**
+| Method | Path | Access |
+|---|---|---|
+| POST | `/api/v1/auth/register` | public |
+| POST | `/api/v1/auth/login` | public |
+| POST | `/api/v1/auth/refresh` | public (valid refresh token) |
+| POST | `/api/v1/auth/logout` | public (valid refresh token) |
+| GET | `/api/v1/users/me` | any authenticated |
+| GET | `/api/v1/users` | ADMIN |
+| GET | `/oauth2/jwks` | public |
+| GET | `/actuator/health` | public |
+
+**Database changes (schema `identity`, Flyway `V1__init_identity.sql`):** tables `users`,
+`user_roles`, `refresh_tokens` with FKs, unique constraints (email, token_hash), indexes,
+and optimistic-lock `version` on `users`.
+
+**Files created:** ~30 — app + config (`SecurityConfig`, `JwtKeyConfiguration`,
+`JwtProperties`, `DevDataInitializer`/`DevAdminProperties`), security (`JwtService`,
+`RefreshTokenService` [service], `PemUtils`, `SecurityErrorWriter`, entry-point/denied
+handlers), domain (`User`, `RefreshToken`, `Role`), repositories, DTOs, `UserMapper`,
+services (`AuthService`, `UserService`), web (`AuthController`, `UserController`,
+`JwksController`, `SecurityExceptionHandler`), identity exceptions, `application.yaml`
+(+ `-local`), `V1` migration, and 3 test classes.
+
+**Files modified:** `identity-service/build.gradle.kts`, `PROJECT_CONTEXT.md`.
+
+**Test coverage (12 tests, all green):** `JwtServiceTest` (issuance/claims), `AuthServiceTest`
+(register dup/normalize/encode, login success/failure — Mockito), `IdentityIntegrationTest`
+(Testcontainers Postgres): register→login→/me, duplicate 409, 401 no-token, 403 non-admin,
+admin list, refresh rotation (old token rejected), logout revokes.
+
+**Verification:** `./gradlew build` green; service run locally (`SPRING_PROFILES_ACTIVE=local
+java -jar …`) against compose Postgres — Flyway migrated, full flow + RBAC confirmed over HTTP.
+
+**Important design decisions:** D15–D21 (see §9).
+
+**Problems faced → solutions**
+1. Testcontainers **2.x** renamed artifacts → use `org.testcontainers:testcontainers-postgresql` / `-junit-jupiter`.
+2. Boot 4 **modular auto-config**: `@AutoConfigureMockMvc` moved to `spring-boot-webmvc-test`; Flyway needs `spring-boot-flyway` (plain `flyway-core` doesn't wire it).
+3. Boot 4 defaults to **Jackson 3** → inject `tools.jackson.databind.ObjectMapper` (no Jackson-2 `ObjectMapper` bean).
+4. `@PreAuthorize` denials returned **500** (thrown at the dispatcher, not the filter chain) → added `SecurityExceptionHandler` advice mapping `AccessDeniedException`→403.
+
+**Next milestone:** M3 — Gateway Service (Spring Cloud Gateway, reactive): routing to
+identity, edge JWT validation via JWKS, Redis rate-limiting, CORS, security headers,
+correlation-id propagation. Completes the first end-to-end vertical slice.
