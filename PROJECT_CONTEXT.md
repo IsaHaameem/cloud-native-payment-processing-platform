@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M1 (shared modules) — *pending approval*
-- **Completed milestones:** M0 (repo bootstrap) ✅
-- **Pending milestones:** M1–M15
+- **Current milestone:** M2 (Identity Service) — *pending approval*
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅
+- **Pending milestones:** M2–M15
 
 ---
 
@@ -169,6 +169,10 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D8 | Convention plugins in a `build-logic` included build | `subprojects{}` / `buildSrc` | No duplicated build config; stable configuration cache; reusable plugins |
 | D9 | Dedicated host-port range for local infra (55432/56379/59092) | Standard ports | Coexists with other local stacks; internal container ports stay standard |
 | D10 | Kafka topic names use dots only, never underscores | mixed separators | Prevents Kafka metric-name collisions (`.`/`_` ambiguity) |
+| D11 | `common-lib` is a Spring Boot auto-config starter; web deps are `compileOnly` | plain shared jar forcing spring-web on all | Servlet stack not leaked onto the reactive gateway; servlet pieces self-activate via `@ConditionalOnWebApplication(SERVLET)` |
+| D12 | Custom immutable `ApiError` envelope with stable `code` | RFC 9457 `ProblemDetail` | Keeps `common-dto` framework-free; gives clients a stable machine-readable contract; field errors omit rejected values (no leaking secrets) |
+| D13 | Spring Boot 4 native structured (JSON) logging, MDC-fed | logstash-logback-encoder | Zero extra deps; correlation/request ids flow automatically; format chosen per service via property |
+| D14 | Defer the Kafka event envelope to M5 | build it now in `common-dto` | No real producers yet; designing the abstraction without them risks getting it wrong (YAGNI) |
 
 ---
 
@@ -262,3 +266,53 @@ Kafka topic naming.
 
 **Next milestone:** M1 — shared modules (`common-dto`, `common-lib`): exception
 hierarchy, standard error envelope, correlation-id filter, structured JSON logging.
+
+---
+
+### M1 — Shared Modules (`common-dto`, `common-lib`) ✅ (2026-07-17)
+
+**Objectives:** Provide the cross-cutting foundation every service builds on — a
+standard error contract, exception hierarchy, correlation-id propagation, and
+auto-configured global exception handling — with zero code duplication and without
+forcing the servlet stack onto reactive services.
+
+**Files created — common-dto**
+- `dto/error/ApiError.java` — immutable error envelope (stable `code`, `correlationId`, field errors)
+- `dto/error/ApiFieldError.java` — field violation (no rejected value, by design)
+- `dto/page/PageResponse.java` — generic pagination envelope
+- Tests: `ApiErrorTest`, `PageResponseTest`
+
+**Files created — common-lib**
+- `error/ErrorCode.java` (interface) + `error/CommonErrorCode.java` (generic codes)
+- `exception/PlatformException.java` + `ResourceNotFoundException`, `ConflictException`,
+  `ValidationException`, `UnauthorizedException`, `ForbiddenException`, `BadRequestException`
+- `correlation/CorrelationConstants.java`, `correlation/CorrelationIdFilter.java`
+- `web/GlobalExceptionHandler.java` (`@RestControllerAdvice`)
+- `autoconfigure/CorrelationIdAutoConfiguration.java`, `autoconfigure/GlobalExceptionHandlerAutoConfiguration.java`
+- `resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`
+- Tests: `CorrelationIdFilterTest`, `GlobalExceptionHandlerTest` (+ `ExceptionTestController`),
+  `CommonAutoConfigurationTest`
+
+**Files modified:** `common-dto/build.gradle.kts`, `common-lib/build.gradle.kts` (dependencies).
+
+**Endpoints added:** none (foundation library; exception handler is consumed by services from M2).
+
+**DB / Kafka / Redis / Infra changes:** none.
+
+**Testing completed:** 17 tests green (8 in common-dto, 9 in common-lib). Exception→ApiError
+mapping verified end-to-end via standalone MockMvc (404/409/400-validation/400-malformed/500-no-leak);
+correlation filter unit-tested (propagate + generate + MDC cleanup); auto-config verified to
+activate for servlet apps and stay inactive for non-web apps.
+
+**Important design decisions:** D11–D14 (see §9).
+
+**Problems faced → solutions**
+1. *`annotationProcessor` resolved with an empty version* — that configuration doesn't
+   extend `implementation`, so the BOM didn't apply → added `annotationProcessor(platform(...))`.
+2. *`@WebMvcTest` not found* — Spring Boot 4 split the MVC test slice out of
+   `spring-boot-test-autoconfigure` (not pulled by `starter-test`) → rewrote the handler
+   test with `MockMvcBuilders.standaloneSetup(...)` (pure `spring-test`): faster, fewer
+   deps, and tests the exact same contract. Removed the now-unneeded test bootstrap class.
+
+**Next milestone:** M2 — Identity Service (register/login, BCrypt, JWT access + refresh,
+RBAC, Flyway migrations, Testcontainers integration tests).
