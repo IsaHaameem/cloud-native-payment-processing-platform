@@ -1,0 +1,20 @@
+# Keep Docker build contexts small and reproducible.
+.git/
+.gradle/
+**/build/
+**/bin/
+**/out/
+.idea/
+.vscode/
+*.iml
+node_modules/
+.next/
+.terraform/
+*.tfstate*
+.env
+*.env
+!.env.example
+**/data/
+docs/
+load-tests/
+README*.md

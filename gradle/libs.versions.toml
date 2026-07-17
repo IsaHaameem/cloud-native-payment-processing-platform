@@ -1,0 +1,26 @@
+# Centralized dependency & plugin versions (Gradle Version Catalog).
+# One place to bump versions; every module references these aliases.
+#
+# NOTE: Actual libraries are pulled in from the imported BOMs (see platform-bom),
+# so most artifacts do NOT need an explicit version here — the BOM governs it.
+# This catalog pins the BOM versions and build plugins.
+
+[versions]
+# Java language level the whole project compiles against (LTS).
+java = "25"
+
+# Spring Boot 4.0 (GA Nov 2025) governs the vast majority of dependency versions.
+springBoot = "4.0.2"
+
+# Spring Cloud release train aligned with Spring Boot 4.0.
+# NOTE: verify/adjust this alias when the Gateway module is introduced (M3).
+springCloud = "2025.1.0"
+
+[libraries]
+# Imported as platforms (BOMs) by platform-bom — these align all transitive versions.
+spring-boot-bom = { group = "org.springframework.boot", name = "spring-boot-dependencies", version.ref = "springBoot" }
+spring-cloud-bom = { group = "org.springframework.cloud", name = "spring-cloud-dependencies", version.ref = "springCloud" }
+
+[plugins]
+# Applied by service modules starting in later milestones (not in M0).
+spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }

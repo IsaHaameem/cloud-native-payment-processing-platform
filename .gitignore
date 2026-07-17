@@ -1,0 +1,58 @@
+# ── Gradle ──────────────────────────────────────────────────────────────
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/**/build/
+!**/gradle/wrapper/gradle-wrapper.jar
+
+# ── Java / JVM ──────────────────────────────────────────────────────────
+*.class
+*.log
+*.jar
+!gradle-wrapper.jar
+*.war
+*.ear
+hs_err_pid*
+replay_pid*
+
+# ── IDEs ────────────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+bin/
+out/
+.nb-gradle/
+
+# ── OS ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Environment & secrets (NEVER commit real secrets) ───────────────────
+.env
+*.env
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ── Docker ──────────────────────────────────────────────────────────────
+**/data/
+
+# ── Node / frontend (added in later phases) ─────────────────────────────
+node_modules/
+.next/
+npm-debug.log*
+yarn-error.log*
+
+# ── Terraform (added in Phase 4) ────────────────────────────────────────
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
+!*.tfvars.example
