@@ -28,10 +28,10 @@ public class PaymentEventPublisher {
         this.objectMapper = objectMapper;
     }
 
-    public void publish(Payment payment, String eventType, PaymentStatus previousStatus) {
+    public void publish(Payment payment, String eventType, PaymentStatus previousStatus, long eventAmountMinor) {
         PaymentEventPayload payload = new PaymentEventPayload(
                 payment.getId(), payment.getMerchantId(), payment.getAmountMinor(), payment.getCurrency(),
-                payment.getStatus().name(), previousStatus == null ? null : previousStatus.name());
+                payment.getStatus().name(), previousStatus == null ? null : previousStatus.name(), eventAmountMinor);
 
         String correlationId = MDC.get(CorrelationConstants.CORRELATION_ID_MDC_KEY);
         EventEnvelope<PaymentEventPayload> envelope =

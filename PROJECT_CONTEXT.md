@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M6 (Transaction Service) — *pending approval*
-- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅
-- **Pending milestones:** M6–M15
+- **Current milestone:** M7 (Audit + Notification + Analytics) — *pending approval*
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅
+- **Pending milestones:** M7–M15
 
 ---
 
@@ -197,6 +197,10 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D36 | Payment event payloads (`PaymentEventPayload`) live in payment-service's own package, not common-dto — only the structural `EventEnvelope<T>` wrapper is shared | share the concrete payload DTO so consumers can import it directly | Extends schema-per-service (D4) to messaging contracts: consumers (M6+) define their own copy matching the known JSON shape, so no consumer's compile-time dependencies couple to payment-service's internal model |
 | D37 | `currency` stored as `VARCHAR(3)`, not literal `CHAR(3)` despite §5's wording | fight Hibernate's schema validator to keep `CHAR(3)` | Hibernate's schema validator has a known rough edge validating a plain JPA `String` against a `CHAR` column even with a `columnDefinition` override; `VARCHAR(3)` is functionally identical for a code that is always exactly 3 characters |
 | D38 | merchant-service's Redis cache serializer uses its own dedicated `ObjectMapper` (via `GenericJacksonJsonRedisSerializer.builder().enableDefaultTyping(...)`, scoped to `com.paymentflow.merchant`), not the app's shared Jackson bean | reuse the app's shared `ObjectMapper` for the cache serializer too (as originally shipped in M4) | A cache read has no target type to deserialize into ahead of time — the serializer needs embedded type metadata to reconstruct the concrete class instead of a raw `Map`. Found as a real bug during M5's manual E2E testing (see Problems below) and fixed retroactively in merchant-service |
+| D39 | Transaction-service ledger posts on `Authorized` + `Captured` + `Refunded`/`PartiallyRefunded` (confirmed with the user before implementing); `Voided`/`Failed` reverse only if `previousStatus` was `AUTHORIZED` | post only on `Captured` + `Refunded` (no pending-obligation modeling) | Recognizing a pending obligation at authorization time gives the ledger visibility into authorized-but-not-yet-captured exposure, matching how real payment processors reconcile; `Created` never posts (nothing promised yet) |
+| D40 | Three ledger accounts per currency: one platform-wide `PLATFORM_CLEARING` (debit-normal), and per-merchant `MERCHANT_PENDING` / `MERCHANT_SETTLED` (both credit-normal) | a single merchant account with a status flag, or per-payment sub-accounts | Debit/credit normalcy by account *type* keeps `Account.apply(direction, amount)` a pure, table-driven function; a fully-refunded lifecycle nets every account back to zero, a strong correctness invariant exercised in the integration tests |
+| D41 | `PaymentEventPayload`/`PaymentLedgerEventPayload` carry `eventAmountMinor` — the incremental delta for this specific event (full amount for authorize/capture/void, the partial/remaining amount for a refund) — not a running total | have the consumer diff against the previous ledger state itself | The producer (payment-service) already knows the delta at the moment of the state transition; recomputing it downstream from ledger history would duplicate FSM knowledge into transaction-service and break schema-per-service's messaging analogue (D36) |
+| D42 | transaction-service ships no REST API, no Spring Security, no OpenFeign client — its only inbound interface is the `payment.events` Kafka stream | give it a read API for ledger/account balances now | Scoped exactly to the approved roadmap line ("double-entry ledger, idempotent consumer, optimistic locking"); a query API has no approved consumer yet (same YAGNI rationale as D14/D31) — `spring-boot-starter-web` is kept only for actuator's HTTP health endpoint, matching every other service ahead of M9's container healthchecks |
 
 ---
 
@@ -211,6 +215,8 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - No merchant-API-key-based auth path exists for payment creation (see D32) — only JWT-via-gateway, matching §4. Deferred until a real server-to-server caller for it exists.
 - No circuit breaker/retry/fallback around payment-service's Feign call to merchant-service — a merchant-service outage surfaces as a 503 to the caller with no resilience yet. Resilience4j is M8, deliberately not pulled forward.
 - Concurrent duplicate requests sharing an `Idempotency-Key` fail fast (409) rather than blocking briefly and replaying once the first completes. Simpler and deterministic; a documented simplification, not a bug.
+- transaction-service has no query API for ledger/account balances (see D42) — verifying ledger state today requires a direct `psql` query against the `transaction` schema. Deferred until a real consumer for that data exists.
+- Every event touching a given currency's shared `PLATFORM_CLEARING` account contends on the same row under concurrent load; the retry-with-jittered-backoff loop (`MAX_ATTEMPTS = 10`) handles this correctly today, but a high-throughput production system would eventually want sharded clearing accounts or a queue-per-account model instead of optimistic-lock retries. Not a concern at this platform's scale.
 
 ## 12. Future Improvements
 - gRPC for internal sync calls; API versioning; blue/green on ECS; OpenTelemetry collector.
@@ -231,6 +237,7 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - **gateway-service:** builds, all tests pass, verified running locally on port 8080 against the compose Redis, proxying to identity-service, merchant-service, and payment-service — full register→login→gateway-authenticated-request flow exercised over HTTP, including a real Redis-backed 429 under concurrent load.
 - **merchant-service:** builds, all tests pass, verified running locally on port 8082 against the compose Postgres/Redis (Flyway migrated the `merchant` schema) — onboarding, cached profile reads (including a genuine cache-hit round trip, D38), cache-busting updates, API-key rotation, and ADMIN-only listing all exercised over HTTP through the gateway.
 - **payment-service:** builds, all tests pass, verified running locally on port 8083 against the compose Postgres/Redis/Kafka (Flyway migrated the `payment` schema) — the full create→authorize→capture→partial-refund→refund lifecycle exercised over HTTP through the gateway, with every transition's event confirmed landing on the real `payment.events` Kafka topic via console consumer (correct `eventType`, `previousStatus`, and `correlationId` on each); idempotency replay, illegal-transition rejection, and cross-merchant 404-masking all confirmed live.
+- **transaction-service:** builds, all tests pass, verified running locally on port 8084 against the compose Postgres/Kafka (Flyway migrated the `transaction` schema) — consumed a full real create→authorize→capture→partial-refund→refund lifecycle off the live `payment.events` topic and posted 8 correctly balanced ledger entries across 4 transactions, confirmed via direct `psql` query against the real schema; all three ledger accounts netted to zero after the fully-refunded lifecycle; `processed_events` count matched every event consumed, including the no-op `PaymentCreated`; gracefully dropped stale, incompatible messages left over from an earlier manual-testing session without crashing.
 - Other services: skeletons only. AWS: not yet started.
 
 ## 16. Lessons Learned
@@ -795,5 +802,171 @@ real `payment.events` topic via `kafka-console-consumer` with correct `eventType
 **Next milestone:** M6 — Transaction Service (double-entry ledger; idempotent
 consumer of `payment.events`; optimistic locking). The first real Kafka consumer —
 `payment.events` finally gets a subscriber.
+
+### M6 — Transaction Service ✅ (2026-07-18)
+
+**Objectives:** The platform's first real Kafka consumer — subscribe to
+`payment.events`, post a double-entry ledger for each payment lifecycle event,
+idempotently (durable dedup, not just at-least-once delivery), and correctly
+under concurrent write contention (optimistic locking with retry).
+
+**Features implemented**
+- Double-entry accounting model (D40): `AccountType` (`PLATFORM_CLEARING`
+  debit-normal; `MERCHANT_PENDING`, `MERCHANT_SETTLED` credit-normal, both
+  scoped to a merchant + currency). `Account.apply(direction, amountMinor)` is a
+  pure, table-driven balance function keyed off `AccountType.isDebitNormal()` —
+  no per-posting-method special-casing of which direction increases a balance.
+- Ledger postings scoped to `Authorized` + `Captured` + `Refunded`/
+  `PartiallyRefunded` (D39, confirmed with the user before implementing):
+  `Authorized` recognizes a pending obligation (Debit `PLATFORM_CLEARING`,
+  Credit `MERCHANT_PENDING`); `Captured` settles it (Debit `MERCHANT_PENDING`,
+  Credit `MERCHANT_SETTLED`); a refund reverses funds back out (Debit
+  `MERCHANT_SETTLED`, Credit `PLATFORM_CLEARING`); `Voided`/`Failed` reverse the
+  pending obligation only if `previousStatus` was `AUTHORIZED` (nothing was ever
+  posted if voided/failed straight from `Created`, so there's nothing to
+  reverse). Every posting is a balanced two-leg `LedgerTransaction` (debit ==
+  credit), using the event's own incremental amount, not a running total (D41).
+- Idempotent consumption (D2, extended to a real consumer): `processed_events`
+  (unique `event_id`) makes a redelivered event a durable no-op, checked inside
+  the same transaction as the posting — not just relying on Kafka's
+  at-least-once semantics or consumer-group offset tracking.
+- Optimistic locking + retry (`Account.version`): every event touching a given
+  currency's shared `PLATFORM_CLEARING` account can race with concurrent
+  partitions/listener-concurrency; the whole (short, idempotent-on-retry)
+  transaction is retried up to 10 times with jittered backoff on
+  `OptimisticLockingFailureException`/`DataIntegrityViolationException` — not
+  just the account update, since Postgres aborts the rest of a transaction
+  after any constraint violation.
+- `PaymentLedgerEventPayload` is transaction-service's own local mirror of the
+  event shape (D36, extended to a second real consumer) — no compile-time
+  dependency on payment-service's internal `PaymentEventPayload` class.
+- No REST API, security, or OpenFeign client (D42) — the service's only inbound
+  interface is the Kafka stream, matching the approved roadmap scope exactly.
+
+**Endpoints added:** none (D42 — by design; see Problems/Decisions).
+
+**Database changes (schema `transaction`, Flyway `V1__init_transaction.sql`):**
+tables `accounts` (partial unique indexes: one `PLATFORM_CLEARING` account per
+currency; one `MERCHANT_PENDING`/`MERCHANT_SETTLED` account per merchant+currency),
+`ledger_transactions` (references `payment_id`, `event_id`, `event_type`),
+`ledger_entries` (FK to `ledger_transactions` and `accounts`, `direction`,
+`amount_minor`, `currency`), `processed_events` (unique `event_id`).
+
+**Kafka topics:** none added — `transaction-service-payment.events` consumer
+group subscribes to the existing `payment.events` topic (`auto-offset-reset:
+earliest`, listener concurrency 3).
+
+**Redis features added:** none (transaction-service uses no Redis).
+
+**Infra/Docker changes:** none (runs against the existing compose
+Postgres/Kafka; no Redis dependency).
+
+**Files created:** ~20 — domain (`Account`, `AccountType`, `Direction`,
+`LedgerTransaction`, `LedgerEntry`, `ProcessedEvent`), repositories
+(`AccountRepository`, `LedgerTransactionRepository`, `LedgerEntryRepository`,
+`ProcessedEventRepository`), `event/PaymentLedgerEventPayload`,
+`listener/PaymentEventListener`, `service/LedgerService`, config
+(`TransactionTemplateConfig`), `TransactionServiceApplication`, `V1` migration,
+`application.yaml`, and 3 test classes (`AccountTest`, `LedgerServiceTest`,
+`TransactionIntegrationTest`).
+
+**Files modified:** `payment-service/.../event/PaymentEventPayload.java` (added
+`eventAmountMinor`, D41), `payment-service/.../event/PaymentEventPublisher.java`
+(signature now takes the event amount), `payment-service/.../service/PaymentService.java`
+(refactored `mutate()` around a private `MutationOutcome` record so every
+mutation path supplies its own event-specific amount), `payment-service/.../PaymentServiceTest.java`
+(updated `verify(eventPublisher).publish(...)` call sites to the new 4-arg
+signature), `PROJECT_CONTEXT.md`.
+
+**Test coverage (19 tests, all green):** `AccountTest` (5, unit: debit/credit-normal
+balance math for both account polarities, new-account zero balance).
+`LedgerServiceTest` (10, Mockito: `Created` has no ledger impact but is still
+recorded processed, already-processed events skip entirely, correct
+debit/credit/account-type posting for authorize/capture/refund, void/fail
+reversal only when previously authorized, void/fail from `Created` posts
+nothing, retry-then-succeed on optimistic-lock conflict, retries exhausted
+throws). `TransactionIntegrationTest` (4, Testcontainers Postgres +
+`ConfluentKafkaContainer` real broker, explicit topic creation via `AdminClient`
+in `@BeforeAll` to avoid relying on lazy auto-create timing): full lifecycle
+posts correct entries and nets every account to zero once fully refunded,
+redelivering the same event is an idempotent no-op, voiding after
+authorization reverses back to zero, and a 10-thread concurrent-posting test
+against one shared clearing account (isolated on its own currency to avoid
+cross-test balance pollution) retries under contention and never loses an
+update. Full suite confirmed stable across 3 repeated runs.
+
+**Verification:** `./gradlew build` green across all 11 modules; all five
+services (identity, gateway, merchant, payment, transaction) run together
+locally against the real compose Postgres/Redis/Kafka — a full
+register→login→onboard→create→authorize→capture→partial-refund→refund
+lifecycle driven through the gateway via curl, followed by direct `psql`
+queries against the real `transaction` schema: exactly 8 ledger entries across
+4 balanced transactions with correct event types, directions, account types,
+and amounts (20000/20000/8000/12000 — confirming `eventAmountMinor` carries
+incremental deltas, not running totals); all three accounts (merchant pending,
+merchant settled, platform clearing) netted to `0` after the fully-refunded
+lifecycle; `accounts.version` showed correct optimistic-lock increments (1, 2,
+2); `processed_events` count of 5 matched all events including the no-op
+`PaymentCreated`. Also confirmed transaction-service's brand-new consumer
+group gracefully dropped stale, pre-`eventAmountMinor`-shape messages left
+over from M5's manual testing (logged and skipped, not a crash) before
+processing fresh, correctly-shaped events without issue. All five services
+then stopped cleanly, confirmed down via health-check probes on ports
+8080–8084.
+
+**Important design decisions:** D39–D42 (see §9).
+
+**Problems faced → solutions**
+1. `PaymentEventPayload` had no way to carry a refund's incremental amount
+   (only the running `amountMinor`/`capturedAmountMinor`/`refundedAmountMinor`
+   totals) — added `eventAmountMinor`, requiring a coordinated change across
+   `PaymentEventPublisher`'s signature, `PaymentService.mutate()`'s new
+   `MutationOutcome` record, and the test suite's `verify()` call sites (D41).
+2. **The core bug, caught before it ever reached a running system**:
+   `LedgerService.post()` originally read `debitAccount.getId()`/
+   `creditAccount.getId()` to build `LedgerEntry` rows *before* the accounts
+   were saved — for any brand-new account (every integration test's first
+   posting), the id was still null, so the very first insert of any run
+   violated `ledger_entries.account_id`'s not-null constraint. Fixed by
+   reordering: apply the balance change and `save()` both accounts first
+   (client-side `GenerationType.UUID` populates `getId()` immediately on
+   `save()`), then build the `LedgerTransaction`/`LedgerEntry` rows referencing
+   the now-populated ids.
+3. `getOrCreateAccount` was saving a brand-new account once on creation and
+   again after `post()` applied the balance — caught by
+   `LedgerServiceTest`'s `times(2)` assertions failing with
+   `TooManyActualInvocations`. Fixed by not saving inside
+   `getOrCreateAccount`; `post()`'s later save (needed anyway, for the balance
+   update) handles the insert for a new account too.
+4. Missing `jakarta.validation-api` caused a `ClassNotFoundException` for
+   `jakarta.validation.ConstraintViolationException` at startup — common-lib's
+   `GlobalExceptionHandler` references that class whenever
+   `spring-boot-starter-web` is on the classpath (D11), even though
+   transaction-service does no request-body validation of its own. Added
+   `spring-boot-starter-validation`.
+5. `MAX_ATTEMPTS = 3` (a reasonable-sounding first guess) proved insufficient
+   under the 10-thread concurrency test's contention on one shared clearing
+   account — retries were exhausted before all 10 postings landed. Raised to
+   10 with jittered backoff (base 20ms × attempt + random jitter), which
+   comfortably absorbed the contention without unbounded blocking.
+6. Multiple `TransactionIntegrationTest` methods shared the same "USD"
+   `PLATFORM_CLEARING` singleton account, so the concurrency test's 10
+   postings corrupted the other tests' balance assertions. Fixed by running
+   the concurrency test on its own dedicated currency ("CHF"), isolating it
+   from the other three tests' shared "USD" state.
+7. Kafka topic auto-create is disabled platform-wide (D10) — relying on it
+   implicitly for the test's throwaway broker risked the consumer subscribing
+   before the topic existed. Added an explicit
+   `AdminClient.createTopics(new NewTopic(...))` call in `@BeforeAll`.
+8. During manual E2E: transaction-service's brand-new consumer group (`auto-offset-reset:
+   earliest`) replayed stale, pre-`eventAmountMinor` messages left over from
+   M5's own manual-testing session, producing a Jackson
+   `MismatchedInputException` (`Cannot map 'null' into type 'long'`). Confirmed
+   this was *not* a bug: `PaymentEventListener`'s pre-existing catch-log-drop
+   behavior handled the malformed message correctly, and consumption of
+   subsequent, correctly-shaped messages continued without disruption.
+
+**Next milestone:** M7 — Audit + Notification + Analytics (event-consumer
+services, webhooks, dead-letter queue).
 
 

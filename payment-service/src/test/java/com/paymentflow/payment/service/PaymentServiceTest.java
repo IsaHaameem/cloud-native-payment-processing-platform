@@ -89,7 +89,7 @@ class PaymentServiceTest {
 
         assertThat(response.amountMinor()).isEqualTo(5000);
         assertThat(response.status()).isEqualTo("CREATED");
-        verify(eventPublisher).publish(any(Payment.class), eq("PaymentCreated"), isNull());
+        verify(eventPublisher).publish(any(Payment.class), eq("PaymentCreated"), isNull(), eq(5000L));
         verify(idempotencyService).record(eq(merchantId), eq("key-1"), any(), eq(201), any());
     }
 
@@ -101,7 +101,7 @@ class PaymentServiceTest {
         PaymentResponse response = paymentService.authorize(UUID.randomUUID(), "key-2");
 
         assertThat(response.status()).isEqualTo("AUTHORIZED");
-        verify(eventPublisher).publish(payment, "PaymentAuthorized", PaymentStatus.CREATED);
+        verify(eventPublisher).publish(payment, "PaymentAuthorized", PaymentStatus.CREATED, 5000L);
     }
 
     @Test
@@ -123,7 +123,7 @@ class PaymentServiceTest {
 
         assertThat(response.status()).isEqualTo("REFUNDED");
         assertThat(response.refundedAmountMinor()).isEqualTo(5000);
-        verify(eventPublisher).publish(payment, "PaymentRefunded", PaymentStatus.CAPTURED);
+        verify(eventPublisher).publish(payment, "PaymentRefunded", PaymentStatus.CAPTURED, 5000L);
     }
 
     @Test
@@ -136,7 +136,7 @@ class PaymentServiceTest {
         PaymentResponse response = paymentService.refund(UUID.randomUUID(), new RefundRequest(2000L), "key-5");
 
         assertThat(response.status()).isEqualTo("PARTIALLY_REFUNDED");
-        verify(eventPublisher).publish(payment, "PaymentPartiallyRefunded", PaymentStatus.CAPTURED);
+        verify(eventPublisher).publish(payment, "PaymentPartiallyRefunded", PaymentStatus.CAPTURED, 2000L);
     }
 
     @Test

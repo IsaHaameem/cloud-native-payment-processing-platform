@@ -57,7 +57,7 @@ public class PaymentService {
                 transactionTemplate.execute(status -> {
                     Payment payment = paymentRepository.save(
                             Payment.create(merchantId, request.amountMinor(), request.currency(), request.description()));
-                    eventPublisher.publish(payment, "PaymentCreated", null);
+                    eventPublisher.publish(payment, "PaymentCreated", null, payment.getAmountMinor());
                     PaymentResponse response = paymentMapper.toResponse(payment);
                     idempotencyService.record(merchantId, idempotencyKey, fingerprint, 201, response);
                     return response;
@@ -67,21 +67,21 @@ public class PaymentService {
     public PaymentResponse authorize(UUID paymentId, String idempotencyKey) {
         return mutate(paymentId, idempotencyKey, "authorize", null, payment -> {
             payment.authorize();
-            return "PaymentAuthorized";
+            return new MutationOutcome("PaymentAuthorized", payment.getAmountMinor());
         });
     }
 
     public PaymentResponse capture(UUID paymentId, String idempotencyKey) {
         return mutate(paymentId, idempotencyKey, "capture", null, payment -> {
             payment.capture();
-            return "PaymentCaptured";
+            return new MutationOutcome("PaymentCaptured", payment.getAmountMinor());
         });
     }
 
     public PaymentResponse voidPayment(UUID paymentId, String idempotencyKey) {
         return mutate(paymentId, idempotencyKey, "void", null, payment -> {
             payment.voidPayment();
-            return "PaymentVoided";
+            return new MutationOutcome("PaymentVoided", payment.getAmountMinor());
         });
     }
 
@@ -90,7 +90,8 @@ public class PaymentService {
             long remaining = payment.getCapturedAmountMinor() - payment.getRefundedAmountMinor();
             long amount = (request != null && request.amountMinor() != null) ? request.amountMinor() : remaining;
             payment.refund(amount);
-            return payment.getStatus() == PaymentStatus.REFUNDED ? "PaymentRefunded" : "PaymentPartiallyRefunded";
+            String eventType = payment.getStatus() == PaymentStatus.REFUNDED ? "PaymentRefunded" : "PaymentPartiallyRefunded";
+            return new MutationOutcome(eventType, amount);
         });
     }
 
@@ -109,11 +110,12 @@ public class PaymentService {
      * Shared shape for authorize/capture/void/refund: resolve merchant, guard with
      * idempotency, load the caller's own payment inside the transaction, apply the
      * given state mutation, publish the resulting event, record the idempotent
-     * response. {@code mutation} both mutates {@code payment} and returns the event
-     * type name to publish — it knows the resulting status, this method doesn't need to.
+     * response. {@code mutation} both mutates {@code payment} and reports back the
+     * event type and the amount *this specific transition* moved — full amount for
+     * authorize/capture/void, the incremental amount for a (possibly partial) refund.
      */
     private PaymentResponse mutate(UUID paymentId, String idempotencyKey, String operation, Object requestBody,
-                                   Function<Payment, String> mutation) {
+                                   Function<Payment, MutationOutcome> mutation) {
         requireIdempotencyKey(idempotencyKey);
         UUID merchantId = merchantResolver.resolveCallerMerchantId();
         String fingerprint = idempotencyService.fingerprint(
@@ -123,12 +125,15 @@ public class PaymentService {
                 transactionTemplate.execute(status -> {
                     Payment payment = getOwnedPayment(paymentId, merchantId);
                     PaymentStatus previous = payment.getStatus();
-                    String eventType = mutation.apply(payment);
-                    eventPublisher.publish(payment, eventType, previous);
+                    MutationOutcome outcome = mutation.apply(payment);
+                    eventPublisher.publish(payment, outcome.eventType(), previous, outcome.eventAmountMinor());
                     PaymentResponse response = paymentMapper.toResponse(payment);
                     idempotencyService.record(merchantId, idempotencyKey, fingerprint, 200, response);
                     return response;
                 }));
+    }
+
+    private record MutationOutcome(String eventType, long eventAmountMinor) {
     }
 
     private Payment getOwnedPayment(UUID paymentId, UUID merchantId) {
