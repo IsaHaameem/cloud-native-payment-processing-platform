@@ -5,6 +5,7 @@ import com.paymentflow.merchant.domain.Merchant;
 import com.paymentflow.merchant.dto.MerchantOnboardResponse;
 import com.paymentflow.merchant.dto.OnboardMerchantRequest;
 import com.paymentflow.merchant.dto.UpdateMerchantRequest;
+import com.paymentflow.merchant.dto.UpdateWebhookRequest;
 import com.paymentflow.merchant.exception.MerchantAlreadyExistsException;
 import com.paymentflow.merchant.mapper.MerchantMapper;
 import com.paymentflow.merchant.repository.MerchantRepository;
@@ -85,6 +86,30 @@ class MerchantServiceTest {
 
         assertThat(response.businessName()).isEqualTo("New Name");
         assertThat(response.contactEmail()).isEqualTo("new@acme.test");
+    }
+
+    @Test
+    void updateMyWebhookSetsTheUrl() {
+        UUID ownerUserId = UUID.randomUUID();
+        Merchant merchant = Merchant.onboard(ownerUserId, "Acme", "billing@acme.test");
+        when(merchantRepository.findByOwnerUserId(ownerUserId)).thenReturn(Optional.of(merchant));
+
+        var response = merchantService.updateMyWebhook(ownerUserId,
+                new UpdateWebhookRequest("https://acme.test/webhooks/payments"));
+
+        assertThat(response.webhookUrl()).isEqualTo("https://acme.test/webhooks/payments");
+    }
+
+    @Test
+    void updateMyWebhookWithNullClearsIt() {
+        UUID ownerUserId = UUID.randomUUID();
+        Merchant merchant = Merchant.onboard(ownerUserId, "Acme", "billing@acme.test");
+        merchant.updateWebhookUrl("https://acme.test/webhooks/payments");
+        when(merchantRepository.findByOwnerUserId(ownerUserId)).thenReturn(Optional.of(merchant));
+
+        var response = merchantService.updateMyWebhook(ownerUserId, new UpdateWebhookRequest(null));
+
+        assertThat(response.webhookUrl()).isNull();
     }
 
     @Test

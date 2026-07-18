@@ -124,7 +124,8 @@ class PaymentIntegrationTest {
                 exchange.close();
                 return;
             }
-            String body = "{\"id\":\"" + merchantIdFor(subject) + "\"}";
+            String body = "{\"id\":\"" + merchantIdFor(subject) + "\",\"contactEmail\":\"" + subject
+                    + "@example.test\",\"webhookUrl\":null}";
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, bytes.length);

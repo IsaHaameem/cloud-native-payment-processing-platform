@@ -12,6 +12,7 @@ import com.paymentflow.payment.event.PaymentEventPublisher;
 import com.paymentflow.payment.idempotency.IdempotencyService;
 import com.paymentflow.payment.mapper.PaymentMapper;
 import com.paymentflow.payment.merchant.MerchantResolver;
+import com.paymentflow.payment.merchant.MerchantSummary;
 import com.paymentflow.payment.repository.PaymentRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -50,14 +51,15 @@ public class PaymentService {
 
     public PaymentResponse create(CreatePaymentRequest request, String idempotencyKey) {
         requireIdempotencyKey(idempotencyKey);
-        UUID merchantId = merchantResolver.resolveCallerMerchantId();
+        MerchantSummary merchant = merchantResolver.resolveCallerMerchant();
+        UUID merchantId = merchant.id();
         String fingerprint = idempotencyService.fingerprint("POST:/api/v1/payments", request);
 
         return idempotencyService.guarded(merchantId, idempotencyKey, fingerprint, PaymentResponse.class, () ->
                 transactionTemplate.execute(status -> {
                     Payment payment = paymentRepository.save(
                             Payment.create(merchantId, request.amountMinor(), request.currency(), request.description()));
-                    eventPublisher.publish(payment, "PaymentCreated", null, payment.getAmountMinor());
+                    eventPublisher.publish(payment, "PaymentCreated", null, payment.getAmountMinor(), merchant);
                     PaymentResponse response = paymentMapper.toResponse(payment);
                     idempotencyService.record(merchantId, idempotencyKey, fingerprint, 201, response);
                     return response;
@@ -96,12 +98,12 @@ public class PaymentService {
     }
 
     public PaymentResponse get(UUID paymentId) {
-        UUID merchantId = merchantResolver.resolveCallerMerchantId();
+        UUID merchantId = merchantResolver.resolveCallerMerchant().id();
         return paymentMapper.toResponse(getOwnedPayment(paymentId, merchantId));
     }
 
     public PageResponse<PaymentResponse> list(Pageable pageable) {
-        UUID merchantId = merchantResolver.resolveCallerMerchantId();
+        UUID merchantId = merchantResolver.resolveCallerMerchant().id();
         Page<PaymentResponse> page = paymentRepository.findByMerchantId(merchantId, pageable).map(paymentMapper::toResponse);
         return PageResponse.of(page.getContent(), page.getNumber(), page.getSize(), page.getTotalElements());
     }
@@ -117,7 +119,8 @@ public class PaymentService {
     private PaymentResponse mutate(UUID paymentId, String idempotencyKey, String operation, Object requestBody,
                                    Function<Payment, MutationOutcome> mutation) {
         requireIdempotencyKey(idempotencyKey);
-        UUID merchantId = merchantResolver.resolveCallerMerchantId();
+        MerchantSummary merchant = merchantResolver.resolveCallerMerchant();
+        UUID merchantId = merchant.id();
         String fingerprint = idempotencyService.fingerprint(
                 "POST:/api/v1/payments/" + paymentId + "/" + operation, requestBody);
 
@@ -126,7 +129,7 @@ public class PaymentService {
                     Payment payment = getOwnedPayment(paymentId, merchantId);
                     PaymentStatus previous = payment.getStatus();
                     MutationOutcome outcome = mutation.apply(payment);
-                    eventPublisher.publish(payment, outcome.eventType(), previous, outcome.eventAmountMinor());
+                    eventPublisher.publish(payment, outcome.eventType(), previous, outcome.eventAmountMinor(), merchant);
                     PaymentResponse response = paymentMapper.toResponse(payment);
                     idempotencyService.record(merchantId, idempotencyKey, fingerprint, 200, response);
                     return response;

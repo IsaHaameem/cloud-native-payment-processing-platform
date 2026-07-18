@@ -14,6 +14,12 @@ import java.util.UUID;
  * transition actually moves: the full {@code amountMinor} for authorize/capture/void,
  * but the *incremental* amount for a refund — a consumer posting ledger entries (M6)
  * needs the delta, not the payment's running total, to post a partial refund correctly.
+ *
+ * <p>{@code merchantContactEmail}/{@code merchantWebhookUrl} are resolved once (the
+ * same merchant-resolution call already made for every mutation) and embedded directly
+ * into the event, so notification-service (M7) can deliver without a synchronous call
+ * back to merchant-service (D43). {@code merchantWebhookUrl} is {@code null} whenever
+ * the merchant hasn't configured one.
  */
 public record PaymentEventPayload(
         UUID paymentId,
@@ -22,5 +28,7 @@ public record PaymentEventPayload(
         String currency,
         String status,
         String previousStatus,
-        long eventAmountMinor) {
+        long eventAmountMinor,
+        String merchantContactEmail,
+        String merchantWebhookUrl) {
 }

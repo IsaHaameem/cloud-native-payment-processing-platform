@@ -6,6 +6,7 @@ import com.paymentflow.merchant.dto.MerchantOnboardResponse;
 import com.paymentflow.merchant.dto.MerchantResponse;
 import com.paymentflow.merchant.dto.OnboardMerchantRequest;
 import com.paymentflow.merchant.dto.UpdateMerchantRequest;
+import com.paymentflow.merchant.dto.UpdateWebhookRequest;
 import com.paymentflow.merchant.service.MerchantService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Pageable;
@@ -55,6 +56,12 @@ public class MerchantController {
     public MerchantResponse updateCurrentMerchant(@AuthenticationPrincipal Jwt jwt,
                                                   @Valid @RequestBody UpdateMerchantRequest request) {
         return merchantService.updateMine(ownerUserId(jwt), request);
+    }
+
+    @PatchMapping("/me/webhook")
+    public MerchantResponse updateWebhook(@AuthenticationPrincipal Jwt jwt,
+                                          @Valid @RequestBody UpdateWebhookRequest request) {
+        return merchantService.updateMyWebhook(ownerUserId(jwt), request);
     }
 
     @PostMapping("/me/api-key/rotate")

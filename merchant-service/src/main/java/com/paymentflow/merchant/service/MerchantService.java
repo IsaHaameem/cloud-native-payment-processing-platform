@@ -8,6 +8,7 @@ import com.paymentflow.merchant.dto.MerchantOnboardResponse;
 import com.paymentflow.merchant.dto.MerchantResponse;
 import com.paymentflow.merchant.dto.OnboardMerchantRequest;
 import com.paymentflow.merchant.dto.UpdateMerchantRequest;
+import com.paymentflow.merchant.dto.UpdateWebhookRequest;
 import com.paymentflow.merchant.exception.MerchantAlreadyExistsException;
 import com.paymentflow.merchant.mapper.MerchantMapper;
 import com.paymentflow.merchant.repository.MerchantRepository;
@@ -60,6 +61,15 @@ public class MerchantService {
         Merchant merchant = merchantRepository.findByOwnerUserId(ownerUserId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Merchant", ownerUserId));
         merchant.updateProfile(request.businessName(), request.contactEmail());
+        return merchantMapper.toResponse(merchant);
+    }
+
+    @CacheEvict(cacheNames = "merchants", key = "#ownerUserId")
+    @Transactional
+    public MerchantResponse updateMyWebhook(UUID ownerUserId, UpdateWebhookRequest request) {
+        Merchant merchant = merchantRepository.findByOwnerUserId(ownerUserId)
+                .orElseThrow(() -> ResourceNotFoundException.of("Merchant", ownerUserId));
+        merchant.updateWebhookUrl(request.webhookUrl());
         return merchantMapper.toResponse(merchant);
     }
 

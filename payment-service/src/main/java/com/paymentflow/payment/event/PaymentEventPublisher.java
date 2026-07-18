@@ -5,6 +5,7 @@ import com.paymentflow.common.dto.event.EventEnvelope;
 import com.paymentflow.payment.domain.OutboxEvent;
 import com.paymentflow.payment.domain.Payment;
 import com.paymentflow.payment.domain.PaymentStatus;
+import com.paymentflow.payment.merchant.MerchantSummary;
 import com.paymentflow.payment.repository.OutboxEventRepository;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
@@ -28,10 +29,12 @@ public class PaymentEventPublisher {
         this.objectMapper = objectMapper;
     }
 
-    public void publish(Payment payment, String eventType, PaymentStatus previousStatus, long eventAmountMinor) {
+    public void publish(Payment payment, String eventType, PaymentStatus previousStatus, long eventAmountMinor,
+                        MerchantSummary merchant) {
         PaymentEventPayload payload = new PaymentEventPayload(
                 payment.getId(), payment.getMerchantId(), payment.getAmountMinor(), payment.getCurrency(),
-                payment.getStatus().name(), previousStatus == null ? null : previousStatus.name(), eventAmountMinor);
+                payment.getStatus().name(), previousStatus == null ? null : previousStatus.name(), eventAmountMinor,
+                merchant.contactEmail(), merchant.webhookUrl());
 
         String correlationId = MDC.get(CorrelationConstants.CORRELATION_ID_MDC_KEY);
         EventEnvelope<PaymentEventPayload> envelope =

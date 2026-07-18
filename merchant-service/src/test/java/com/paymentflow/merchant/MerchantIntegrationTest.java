@@ -207,6 +207,51 @@ class MerchantIntegrationTest {
     }
 
     @Test
+    void settingWebhookBustsTheCacheAndClearingItSetsNull() throws Exception {
+        String subject = UUID.randomUUID().toString();
+        String token = signedJwt(subject, List.of("USER"));
+        onboard(token, "Webhook Co", "hooks@example.test");
+
+        // First read populates the cache with webhookUrl == null.
+        mockMvc.perform(get("/api/v1/merchants/me").header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.webhookUrl").doesNotExist());
+
+        mockMvc.perform(patch("/api/v1/merchants/me/webhook")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new com.paymentflow.merchant.dto.UpdateWebhookRequest("https://webhook-co.test/hooks"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.webhookUrl").value("https://webhook-co.test/hooks"));
+
+        // If the cache weren't busted, this would still show no webhook.
+        mockMvc.perform(get("/api/v1/merchants/me").header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.webhookUrl").value("https://webhook-co.test/hooks"));
+
+        mockMvc.perform(patch("/api/v1/merchants/me/webhook")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new com.paymentflow.merchant.dto.UpdateWebhookRequest(null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.webhookUrl").doesNotExist());
+    }
+
+    @Test
+    void settingWebhookWithNonHttpsUrlReturns400ValidationError() throws Exception {
+        String token = signedJwt(UUID.randomUUID().toString(), List.of("USER"));
+        onboard(token, "Insecure Co", "insecure@example.test");
+
+        mockMvc.perform(patch("/api/v1/merchants/me/webhook")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new com.paymentflow.merchant.dto.UpdateWebhookRequest("http://insecure.test/hooks"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
     void rotatingApiKeyRevokesThePreviousOneAndIssuesADifferentValue() throws Exception {
         String subject = UUID.randomUUID().toString();
         String token = signedJwt(subject, List.of("USER"));

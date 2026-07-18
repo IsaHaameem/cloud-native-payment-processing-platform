@@ -12,6 +12,7 @@ import com.paymentflow.payment.event.PaymentEventPublisher;
 import com.paymentflow.payment.idempotency.IdempotencyService;
 import com.paymentflow.payment.mapper.PaymentMapper;
 import com.paymentflow.payment.merchant.MerchantResolver;
+import com.paymentflow.payment.merchant.MerchantSummary;
 import com.paymentflow.payment.repository.PaymentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,6 +59,7 @@ class PaymentServiceTest {
     private PaymentService paymentService;
 
     private final UUID merchantId = UUID.randomUUID();
+    private final MerchantSummary merchant = new MerchantSummary(merchantId, "billing@acme.test", "https://acme.test/hooks");
 
     @BeforeEach
     void passThroughTransactionAndIdempotencyWrappers() {
@@ -69,7 +71,7 @@ class PaymentServiceTest {
             Supplier<?> supplier = inv.getArgument(4);
             return supplier.get();
         });
-        lenient().when(merchantResolver.resolveCallerMerchantId()).thenReturn(merchantId);
+        lenient().when(merchantResolver.resolveCallerMerchant()).thenReturn(merchant);
         lenient().when(idempotencyService.fingerprint(any(), any())).thenReturn("fingerprint");
     }
 
@@ -89,7 +91,7 @@ class PaymentServiceTest {
 
         assertThat(response.amountMinor()).isEqualTo(5000);
         assertThat(response.status()).isEqualTo("CREATED");
-        verify(eventPublisher).publish(any(Payment.class), eq("PaymentCreated"), isNull(), eq(5000L));
+        verify(eventPublisher).publish(any(Payment.class), eq("PaymentCreated"), isNull(), eq(5000L), eq(merchant));
         verify(idempotencyService).record(eq(merchantId), eq("key-1"), any(), eq(201), any());
     }
 
@@ -101,7 +103,7 @@ class PaymentServiceTest {
         PaymentResponse response = paymentService.authorize(UUID.randomUUID(), "key-2");
 
         assertThat(response.status()).isEqualTo("AUTHORIZED");
-        verify(eventPublisher).publish(payment, "PaymentAuthorized", PaymentStatus.CREATED, 5000L);
+        verify(eventPublisher).publish(payment, "PaymentAuthorized", PaymentStatus.CREATED, 5000L, merchant);
     }
 
     @Test
@@ -123,7 +125,7 @@ class PaymentServiceTest {
 
         assertThat(response.status()).isEqualTo("REFUNDED");
         assertThat(response.refundedAmountMinor()).isEqualTo(5000);
-        verify(eventPublisher).publish(payment, "PaymentRefunded", PaymentStatus.CAPTURED, 5000L);
+        verify(eventPublisher).publish(payment, "PaymentRefunded", PaymentStatus.CAPTURED, 5000L, merchant);
     }
 
     @Test
@@ -136,7 +138,7 @@ class PaymentServiceTest {
         PaymentResponse response = paymentService.refund(UUID.randomUUID(), new RefundRequest(2000L), "key-5");
 
         assertThat(response.status()).isEqualTo("PARTIALLY_REFUNDED");
-        verify(eventPublisher).publish(payment, "PaymentPartiallyRefunded", PaymentStatus.CAPTURED, 2000L);
+        verify(eventPublisher).publish(payment, "PaymentPartiallyRefunded", PaymentStatus.CAPTURED, 2000L, merchant);
     }
 
     @Test

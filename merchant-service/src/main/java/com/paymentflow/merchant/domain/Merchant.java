@@ -32,6 +32,9 @@ public class Merchant {
     @Column(name = "contact_email", nullable = false)
     private String contactEmail;
 
+    @Column(name = "webhook_url")
+    private String webhookUrl;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -62,6 +65,11 @@ public class Merchant {
         this.contactEmail = contactEmail;
     }
 
+    /** {@code null} (or blank) clears the webhook — notification-service then skips delivery entirely. */
+    public void updateWebhookUrl(String webhookUrl) {
+        this.webhookUrl = (webhookUrl == null || webhookUrl.isBlank()) ? null : webhookUrl;
+    }
+
     public UUID getId() {
         return id;
     }
@@ -76,6 +84,10 @@ public class Merchant {
 
     public String getContactEmail() {
         return contactEmail;
+    }
+
+    public String getWebhookUrl() {
+        return webhookUrl;
     }
 
     public Instant getCreatedAt() {

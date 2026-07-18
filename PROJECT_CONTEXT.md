@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M7 (Audit + Notification + Analytics) — *pending approval*
-- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅
-- **Pending milestones:** M7–M15
+- **Current milestone:** M8 (Resilience4j) — *pending approval*
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅
+- **Pending milestones:** M8–M15
 
 ---
 
@@ -201,6 +201,12 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D40 | Three ledger accounts per currency: one platform-wide `PLATFORM_CLEARING` (debit-normal), and per-merchant `MERCHANT_PENDING` / `MERCHANT_SETTLED` (both credit-normal) | a single merchant account with a status flag, or per-payment sub-accounts | Debit/credit normalcy by account *type* keeps `Account.apply(direction, amount)` a pure, table-driven function; a fully-refunded lifecycle nets every account back to zero, a strong correctness invariant exercised in the integration tests |
 | D41 | `PaymentEventPayload`/`PaymentLedgerEventPayload` carry `eventAmountMinor` — the incremental delta for this specific event (full amount for authorize/capture/void, the partial/remaining amount for a refund) — not a running total | have the consumer diff against the previous ledger state itself | The producer (payment-service) already knows the delta at the moment of the state transition; recomputing it downstream from ledger history would duplicate FSM knowledge into transaction-service and break schema-per-service's messaging analogue (D36) |
 | D42 | transaction-service ships no REST API, no Spring Security, no OpenFeign client — its only inbound interface is the `payment.events` Kafka stream | give it a read API for ledger/account balances now | Scoped exactly to the approved roadmap line ("double-entry ledger, idempotent consumer, optimistic locking"); a query API has no approved consumer yet (same YAGNI rationale as D14/D31) — `spring-boot-starter-web` is kept only for actuator's HTTP health endpoint, matching every other service ahead of M9's container healthchecks |
+| D43 | Merchant webhook destination stored as a nullable `webhook_url` on merchant-service's `merchants` table (self-service `PATCH /api/v1/merchants/me/webhook`, HTTPS-only); payment-service's existing merchant-resolution Feign call (already runs on every mutation) also returns it, and embeds it — plus `contactEmail` — directly into `PaymentEventPayload` at publish time | notification-service calls merchant-service synchronously at delivery time to look up the URL; or a single platform-wide webhook sink for all merchants | Confirmed with the user before implementing (a genuinely open question — nothing in the platform stored a webhook destination or gave an async consumer a way to authenticate a synchronous call back). Event-carried delivery info means notification-service (M7) needs zero synchronous calls to any service, staying a pure async consumer with no new service-to-service auth problem to solve |
+| D44 | audit-service parses each event as a generic JSON tree (`JsonNode`) and stores the payload verbatim in a `jsonb` column, rather than deserializing into a typed payload class | give audit-service its own local `PaymentEventPayload`-shaped copy, like every other consumer (D36) | Audit's entire job is to record whatever event came through, unchanged — it has no business reason to know any specific event's shape. A schema-agnostic append log is a better fit than replicating a payload class it would never otherwise use |
+| D45 | notification-service's "email" channel is a simulated, durably logged send (`email_log` table) — no real SMTP/SES integration in this milestone | wire up real email delivery (Spring Mail + a local dev SMTP catcher) | No email provider is part of the approved stack for M7; mirrors D18's established pattern of a local, honest stand-in now with the real integration deferred until a concrete need (and provider choice) exists |
+| D46 | Webhook delivery follows the outbox shape (D3): dedup check + email log + a `PENDING` `webhook_deliveries` row all commit in one short DB transaction with no network I/O inside it; the first delivery attempt happens synchronously right after that commit; a failure publishes just the event id to an explicitly-declared `payment.events.retry` topic (D10 naming), consumed by a dedicated retry listener that backs off (jittered exponential, mirroring `LedgerService`'s M6 backoff shape) and retries up to 5 total attempts before dead-lettering to `payment.events.dlq` | retry with Spring Kafka's built-in `@RetryableTopic` | `@RetryableTopic` retries the whole listener method (email logging included) and isn't a pattern any existing service uses yet; a hand-rolled explicit retry/DLQ topic pair, consistent with D10's topic-naming convention and M6's proven backoff-retry idiom, keeps the platform's patterns uniform rather than introducing a second, unrelated retry mechanism |
+| D47 | analytics-service's `MerchantPaymentStats` aggregate row uses the identical optimistic-lock + whole-transaction-retry pattern as transaction-service's `LedgerService` (M6) | a different concurrency strategy for a "just a counter" table | Every event for one merchant+currency contends on the same row, exactly like M6's shared clearing account — reusing a proven, already-tested pattern beats inventing a second one for what is structurally the same problem |
+| D48 | audit-service (8091), notification-service (8092), analytics-service (8093) — not the sequential 8085–8087 the port scheme would otherwise suggest | keep strict sequential ports after transaction-service's 8084 | Host port 8085 is already published by `docker-compose.infra.yml`'s Kafka-UI container (discovered when audit-service failed to bind during manual verification); jumped to 8091+ to leave clear headroom rather than renumber Kafka-UI |
 
 ---
 
@@ -217,6 +223,10 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - Concurrent duplicate requests sharing an `Idempotency-Key` fail fast (409) rather than blocking briefly and replaying once the first completes. Simpler and deterministic; a documented simplification, not a bug.
 - transaction-service has no query API for ledger/account balances (see D42) — verifying ledger state today requires a direct `psql` query against the `transaction` schema. Deferred until a real consumer for that data exists.
 - Every event touching a given currency's shared `PLATFORM_CLEARING` account contends on the same row under concurrent load; the retry-with-jittered-backoff loop (`MAX_ATTEMPTS = 10`) handles this correctly today, but a high-throughput production system would eventually want sharded clearing accounts or a queue-per-account model instead of optimistic-lock retries. Not a concern at this platform's scale.
+- notification-service's "email" channel is simulated/logged only (D45) — no real SMTP/SES provider is wired up, so nothing is actually emailed. Deferred until a provider is chosen.
+- notification-service's webhook delivery has no HMAC/signature scheme yet — a receiving merchant endpoint can't cryptographically verify a webhook actually came from this platform. Real payment platforms sign webhook bodies; deferred as out of scope for this milestone's "webhook delivery + retry + DLQ" line item.
+- audit-service/analytics-service (like transaction-service, D42) have no query API for their data yet — verifying audit/aggregate state today requires a direct `psql` query. Deferred until a real consumer for that data exists (candidate: M15's merchant console).
+- Concurrent duplicate webhook-delivery attempts for the same event are not possible by construction today (only the main listener's inline attempt and the dedicated retry listener ever touch a `webhook_deliveries` row, never both at once) — `WebhookDelivery`'s `@Version` is defensive only, not load-bearing yet.
 
 ## 12. Future Improvements
 - gRPC for internal sync calls; API versioning; blue/green on ECS; OpenTelemetry collector.
@@ -238,6 +248,10 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - **merchant-service:** builds, all tests pass, verified running locally on port 8082 against the compose Postgres/Redis (Flyway migrated the `merchant` schema) — onboarding, cached profile reads (including a genuine cache-hit round trip, D38), cache-busting updates, API-key rotation, and ADMIN-only listing all exercised over HTTP through the gateway.
 - **payment-service:** builds, all tests pass, verified running locally on port 8083 against the compose Postgres/Redis/Kafka (Flyway migrated the `payment` schema) — the full create→authorize→capture→partial-refund→refund lifecycle exercised over HTTP through the gateway, with every transition's event confirmed landing on the real `payment.events` Kafka topic via console consumer (correct `eventType`, `previousStatus`, and `correlationId` on each); idempotency replay, illegal-transition rejection, and cross-merchant 404-masking all confirmed live.
 - **transaction-service:** builds, all tests pass, verified running locally on port 8084 against the compose Postgres/Kafka (Flyway migrated the `transaction` schema) — consumed a full real create→authorize→capture→partial-refund→refund lifecycle off the live `payment.events` topic and posted 8 correctly balanced ledger entries across 4 transactions, confirmed via direct `psql` query against the real schema; all three ledger accounts netted to zero after the fully-refunded lifecycle; `processed_events` count matched every event consumed, including the no-op `PaymentCreated`; gracefully dropped stale, incompatible messages left over from an earlier manual-testing session without crashing.
+- **audit-service:** builds, all tests pass, verified running locally on port 8091 against the compose Postgres/Kafka (Flyway migrated the `audit` schema) — a real 5-event payment lifecycle (create→authorize→capture→partial-refund→refund) consumed off `payment.events` and recorded verbatim in `audit_log`, confirmed via direct `psql` query (correct `event_type`/`aggregate_id`/`correlation_id`/`payload` on every row).
+- **notification-service:** builds, all tests pass, verified running locally on port 8092 against the compose Postgres/Kafka (Flyway migrated the `notification` schema) — the same real lifecycle produced 5 simulated `email_log` rows and 5 real webhook HTTP POSTs, delivered on the first attempt to a throwaway local HTTP sink and confirmed both via `psql` (`webhook_deliveries` all `DELIVERED`) and by inspecting the sink's received request bodies (correct `merchantContactEmail`/`merchantWebhookUrl` embedded per D43); separately, a second merchant configured with an unreachable webhook URL was driven through the real retry topic and correctly reached `DEAD_LETTERED` in `webhook_deliveries` after 5 attempts, with the retry listener's dead-letter log line confirming the `payment.events.dlq` publish.
+- **analytics-service:** builds, all tests pass, verified running locally on port 8093 against the compose Postgres/Kafka (Flyway migrated the `analytics` schema) — the same real lifecycle produced a correct `merchant_payment_stats` row (created=1, authorized=1, captured=1 @ 15000, refunded=2 @ 15000 total across the partial+full refund), confirmed via direct `psql` query.
+- **merchant-service (M7 addition):** the new `PATCH /api/v1/merchants/me/webhook` endpoint verified live through the gateway — HTTPS-only validation correctly rejected a plain-`http://` URL (400), and a valid `https://` URL round-tripped through `GET /me` with the cache correctly busted.
 - Other services: skeletons only. AWS: not yet started.
 
 ## 16. Lessons Learned
@@ -968,5 +982,180 @@ then stopped cleanly, confirmed down via health-check probes on ports
 
 **Next milestone:** M7 — Audit + Notification + Analytics (event-consumer
 services, webhooks, dead-letter queue).
+
+---
+
+### M7 — Audit + Notification + Analytics ✅ (2026-07-18)
+
+**Objectives:** Give `payment.events` its remaining three consumers — an immutable
+audit trail, webhook/email notification delivery with real retry-and-DLQ semantics,
+and per-merchant reporting aggregates — completing the roadmap's Phase 1 fan-out
+diagram (§4) in full for the first time.
+
+**Features implemented**
+- **merchant-service extension (not a redesign):** a nullable `webhook_url` column,
+  a self-service `PATCH /api/v1/merchants/me/webhook` (HTTPS-only, cache-evicting,
+  mirrors the existing profile-update endpoint exactly), and `MerchantResponse`/
+  `MerchantMapper` updated to surface it.
+- **payment-service extension:** `MerchantSummary` now carries `contactEmail` and
+  `webhookUrl` (not just `id`); `MerchantResolver.resolveCallerMerchant()` returns
+  the full summary once per request (no new Feign call — reuses the existing
+  merchant-resolution round trip); `PaymentEventPayload` embeds both fields, so
+  every event already contains everything a notification consumer needs (D43,
+  confirmed with the user before implementing).
+- **audit-service:** consumes `payment.events`, parses each message as a generic
+  JSON tree (not a typed payload class, D44), and appends one immutable row per
+  event to `audit_log` (unique `event_id` enforces dedup, D2) — a concurrent
+  duplicate insert is caught and swallowed as a benign race, not retried, since
+  there is nothing to redo for an already-recorded event.
+- **notification-service:** for every event, always writes a simulated `email_log`
+  row (D45 — no real SMTP/SES yet) to the merchant's `contactEmail`; if the
+  merchant has a `webhookUrl` configured, durably records delivery intent
+  (`webhook_deliveries`, `PENDING`) in the same short transaction, then attempts
+  the first HTTP POST synchronously right after commit. A failure publishes the
+  event id to an explicitly-declared `payment.events.retry` topic; a dedicated
+  retry listener backs off (jittered exponential, mirroring `LedgerService`'s M6
+  shape) and retries up to 5 total attempts before dead-lettering to
+  `payment.events.dlq` (D46). No merchant webhook configured means no row and no
+  attempt at all — not a failure.
+- **analytics-service:** consumes `payment.events` and maintains one
+  `merchant_payment_stats` row per (merchant, currency), incrementing
+  created/authorized/captured/refunded/voided counters and accumulating
+  captured/refunded amounts (using each event's incremental `eventAmountMinor`,
+  same as M6's ledger). Every event for one merchant+currency contends on the same
+  row, so the whole transaction is retried with optimistic-lock backoff, reusing
+  `LedgerService`'s exact M6 pattern (D47).
+- All three new services ship no REST API, no Spring Security, no OpenFeign client
+  (D42, extended) — Kafka is their only inbound interface.
+
+**Endpoints added**
+| Method | Path | Access |
+|---|---|---|
+| PATCH | `/api/v1/merchants/me/webhook` | any authenticated (own profile; merchant-service) |
+
+**Database changes:**
+- `merchant` schema, `V2__add_webhook_url.sql`: nullable `webhook_url` on `merchants`.
+- `audit` schema, `V1__init_audit.sql`: `audit_log` (unique `event_id`, `jsonb` payload).
+- `notification` schema, `V1__init_notification.sql`: `processed_events`,
+  `email_log` (unique `event_id`), `webhook_deliveries` (unique `event_id`,
+  `jsonb` payload, `status`/`attempt_count`/`version`).
+- `analytics` schema, `V1__init_analytics.sql`: `processed_events`,
+  `merchant_payment_stats` (unique `merchant_id`+`currency`, `version`).
+
+**Kafka topics:** `payment.events.retry` and `payment.events.dlq` (3 partitions,
+replication 1 each) — declared explicitly via `NewTopic` beans in
+notification-service (D10), the platform's first producer of topics other than
+`payment.events` itself. `payment.events` gets three new consumer groups:
+`audit-service-payment.events`, `notification-service-payment.events` (plus
+`notification-service-payment.events.retry` on the retry topic),
+`analytics-service-payment.events`.
+
+**Redis features added:** none (none of the three new services use Redis).
+
+**Infra/Docker changes:** none to compose itself; discovered during manual
+verification that host port 8085 was already claimed by `docker-compose.infra.yml`'s
+Kafka-UI container, so the three new services were assigned 8091/8092/8093 instead
+of the sequentially-expected 8085–8087 (D48).
+
+**Files created:** ~45 across three new services — audit-service (`AuditLogEntry`,
+`AuditLogEntryRepository`, `AuditService`, `AuditEventListener`,
+`AuditServiceApplication`, migration, `application.yaml`, 2 test classes);
+notification-service (`ProcessedEvent`, `EmailLogEntry`, `DeliveryStatus`,
+`WebhookDelivery`, their repositories, `PaymentNotificationEventPayload`,
+`NotificationService`, `WebhookDeliveryService`, `NotificationEventListener`,
+`WebhookRetryListener`, config `NotificationProperties`/`KafkaTopicConfig`/
+`KafkaProducerConfig`/`TransactionTemplateConfig`/`WebhookClientConfig`,
+`NotificationServiceApplication`, migration, `application.yaml`, 4 test classes);
+analytics-service (`ProcessedEvent`, `MerchantPaymentStats`, their repositories,
+`AnalyticsEventPayload`, `AnalyticsService`, `PaymentEventListener`, config
+`TransactionTemplateConfig`, `AnalyticsServiceApplication`, migration,
+`application.yaml`, 3 test classes). Plus merchant-service's `UpdateWebhookRequest`
+DTO and `V2` migration.
+
+**Files modified:** `merchant-service/.../domain/Merchant.java`,
+`dto/MerchantResponse.java`, `mapper/MerchantMapper.java`,
+`service/MerchantService.java`, `web/MerchantController.java`, and their tests;
+`payment-service/.../merchant/MerchantSummary.java`, `MerchantResolver.java`,
+`event/PaymentEventPayload.java`, `event/PaymentEventPublisher.java`,
+`service/PaymentService.java`, and their tests (`PaymentServiceTest`,
+`PaymentIntegrationTest`'s merchant-service stub JSON); `PROJECT_CONTEXT.md`.
+
+**Test coverage (39 new tests, all green):** merchant-service — 4 new tests in
+`MerchantServiceTest`/`MerchantIntegrationTest` (set/clear webhook, cache-bust,
+HTTPS-only rejection). audit-service — `AuditServiceTest` (4, Mockito: new event
+recorded verbatim, already-recorded skip, null-correlation-id handling,
+concurrent-duplicate-insert swallowed) + `AuditIntegrationTest` (3, Testcontainers
+Postgres+Kafka real broker: a real event recorded, redelivery is a no-op, a
+malformed message is dropped without crashing the consumer). notification-service —
+`NotificationServiceTest` (5, Mockito: skip-if-processed, email always logged, no
+webhook configured means no delivery row/attempt, blank URL treated as absent, a
+configured webhook creates a `PENDING` row and triggers delivery post-commit);
+`WebhookDeliveryServiceTest` (3, a real JDK `HttpServer` stub: 2xx marks
+delivered, non-2xx and unreachable-URL both record a failed attempt and publish to
+the retry topic); `WebhookRetryListenerTest` (5, Mockito: malformed event id
+dropped, unknown event id no-op, already-resolved delivery no-op, exhausted
+attempts dead-letter instead of retrying, an attempt below the limit is retried);
+`NotificationIntegrationTest` (5, Testcontainers Postgres+Kafka + the same
+HttpServer-stub pattern: no-webhook event only logs email, a configured webhook
+delivers on the first attempt, redelivery doesn't duplicate either row, a failing
+webhook retries then eventually delivers once the sink recovers, a malformed
+message is dropped without crashing the consumer). analytics-service —
+`MerchantPaymentStatsTest` (5, unit: counter/amount math per event type);
+`AnalyticsServiceTest` (9, Mockito: dedup skip, one increment per status,
+existing-row reuse, retry-then-succeed, exhausted retries); `AnalyticsIntegrationTest`
+(3, Testcontainers Postgres+Kafka real broker: full-lifecycle aggregate correctness,
+redelivery no-op, a 10-thread concurrency test on one shared
+merchant+currency row proving optimistic-lock retry never loses an update).
+
+**Verification:** `./gradlew build` green across all 14 modules; every new/changed
+test suite re-run 2–3 times with no flakiness. All 8 services run together locally
+against the real compose Postgres/Redis/Kafka — a merchant configured its webhook
+via `PATCH /api/v1/merchants/me/webhook` (rejected a plain-`http://` URL first,
+confirming the HTTPS-only validation), then a full create→authorize→capture→
+partial-refund→refund lifecycle was driven through the gateway: all 5 events
+landed verbatim in `audit_log`; 5 simulated emails were logged to the merchant's
+`contactEmail`; all 5 webhooks were delivered on the first attempt to a real
+throwaway local HTTP sink, with the received request bodies confirming
+`merchantContactEmail`/`merchantWebhookUrl` correctly embedded per event; the
+`merchant_payment_stats` aggregate showed the exact expected counts and amounts.
+A second merchant with a deliberately unreachable webhook URL was driven through
+the real retry topic and correctly reached `DEAD_LETTERED` after 5 attempts,
+confirmed both via `psql` (`webhook_deliveries.status`/`attempt_count`) and the
+retry listener's dead-letter log line. All 8 services were then stopped cleanly
+and confirmed down via health-check probes on ports 8080–8084/8091–8093.
+
+**Important design decisions:** D43–D48 (see §9).
+
+**Problems faced → solutions**
+1. The AskUserQuestion-confirmed design (D43) required threading a fuller
+   `MerchantSummary` (not just `id`) through `MerchantResolver` and
+   `PaymentEventPublisher.publish(...)`'s signature — updated all four
+   `PaymentService` call sites and the `PaymentServiceTest`/`PaymentIntegrationTest`
+   stub JSON in lockstep, the same shape of change as M6's `eventAmountMinor` addition.
+2. Discovered mid-manual-verification that host port 8085 (originally planned for
+   audit-service, following the 8081–8084 sequence) was already claimed by
+   `docker-compose.infra.yml`'s Kafka-UI container — audit-service failed to bind
+   on startup. Reassigned all three new services to 8091/8092/8093 (D48) rather
+   than renumber the long-established Kafka-UI port.
+3. Manually testing real webhook delivery required an HTTPS URL (the merchant-service
+   validation correctly enforces `https://`), but the throwaway local test sink
+   was plain HTTP. Rather than standing up a self-signed local HTTPS listener
+   (extra scope for a manual smoke check the automated `NotificationIntegrationTest`
+   already covers end-to-end over real HTTP), the webhook URL was set directly via
+   `psql` for this one verification step, with the merchant-service cache busted
+   via the existing profile-update endpoint so the change was visible — a
+   deliberate, scoped-down manual-testing shortcut, not a gap in the actual
+   HTTPS-only validation (which the integration test suite does verify at the API
+   layer).
+4. Confirmed a genuine architectural question before implementing rather than
+   guessing: notification-service (an async Kafka consumer) had no caller JWT to
+   forward, so it couldn't reuse payment-service's existing
+   OpenFeign-with-forwarded-JWT pattern (D32) to resolve a merchant's webhook URL
+   synchronously. Event-carried delivery info (D43) sidesteps the problem
+   entirely rather than inventing a new service-to-service auth mechanism.
+
+**Next milestone:** M8 — Resilience4j (circuit breakers, retries, timeouts,
+bulkheads) around payment-service's synchronous Feign call to merchant-service —
+the one remaining unprotected point of synchronous coupling in the platform.
 
 

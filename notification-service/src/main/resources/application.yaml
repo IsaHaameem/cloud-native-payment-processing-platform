@@ -1,0 +1,64 @@
+spring:
+  application:
+    name: notification-service
+  datasource:
+    # Local default points at the compose Postgres (host port 55432). Overridden by
+    # SPRING_DATASOURCE_* env vars in containers / production.
+    url: jdbc:postgresql://localhost:55432/paymentflow
+    username: paymentflow
+    password: paymentflow
+  jpa:
+    hibernate:
+      ddl-auto: validate        # Flyway owns the schema; Hibernate only validates it.
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: notification
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    schemas: notification
+    default-schema: notification
+    locations: classpath:db/migration
+  kafka:
+    # Local default points at the compose Kafka's host-published listener.
+    bootstrap-servers: localhost:59092
+    consumer:
+      group-id: notification-service-payment.events
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+server:
+  port: 8092
+
+paymentflow:
+  kafka:
+    payment-events-topic: payment.events
+    # Matches payment.events' partition count (KafkaTopicConfig in payment-service) so
+    # every partition can be consumed in parallel within this one consumer group.
+    listener-concurrency: 3
+  notification:
+    retry-topic: payment.events.retry
+    retry-group-id: notification-service-payment.events.retry
+    retry-listener-concurrency: 3
+    dlq-topic: payment.events.dlq
+    webhook-connect-timeout-ms: 3000
+    webhook-read-timeout-ms: 5000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+
+# Correlation & request ids (populated by common-lib's filter) surface on every log line.
+logging:
+  pattern:
+    level: "%5p [%X{correlationId:-},%X{requestId:-}]"

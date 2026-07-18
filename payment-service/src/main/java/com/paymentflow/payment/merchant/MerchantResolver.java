@@ -5,9 +5,7 @@ import com.paymentflow.payment.exception.MerchantServiceUnavailableException;
 import feign.FeignException;
 import org.springframework.stereotype.Component;
 
-import java.util.UUID;
-
-/** Resolves the calling (JWT-authenticated) user's merchant id via merchant-service. */
+/** Resolves the calling (JWT-authenticated) user's merchant profile via merchant-service. */
 @Component
 public class MerchantResolver {
 
@@ -17,9 +15,9 @@ public class MerchantResolver {
         this.merchantClient = merchantClient;
     }
 
-    public UUID resolveCallerMerchantId() {
+    public MerchantSummary resolveCallerMerchant() {
         try {
-            return merchantClient.getMine().id();
+            return merchantClient.getMine();
         } catch (FeignException.NotFound e) {
             throw new MerchantNotOnboardedException();
         } catch (FeignException e) {

@@ -7,6 +7,7 @@ public record MerchantResponse(
         UUID id,
         String businessName,
         String contactEmail,
+        String webhookUrl,
         Instant createdAt,
         Instant updatedAt) {
 }

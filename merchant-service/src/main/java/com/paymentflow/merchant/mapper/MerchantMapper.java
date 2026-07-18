@@ -12,6 +12,7 @@ public class MerchantMapper {
                 merchant.getId(),
                 merchant.getBusinessName(),
                 merchant.getContactEmail(),
+                merchant.getWebhookUrl(),
                 merchant.getCreatedAt(),
                 merchant.getUpdatedAt());
     }
