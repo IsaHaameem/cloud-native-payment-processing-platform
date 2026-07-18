@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M5 (Payment Service) — *pending approval*
-- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅
-- **Pending milestones:** M5–M15
+- **Current milestone:** M6 (Transaction Service) — *pending approval*
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅
+- **Pending milestones:** M6–M15
 
 ---
 
@@ -190,6 +190,13 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D29 | Single active API key per merchant, rotate-in-place (mirrors D16's refresh-token rotation); enforced with a partial unique index (`WHERE revoked_at IS NULL`) | multiple named/scoped keys | Simpler mental model and code, consistent with an already-approved pattern; the DB — not just application logic — guarantees at most one active key |
 | D30 | Cache-aside via Spring `@Cacheable`/`@CacheEvict` over an immutable response DTO, never the JPA entity; Redis JSON serialization via `GenericJacksonJsonRedisSerializer` (Jackson 3-aware) | cache the entity directly; Boot's default JDK-serialization `RedisCacheManager` | Caching a JPA entity risks stale/detached-entity bugs on deserialization; JDK serialization produces an opaque binary blob inconsistent with the platform's JSON-everywhere convention |
 | D31 | No cross-service "validate API key" endpoint built yet, even though payment-service will eventually need one | build the contract now, speculatively | YAGNI — no real caller exists before payment-service (M5); same rationale as D14 (don't guess an abstraction's shape before a real consumer exists) |
+| D32 | Payment creation/mutation authenticated via JWT through the gateway (matches §4's already-approved communication-flow diagram exactly); merchant resolved server-side via OpenFeign to merchant-service's existing `/me`, forwarding the caller's JWT | merchant API-key-based server-to-server auth for payment creation | Confirmed with the user before implementing (D31 had flagged this as genuinely open); API-key-based payment creation is deferred to whenever a real caller for it exists — none does in this platform yet |
+| D33 | `TransactionTemplate` (not declarative `@Transactional`) wraps the state-mutation + outbox-write step inside `IdempotencyService.guarded(...)` | plain `@Transactional` on the service method | Declarative `@Transactional` commits only *after* the method returns to its caller; the idempotency Redis lock must be held until that commit lands, and releasing it in the same method's own `finally` releases it before commit. `TransactionTemplate` lets one method correctly sequence lock → commit → unlock without a cross-bean self-invocation split |
+| D34 | `Idempotency-Key` required on every mutating endpoint (create/authorize/capture/refund/void), not just create | require it only on `POST /payments` (mirrors some real payment APIs) | Uniform guard across the whole lifecycle — a retried authorize/capture/refund/void is exactly as replay-able a network-retry scenario as create |
+| D35 | Capture is all-or-nothing (no partial capture); refund supports partial amounts, accumulating to `REFUNDED` once the full captured amount is refunded | model partial capture too | The approved FSM (§4) lists no `PARTIALLY_CAPTURED` state — only `PARTIALLY_REFUNDED` — so partial capture isn't part of the approved lifecycle |
+| D36 | Payment event payloads (`PaymentEventPayload`) live in payment-service's own package, not common-dto — only the structural `EventEnvelope<T>` wrapper is shared | share the concrete payload DTO so consumers can import it directly | Extends schema-per-service (D4) to messaging contracts: consumers (M6+) define their own copy matching the known JSON shape, so no consumer's compile-time dependencies couple to payment-service's internal model |
+| D37 | `currency` stored as `VARCHAR(3)`, not literal `CHAR(3)` despite §5's wording | fight Hibernate's schema validator to keep `CHAR(3)` | Hibernate's schema validator has a known rough edge validating a plain JPA `String` against a `CHAR` column even with a `columnDefinition` override; `VARCHAR(3)` is functionally identical for a code that is always exactly 3 characters |
+| D38 | merchant-service's Redis cache serializer uses its own dedicated `ObjectMapper` (via `GenericJacksonJsonRedisSerializer.builder().enableDefaultTyping(...)`, scoped to `com.paymentflow.merchant`), not the app's shared Jackson bean | reuse the app's shared `ObjectMapper` for the cache serializer too (as originally shipped in M4) | A cache read has no target type to deserialize into ahead of time — the serializer needs embedded type metadata to reconstruct the concrete class instead of a raw `Map`. Found as a real bug during M5's manual E2E testing (see Problems below) and fixed retroactively in merchant-service |
 
 ---
 
@@ -201,7 +208,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 ## 11. Known Issues
 - Gateway does not yet honor `X-Forwarded-*`/`Forwarded` headers (Spring Cloud Gateway 2025.x disables this by default unless `spring.cloud.gateway.server.webflux.trusted-proxies` is set). Irrelevant with no reverse proxy in front locally; must be configured in M12 once the gateway sits behind an ALB, or HSTS/scheme-dependent behavior will see the wrong (plaintext) scheme.
 - Gateway-local log lines do not carry `correlationId`/`requestId` via MDC (WebFlux isn't thread-bound per request); the header still propagates correctly across the wire. Full reactive log correlation is deferred to M13 (see D26).
-- No cross-service API-key validation contract exists yet for merchant-service (see D31) — payment-service (M5) will need one; its shape is deliberately not guessed ahead of that real consumer.
+- No merchant-API-key-based auth path exists for payment creation (see D32) — only JWT-via-gateway, matching §4. Deferred until a real server-to-server caller for it exists.
+- No circuit breaker/retry/fallback around payment-service's Feign call to merchant-service — a merchant-service outage surfaces as a 503 to the caller with no resilience yet. Resilience4j is M8, deliberately not pulled forward.
+- Concurrent duplicate requests sharing an `Idempotency-Key` fail fast (409) rather than blocking briefly and replaying once the first completes. Simpler and deterministic; a documented simplification, not a bug.
 
 ## 12. Future Improvements
 - gRPC for internal sync calls; API versioning; blue/green on ECS; OpenTelemetry collector.
@@ -219,12 +228,13 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 ## 15. Deployment Status
 - Local infra (Postgres/Redis/Kafka/Kafka-UI): **runs, 4/4 healthy** via `docker-compose.infra.yml`.
 - **identity-service:** builds, all tests pass, verified running locally on port 8081 against the compose Postgres (Flyway migrated the `identity` schema; full auth flow + RBAC exercised over HTTP).
-- **gateway-service:** builds, all tests pass, verified running locally on port 8080 against the compose Redis, proxying to identity-service and merchant-service — full register→login→gateway-authenticated-request flow exercised over HTTP, including a real Redis-backed 429 under concurrent load.
-- **merchant-service:** builds, all tests pass, verified running locally on port 8082 against the compose Postgres/Redis (Flyway migrated the `merchant` schema) — onboarding, cached profile reads, cache-busting updates, API-key rotation, and ADMIN-only listing all exercised over HTTP through the gateway.
+- **gateway-service:** builds, all tests pass, verified running locally on port 8080 against the compose Redis, proxying to identity-service, merchant-service, and payment-service — full register→login→gateway-authenticated-request flow exercised over HTTP, including a real Redis-backed 429 under concurrent load.
+- **merchant-service:** builds, all tests pass, verified running locally on port 8082 against the compose Postgres/Redis (Flyway migrated the `merchant` schema) — onboarding, cached profile reads (including a genuine cache-hit round trip, D38), cache-busting updates, API-key rotation, and ADMIN-only listing all exercised over HTTP through the gateway.
+- **payment-service:** builds, all tests pass, verified running locally on port 8083 against the compose Postgres/Redis/Kafka (Flyway migrated the `payment` schema) — the full create→authorize→capture→partial-refund→refund lifecycle exercised over HTTP through the gateway, with every transition's event confirmed landing on the real `payment.events` Kafka topic via console consumer (correct `eventType`, `previousStatus`, and `correlationId` on each); idempotency replay, illegal-transition rejection, and cross-merchant 404-masking all confirmed live.
 - Other services: skeletons only. AWS: not yet started.
 
 ## 16. Lessons Learned
-- TBD.
+- A cache-aside bug (D38) shipped in M4 and passed M4's own test suite because that suite's only two `/me` reads were separated by a cache eviction — it never exercised a genuine cache *hit* round trip. Manual, real end-to-end testing across services (not just each service's own test suite in isolation) caught what unit/integration tests scoped to a single service could not: a bug that only manifests when a second service (payment-service, via Feign) calls the first one repeatedly in the pattern real traffic actually produces. Worth remembering for M6+: a fresh service's manual E2E pass is also a regression check on everything it calls.
 
 ---
 
@@ -623,5 +633,167 @@ confirmed at the edge.
 **Next milestone:** M5 — Payment Service (FSM, idempotency, transactional outbox,
 Kafka publish). The core of the platform and the first service to actually consume
 Kafka and a merchant's API key.
+
+---
+
+### M5 — Payment Service ✅ (2026-07-18)
+
+**Objectives:** The platform's core — an explicit payment finite state machine,
+idempotent mutation endpoints (Redis lock + Postgres record), a transactional outbox
+publishing to Kafka, and the platform's first synchronous cross-service call
+(merchant resolution via OpenFeign) — completing the vertical slice from external
+request through to a real Kafka message.
+
+**Features implemented**
+- Payment FSM (`CREATED → AUTHORIZED → CAPTURED → REFUNDED`, plus `FAILED`,
+  `VOIDED`, `PARTIALLY_REFUNDED`, exactly per §4): an explicit transition table on
+  `PaymentStatus`, consulted by every mutation method on the `Payment` entity itself
+  — no public setter for `status` exists, so bypassing the FSM isn't just
+  discouraged, it's structurally impossible. Capture is all-or-nothing; refund
+  supports partial amounts, accumulating to `REFUNDED` once fully refunded (D35).
+- Idempotency (§5): `Idempotency-Key` required on every mutating endpoint (D34) →
+  Redis `SETNX`-with-TTL lock (fast rejection of an in-flight duplicate, 409) →
+  `idempotency_keys` table (durable replay record, scoped per merchant, fingerprint
+  = SHA-256 of operation+body via the shared `OpaqueTokenGenerator`). A replayed
+  request with a matching fingerprint returns the stored response unprocessed; a
+  reused key with a *different* body is rejected (409). `TransactionTemplate` (not
+  `@Transactional`) sequences lock → commit → unlock correctly (D33).
+- Transactional outbox (D3): every state mutation writes an `outbox_events` row in
+  the *same* transaction as the `Payment` change. `OutboxRelay`, a polling
+  `@Scheduled` task (no CDC/Debezium in this stack), publishes unpublished rows to
+  Kafka and marks them published; a row left unpublished on failure is retried next
+  tick — at-least-once (D2), same as a duplicate-publish-on-crash is accepted.
+- `EventEnvelope<T>` added to common-dto (D14's deferred abstraction, built now that
+  a real producer exists): `eventId` (dedup key for consumers), `eventType`,
+  `aggregateId`, `occurredAt`, `correlationId`, `payload`. The concrete
+  `PaymentEventPayload` stays local to payment-service, not shared (D36) — extends
+  schema-per-service (D4) to messaging contracts.
+- Merchant resolution via OpenFeign (D32, confirmed with the user before
+  implementing): payment-service calls merchant-service's existing
+  `GET /api/v1/merchants/me`, forwarding the caller's own JWT — no new
+  merchant-service endpoint or service credential needed. A 404 (no merchant yet)
+  maps to a clear 400; connectivity/5xx maps to 503 (no retry/circuit-breaker yet —
+  that's M8, deliberately not pulled forward).
+- Ownership: every payment carries `merchantId`; cross-merchant access is masked as
+  404, not 403 (doesn't confirm another merchant's payment exists).
+- JWT validated against identity's JWKS, no signing key of its own (D17, extended to
+  a third service) — same pattern as merchant-service.
+- Kafka topic (`payment.events`) declared explicitly via a `NewTopic` bean — auto-create
+  stays disabled on the broker (D10/M0).
+
+**Endpoints added**
+| Method | Path | Access |
+|---|---|---|
+| POST | `/api/v1/payments` | any authenticated (Idempotency-Key required) |
+| POST | `/api/v1/payments/{id}/authorize` | owning merchant only (Idempotency-Key required) |
+| POST | `/api/v1/payments/{id}/capture` | owning merchant only (Idempotency-Key required) |
+| POST | `/api/v1/payments/{id}/refund` | owning merchant only (Idempotency-Key required) |
+| POST | `/api/v1/payments/{id}/void` | owning merchant only (Idempotency-Key required) |
+| GET | `/api/v1/payments/{id}` | owning merchant only |
+| GET | `/api/v1/payments` | owning merchant, paginated |
+
+**Database changes (schema `payment`, Flyway `V1__init_payment.sql`):** tables
+`payments`, `idempotency_keys` (unique `merchant_id`+`idempotency_key`), and
+`outbox_events` (partial index on unpublished rows).
+
+**Kafka topics:** `payment.events` (3 partitions, replication factor 1) — the
+platform's first real topic and first real producer.
+
+**Redis features added:** `SETNX`-with-TTL distributed lock backing the idempotency
+guard — the first real use of the "distributed locks" stack capability noted as
+unused since M0.
+
+**Infra/Docker changes:** none (runs against the existing compose Postgres/Redis/Kafka).
+
+**Files created:** ~35 — domain (`Payment`, `PaymentStatus`, `IdempotencyRecord`,
+`OutboxEvent`), repositories, exceptions, `event/` (`PaymentEventPayload`,
+`PaymentEventPublisher`), `idempotency/IdempotencyService`,
+`outbox/OutboxRelay`, `merchant/` (`MerchantClient`, `MerchantResolver`,
+`MerchantSummary`, `FeignAuthorizationForwardingConfig`), config
+(`SecurityConfig`, `IdentityServiceProperties`, `KafkaTopicConfig`,
+`KafkaProducerConfig`, `TransactionTemplateConfig`), security (entry
+point/denied handler/error writer), `PaymentService`, `PaymentController`,
+`PaymentMapper`, DTOs, `application.yaml`, `V1` migration, and 6 test classes.
+Plus common-dto's new `EventEnvelope<T>` (D14/D36).
+
+**Files modified:** `gateway-service/src/main/resources/application.yaml`
+(payment-service route), `merchant-service/.../CacheConfig.java` (D38 bug fix —
+see Problems below), `merchant-service/.../MerchantIntegrationTest.java`
+(regression test for that fix), `PROJECT_CONTEXT.md`.
+
+**Test coverage (51 tests, all green):** common-dto's `EventEnvelopeTest` (4, unit).
+payment-service — `PaymentStatusTest` + `PaymentTest` (21, unit: every legal FSM
+transition, a wide sample of illegal ones, cumulative partial-refund tracking,
+rejected mutations leave state untouched); `IdempotencyServiceTest` (7, Mockito:
+lock acquisition/conflict, replay, fingerprint-mismatch rejection, lock released on
+both success and failure); `PaymentServiceTest` (7, Mockito: orchestration,
+idempotency-key requirement, ownership 404, event-type-per-operation);
+`PaymentIntegrationTest` (12, Testcontainers Postgres+Redis + a JDK `HttpServer`
+stub serving both identity's JWKS and merchant-service's `/me`, deriving a
+deterministic per-subject merchant id — no Kafka needed for this class): full
+lifecycle, partial-then-full refund, over-refund rejection, illegal-transition 409,
+missing-Idempotency-Key 400, replay-without-duplicating, key-reuse-different-body
+409, a genuine two-thread race on the same idempotency key (asserts exactly one
+payment results, regardless of which side "wins"), cross-merchant 404-masking,
+merchant-not-onboarded 400, no-token 401, validation 400.
+`OutboxRelayIntegrationTest` (2, Testcontainers Postgres + Kafka, real broker):
+publishes and marks unpublished rows, never republishes an already-published one.
+Plus 1 new regression test in merchant-service closing the cache-hit coverage gap
+that let D38's bug through M4 (see Lessons Learned, §16).
+
+**Verification:** `./gradlew build` green across all 10 modules; all four services
+(identity, gateway, merchant, payment) run together locally against the real
+compose Postgres/Redis/Kafka — register → login → onboard merchant → create →
+authorize → capture → partial-refund → refund, all through the gateway over real
+HTTP; idempotency replay confirmed (identical second response, one payment row);
+illegal-transition 409 confirmed; every lifecycle event confirmed landing on the
+real `payment.events` topic via `kafka-console-consumer` with correct `eventType`,
+`previousStatus`, and propagated `correlationId`.
+
+**Important design decisions:** D32–D38 (see §9).
+
+**Problems faced → solutions**
+1. Boot 4's modular auto-config (same pattern as D20) struck again for Kafka:
+   `KafkaProperties` lives at `org.springframework.boot.kafka.autoconfigure`
+   (module `spring-boot-kafka`), pulled in via the new
+   `org.springframework.boot:spring-boot-starter-kafka` — not the raw
+   `spring-kafka` dependency. Boot's autoconfigured `KafkaTemplate` is also
+   type-erased to `<Object,Object>`, which can't satisfy a `KafkaTemplate<String,String>`
+   dependency → declared that bean explicitly (`KafkaProducerConfig`), still sourced
+   from `spring.kafka.producer.*` properties via `KafkaProperties`.
+2. Hibernate's schema validator rejected `currency char(3)` against a plain JPA
+   `String` field (which maps to VARCHAR by default) — a `columnDefinition="char(3)"`
+   override didn't resolve it either (a known Hibernate rough edge validating fixed-length
+   CHAR columns). Switched to `varchar(3)` (D37) rather than keep fighting the validator.
+3. Testcontainers' `KafkaContainer` wait-strategy didn't match `apache/kafka:3.9.0`'s
+   log output out of the box → used `ConfluentKafkaContainer` for
+   `OutboxRelayIntegrationTest`'s throwaway broker only; the real dev/prod stack
+   (`docker-compose.infra.yml`) is unaffected and still runs `apache/kafka` (D9).
+4. `OutboxRelayIntegrationTest` was flaky: each test method's fresh Kafka consumer
+   group starts from `earliest` and saw *other* tests' messages (fixed by filtering
+   on aggregate id, not asserting raw topic-wide counts); separately, the
+   app-wide `@Scheduled` background relay tick raced the test's explicit
+   `relay()` calls and occasionally double-published the same row before either
+   side's commit landed — a real, accepted at-least-once outcome in production
+   (D2), but not what this test was trying to exercise, so the background tick is
+   pushed out to effectively never fire for this test class.
+5. **Manual E2E testing surfaced a real bug in already-committed M4 code**: the
+   *second* call to merchant-service's `GET /api/v1/merchants/me` (a genuine Redis
+   cache hit, reached this milestone because payment-service's Feign client calls
+   it repeatedly across the lifecycle) threw `ClassCastException: LinkedHashMap
+   cannot be cast to MerchantResponse`. Root cause: `GenericJacksonJsonRedisSerializer`
+   needs type metadata embedded in the cached JSON to reconstruct the concrete
+   class on a cache hit (there's no target type to deserialize into ahead of
+   time); the 1-arg constructor wrapping the app's shared `ObjectMapper` doesn't
+   enable that by default, and M4's own test suite never exercised a real cache-hit
+   round trip (its cache-busting test's second read always followed an eviction).
+   Fixed in merchant-service's `CacheConfig` using
+   `GenericJacksonJsonRedisSerializer.builder().enableDefaultTyping(validator)`
+   with a validator scoped to `com.paymentflow.merchant` (D38), plus a new
+   regression test closing the coverage gap.
+
+**Next milestone:** M6 — Transaction Service (double-entry ledger; idempotent
+consumer of `payment.events`; optimistic locking). The first real Kafka consumer —
+`payment.events` finally gets a subscriber.
 
 

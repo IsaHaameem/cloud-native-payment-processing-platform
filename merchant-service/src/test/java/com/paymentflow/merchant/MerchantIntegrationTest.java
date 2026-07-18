@@ -161,6 +161,29 @@ class MerchantIntegrationTest {
     }
 
     @Test
+    void repeatedReadsOfAnUnchangedProfileHitTheCacheAndReturnTheSameValue() throws Exception {
+        // Regression test: GenericJacksonJsonRedisSerializer needs embedded type info
+        // to deserialize a cache HIT back into MerchantResponse (not a raw
+        // LinkedHashMap) — a plain ObjectMapper without default typing enabled
+        // throws ClassCastException on exactly this second read. The cache-busting
+        // test above never exercises a real cache hit (its second read always
+        // follows an eviction), so it alone didn't catch this.
+        String subject = UUID.randomUUID().toString();
+        String token = signedJwt(subject, List.of("USER"));
+        onboard(token, "Cached Co", "cached@example.test");
+
+        mockMvc.perform(get("/api/v1/merchants/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.businessName").value("Cached Co"));
+
+        // Second read is a genuine cache hit — no eviction happened in between.
+        mockMvc.perform(get("/api/v1/merchants/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.businessName").value("Cached Co"))
+                .andExpect(jsonPath("$.contactEmail").value("cached@example.test"));
+    }
+
+    @Test
     void updatingProfileBustsTheCacheSoSubsequentReadsSeeTheNewValue() throws Exception {
         String subject = UUID.randomUUID().toString();
         String token = signedJwt(subject, List.of("USER"));

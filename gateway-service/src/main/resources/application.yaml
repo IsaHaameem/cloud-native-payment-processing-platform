@@ -24,6 +24,10 @@ spring:
               uri: ${paymentflow.services.merchant.base-uri}
               predicates:
                 - Path=/api/v1/merchants/**
+            - id: payment-service
+              uri: ${paymentflow.services.payment.base-uri}
+              predicates:
+                - Path=/api/v1/payments/**
   data:
     redis:
       # Local default points at the compose Redis (host port 56379). Overridden by
@@ -43,6 +47,8 @@ paymentflow:
       issuer: https://identity.paymentflow.local
     merchant:
       base-uri: http://localhost:8082
+    payment:
+      base-uri: http://localhost:8083
   gateway:
     cors:
       allowed-origins: http://localhost:3000
