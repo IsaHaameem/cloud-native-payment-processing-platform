@@ -18,6 +18,7 @@ javaPlatform {
 dependencies {
     api(platform(libs.spring.boot.bom))
     api(platform(libs.spring.cloud.bom))
+    api(platform(libs.resilience4j.bom))
 
     // Version constraints for libraries NOT covered by the imported BOMs will be
     // added here as they are introduced in later milestones (e.g. testcontainers

@@ -23,6 +23,14 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation("org.springframework.boot:spring-boot-starter-kafka")
     implementation("org.springframework.cloud:spring-cloud-starter-openfeign")
+    // Resilience4j around the one synchronous cross-service call (merchant-service, D32).
+    // Used programmatically (Retry/CircuitBreaker/TimeLimiter/ThreadPoolBulkhead
+    // decorator composition in MerchantResolver), not via AOP annotations — see D49:
+    // this sidesteps needing spring-boot-starter-aop and any @Order aspect-ordering
+    // configuration entirely. Registries are still Spring-managed beans, so Actuator/
+    // Micrometer metrics binding (M8's requirement) works identically either way.
+    implementation("io.github.resilience4j:resilience4j-spring-boot3")
+    implementation("io.github.resilience4j:resilience4j-micrometer")
 
     implementation("org.springframework.boot:spring-boot-flyway")
     runtimeOnly("org.flywaydb:flyway-database-postgresql")

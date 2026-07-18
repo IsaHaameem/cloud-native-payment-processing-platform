@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M8 (Resilience4j) — *pending approval*
-- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅
-- **Pending milestones:** M8–M15
+- **Current milestone:** M9 (Containerization) — *pending approval*
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅
+- **Pending milestones:** M9–M15
 
 ---
 
@@ -207,6 +207,10 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D46 | Webhook delivery follows the outbox shape (D3): dedup check + email log + a `PENDING` `webhook_deliveries` row all commit in one short DB transaction with no network I/O inside it; the first delivery attempt happens synchronously right after that commit; a failure publishes just the event id to an explicitly-declared `payment.events.retry` topic (D10 naming), consumed by a dedicated retry listener that backs off (jittered exponential, mirroring `LedgerService`'s M6 backoff shape) and retries up to 5 total attempts before dead-lettering to `payment.events.dlq` | retry with Spring Kafka's built-in `@RetryableTopic` | `@RetryableTopic` retries the whole listener method (email logging included) and isn't a pattern any existing service uses yet; a hand-rolled explicit retry/DLQ topic pair, consistent with D10's topic-naming convention and M6's proven backoff-retry idiom, keeps the platform's patterns uniform rather than introducing a second, unrelated retry mechanism |
 | D47 | analytics-service's `MerchantPaymentStats` aggregate row uses the identical optimistic-lock + whole-transaction-retry pattern as transaction-service's `LedgerService` (M6) | a different concurrency strategy for a "just a counter" table | Every event for one merchant+currency contends on the same row, exactly like M6's shared clearing account — reusing a proven, already-tested pattern beats inventing a second one for what is structurally the same problem |
 | D48 | audit-service (8091), notification-service (8092), analytics-service (8093) — not the sequential 8085–8087 the port scheme would otherwise suggest | keep strict sequential ports after transaction-service's 8084 | Host port 8085 is already published by `docker-compose.infra.yml`'s Kafka-UI container (discovered when audit-service failed to bind during manual verification); jumped to 8091+ to leave clear headroom rather than renumber Kafka-UI |
+| D49 | `MerchantResolver`'s Retry→CircuitBreaker→TimeLimiter→ThreadPoolBulkhead chain is composed programmatically in Java against the Spring-managed Resilience4j registries (each component's own `CompletionStage` decorator), not via `@CircuitBreaker`/`@Retry`/`@TimeLimiter`/`@Bulkhead` annotations | the annotation-driven AOP style Resilience4j's Spring Boot starter also supports | `ThreadPoolBulkhead` only ever returns a `CompletionStage`, never a plain `Callable`/`Future` — combining it with `@TimeLimiter`/`@CircuitBreaker`/`@Retry`'s *annotation* form correctly requires getting their AOP `@Order` aspect-ordering exactly right (undocumented/easy to get backwards) and pulls in `spring-boot-starter-aop`; explicit Java composition makes the intended nesting (outermost Retry, innermost Bulkhead) directly readable in one place and needs no new dependency. The registries are still Spring-managed beans, so Micrometer/Actuator metrics binding (D-requirement, see below) works identically either way |
+| D50 | Exponential-backoff-with-jitter for the `merchantService` retry instance is configured via a programmatic `RetryConfigCustomizer` bean (`MerchantResilienceConfig`) reading externalized `paymentflow.resilience.merchant-service.retry-*` properties, not plain `resilience4j.retry.instances.*` YAML | find a way to express it in YAML alone | Resilience4j's YAML-bound `RetryProperties` only supports `enableExponentialBackoff` XOR `enableRandomizedWait` as mutually exclusive flags — there is no plain-YAML path to `IntervalFunction.ofExponentialRandomBackoff(...)` (both combined), which is what "exponential backoff with jitter" actually means; the `RetryConfigCustomizer` extension point is Resilience4j's own supported way to reach APIs YAML can't express, while keeping the actual numbers externalized rather than hardcoded |
+| D51 | CircuitBreaker/Retry `recordExceptions`/`retryExceptions` for `merchantService` are an explicit whitelist (`feign.RetryableException`, `feign.FeignException$FeignServerException`, `java.util.concurrent.TimeoutException`); `ignoreExceptions` explicitly lists `MerchantNotOnboardedException`, `feign.FeignException$FeignClientException`, **and** `io.github.resilience4j.bulkhead.BulkheadFullException` | leave `BulkheadFullException` off both lists, since a bulkhead rejection isn't a merchant-service health signal | Resilience4j's actual semantics (confirmed via a real bug caught while manually verifying this milestone, not a hypothetical): once `recordExceptions` is non-empty, *any* exception that matches neither list is counted as a **success**, not as "uncounted." Leaving `BulkheadFullException` off both lists would have made sustained bulkhead saturation look like a 100%-healthy merchant-service to the circuit breaker — exactly backwards. Explicitly ignoring it restores the intended "bulkhead rejections reflect this instance's own saturation, not downstream health" semantics as true neutrality, not accidental false-success |
+| D52 | `ThreadPoolBulkhead` dispatches the Feign call onto its own dedicated thread pool, not the calling Servlet thread, and `MerchantResolver` explicitly captures the caller's `RequestAttributes` before dispatch and re-binds (then clears) them on the bulkhead thread around the call | let `FeignAuthorizationForwardingConfig`'s interceptor read `RequestContextHolder` on whatever thread happens to run the call | `RequestContextHolder` is a plain (non-inheritable) `ThreadLocal` — without this, moving the call to a different thread pool (the entire point of `ThreadPoolBulkhead`, isolating a hung downstream from the app's main request threads) would silently stop forwarding the caller's JWT, breaking merchant resolution for every payment operation. Found and fixed during implementation before it ever reached a running system, the same way M6's account-save-ordering bug was — not discovered via production behavior |
 
 ---
 
@@ -219,7 +223,7 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - Gateway does not yet honor `X-Forwarded-*`/`Forwarded` headers (Spring Cloud Gateway 2025.x disables this by default unless `spring.cloud.gateway.server.webflux.trusted-proxies` is set). Irrelevant with no reverse proxy in front locally; must be configured in M12 once the gateway sits behind an ALB, or HSTS/scheme-dependent behavior will see the wrong (plaintext) scheme.
 - Gateway-local log lines do not carry `correlationId`/`requestId` via MDC (WebFlux isn't thread-bound per request); the header still propagates correctly across the wire. Full reactive log correlation is deferred to M13 (see D26).
 - No merchant-API-key-based auth path exists for payment creation (see D32) — only JWT-via-gateway, matching §4. Deferred until a real server-to-server caller for it exists.
-- No circuit breaker/retry/fallback around payment-service's Feign call to merchant-service — a merchant-service outage surfaces as a 503 to the caller with no resilience yet. Resilience4j is M8, deliberately not pulled forward.
+- ~~No circuit breaker/retry/fallback around payment-service's Feign call to merchant-service~~ — resolved in M8 (D49–D52).
 - Concurrent duplicate requests sharing an `Idempotency-Key` fail fast (409) rather than blocking briefly and replaying once the first completes. Simpler and deterministic; a documented simplification, not a bug.
 - transaction-service has no query API for ledger/account balances (see D42) — verifying ledger state today requires a direct `psql` query against the `transaction` schema. Deferred until a real consumer for that data exists.
 - Every event touching a given currency's shared `PLATFORM_CLEARING` account contends on the same row under concurrent load; the retry-with-jittered-backoff loop (`MAX_ATTEMPTS = 10`) handles this correctly today, but a high-throughput production system would eventually want sharded clearing accounts or a queue-per-account model instead of optimistic-lock retries. Not a concern at this platform's scale.
@@ -227,6 +231,8 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - notification-service's webhook delivery has no HMAC/signature scheme yet — a receiving merchant endpoint can't cryptographically verify a webhook actually came from this platform. Real payment platforms sign webhook bodies; deferred as out of scope for this milestone's "webhook delivery + retry + DLQ" line item.
 - audit-service/analytics-service (like transaction-service, D42) have no query API for their data yet — verifying audit/aggregate state today requires a direct `psql` query. Deferred until a real consumer for that data exists (candidate: M15's merchant console).
 - Concurrent duplicate webhook-delivery attempts for the same event are not possible by construction today (only the main listener's inline attempt and the dedicated retry listener ever touch a `webhook_deliveries` row, never both at once) — `WebhookDelivery`'s `@Version` is defensive only, not load-bearing yet.
+- No concrete Micrometer registry implementation (e.g. `micrometer-registry-prometheus`) is wired into any service yet — Resilience4j's meters are correctly bound to Micrometer's meter-registration SPI (proven via `MerchantResilienceIntegrationTest` reading `MeterRegistry` directly, since Spring Boot Test supplies its own `SimpleMeterRegistry`), but the real running app has no concrete registry backing it, so `/actuator/metrics/resilience4j.*` returns nothing meaningful today — every recorded metric is silently discarded by Boot's default empty `CompositeMeterRegistry`. This is exactly M13's job ("Ensure they will later integrate with Prometheus in M13"), not pulled forward.
+- TimeLimiter's `cancelRunningFuture(true)` cancels the `CompletableFuture` the caller is waiting on, but does not interrupt the underlying blocking Feign HTTP call already in flight on its `ThreadPoolBulkhead` thread — the real socket read keeps running in the background until it completes or the Feign-level `read-timeout-ms` fires on its own. The caller still gets a fail-fast response either way (that's what TimeLimiter is for); this only means "abandoned" calls linger briefly on the bulkhead's own small pool, not the application's main threads. Feign's own socket timeouts (`paymentflow.resilience.merchant-service.read-timeout-ms`) are kept comfortably under TimeLimiter's budget specifically so this window stays short.
 
 ## 12. Future Improvements
 - gRPC for internal sync calls; API versioning; blue/green on ECS; OpenTelemetry collector.
@@ -252,10 +258,13 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - **notification-service:** builds, all tests pass, verified running locally on port 8092 against the compose Postgres/Kafka (Flyway migrated the `notification` schema) — the same real lifecycle produced 5 simulated `email_log` rows and 5 real webhook HTTP POSTs, delivered on the first attempt to a throwaway local HTTP sink and confirmed both via `psql` (`webhook_deliveries` all `DELIVERED`) and by inspecting the sink's received request bodies (correct `merchantContactEmail`/`merchantWebhookUrl` embedded per D43); separately, a second merchant configured with an unreachable webhook URL was driven through the real retry topic and correctly reached `DEAD_LETTERED` in `webhook_deliveries` after 5 attempts, with the retry listener's dead-letter log line confirming the `payment.events.dlq` publish.
 - **analytics-service:** builds, all tests pass, verified running locally on port 8093 against the compose Postgres/Kafka (Flyway migrated the `analytics` schema) — the same real lifecycle produced a correct `merchant_payment_stats` row (created=1, authorized=1, captured=1 @ 15000, refunded=2 @ 15000 total across the partial+full refund), confirmed via direct `psql` query.
 - **merchant-service (M7 addition):** the new `PATCH /api/v1/merchants/me/webhook` endpoint verified live through the gateway — HTTPS-only validation correctly rejected a plain-`http://` URL (400), and a valid `https://` URL round-tripped through `GET /me` with the cache correctly busted.
+- **payment-service (M8 addition):** the Resilience4j wrapper around the merchant-service Feign call verified live — merchant-service was stopped mid-session and `POST /api/v1/payments` degraded gracefully (503, no hang); a burst of 10 requests against the real stopped service showed retries genuinely running on the first two (~800–950ms each) before the circuit opened and every subsequent request failed fast (~70–90ms, confirmed via elapsed-time logging); after restarting merchant-service and waiting past `waitDurationInOpenState`, requests began succeeding again (201) as the circuit passed through automatic HALF_OPEN recovery back to CLOSED. Timeout fail-fast and bulkhead-rejection-under-concurrency are both covered by `MerchantResolverTest`/`MerchantResilienceIntegrationTest` rather than re-demonstrated manually (reproducing precise concurrent-saturation timing against a real, unmodified merchant-service process isn't practical without code changes to that service).
 - Other services: skeletons only. AWS: not yet started.
 
 ## 16. Lessons Learned
 - A cache-aside bug (D38) shipped in M4 and passed M4's own test suite because that suite's only two `/me` reads were separated by a cache eviction — it never exercised a genuine cache *hit* round trip. Manual, real end-to-end testing across services (not just each service's own test suite in isolation) caught what unit/integration tests scoped to a single service could not: a bug that only manifests when a second service (payment-service, via Feign) calls the first one repeatedly in the pattern real traffic actually produces. Worth remembering for M6+: a fresh service's manual E2E pass is also a regression check on everything it calls.
+- M8 repeated the same lesson from a different angle: `resilience4jMetricsAreExposedThroughMicrometer` passed cleanly in the automated suite, yet the *real* running service had zero resilience4j meters reachable through `/actuator/metrics` — because Spring Boot Test quietly supplies its own `SimpleMeterRegistry`, a safety net the production app doesn't have without a concrete registry dependency (deferred to M13). A green automated test proved the *wiring* was correct; only running the actual jar and hitting the actual endpoint revealed the *deployment* gap. Neither kind of check substitutes for the other.
+- Introducing a dedicated thread pool for an existing synchronous call (`ThreadPoolBulkhead`, D52) silently broke JWT forwarding, because `RequestContextHolder` is thread-bound. This is a general pattern worth remembering for any future work that moves a call off the calling thread (async processing, a new executor, reactive adapters): anything reading Spring's request-scoped `ThreadLocal` context needs to be explicitly re-propagated, and it will not fail loudly — it just quietly stops working (here, every merchant resolution would have started failing as "not onboarded" for every merchant, indistinguishable from a real onboarding gap without deliberately checking the actual header the downstream service received).
 
 ---
 
@@ -1157,5 +1166,228 @@ and confirmed down via health-check probes on ports 8080–8084/8091–8093.
 **Next milestone:** M8 — Resilience4j (circuit breakers, retries, timeouts,
 bulkheads) around payment-service's synchronous Feign call to merchant-service —
 the one remaining unprotected point of synchronous coupling in the platform.
+
+---
+
+### M8 — Resilience4j ✅ (2026-07-18)
+
+**Objectives:** Wrap the platform's one remaining unprotected synchronous
+cross-service call — payment-service's OpenFeign call to merchant-service (D32)
+— in production-grade Resilience4j: circuit breaker, retry with
+exponential-backoff-and-jitter, a time limiter, and a bulkhead, with
+Micrometer-bound metrics and every existing API contract preserved unchanged.
+
+**Features implemented**
+- `MerchantResolver.resolveCallerMerchant()` now composes Retry → CircuitBreaker
+  → TimeLimiter → ThreadPoolBulkhead programmatically against the
+  Spring-managed Resilience4j registries (D49) — each layer decorates the next
+  via its own `CompletionStage` API, since `ThreadPoolBulkhead` only ever
+  returns a `CompletionStage`, never a `Callable`/`Future`.
+- CircuitBreaker (`merchantService` instance): count-based sliding window (20),
+  `minimumNumberOfCalls=10` before the failure rate is even evaluated,
+  `failureRateThreshold=50%`, plus `slowCallDurationThreshold=2s` /
+  `slowCallRateThreshold=50%` so a consistently-slow-but-not-timing-out
+  merchant-service also degrades the health signal, not just outright
+  exceptions. `waitDurationInOpenState=10s` with
+  `automaticTransitionFromOpenToHalfOpenEnabled=true` and
+  `permittedNumberOfCallsInHalfOpenState=5` — OPEN → HALF_OPEN happens on its
+  own timer, no incoming call needed to trigger the check.
+- Retry (`merchantService` instance): `maxAttempts=3`, exponential backoff with
+  jitter via a programmatic `RetryConfigCustomizer`
+  (`IntervalFunction.ofExponentialRandomBackoff`, D50) — plain
+  `resilience4j.retry.*` YAML can only express exponential-backoff *or*
+  randomized-wait, not both combined, which is what "backoff with jitter"
+  actually means.
+- TimeLimiter (`merchantService` instance): `timeoutDuration=2s`,
+  `cancelRunningFuture=true` — bounds worst-case latency regardless of what
+  merchant-service or the network is doing. Backed by real Feign socket
+  timeouts (`connect-timeout-ms=1000`, `read-timeout-ms=1500`, both under the
+  TimeLimiter's 2s budget) via a per-client `Request.Options` bean
+  (`FeignClientConfig`, wired through `@FeignClient(configuration = ...)` so it
+  doesn't collide with Spring Cloud OpenFeign's own default `Request.Options`
+  bean for every *other* Feign client that might exist later).
+- ThreadPoolBulkhead (`merchantService` instance): `coreThreadPoolSize=5`,
+  `maxThreadPoolSize=10`, `queueCapacity=10` — the actual Feign call runs on
+  this small, dedicated pool, not payment-service's main Servlet
+  request-handling threads, so a hung merchant-service can only ever saturate
+  this pool, never exhaust the application's ability to serve any other
+  request.
+- Exception classification is an explicit whitelist, not a blanket catch-all
+  (D51): `recordExceptions`/`retryExceptions` = `feign.RetryableException`,
+  `feign.FeignException$FeignServerException`,
+  `java.util.concurrent.TimeoutException` (genuinely transient/downstream
+  signals); `ignoreExceptions` = `MerchantNotOnboardedException`,
+  `feign.FeignException$FeignClientException`, **and**
+  `io.github.resilience4j.bulkhead.BulkheadFullException` — the last one
+  found necessary via testing, not assumed (see Problems below).
+- Every fallback path converges on the existing `MerchantServiceUnavailableException`
+  (503, `ApiError`, correlation id preserved via the existing
+  `GlobalExceptionHandler` — no new exception type or error code needed);
+  `MerchantNotOnboardedException` (400) passes through completely untouched by
+  retry/circuit-breaker/bulkhead, exactly as "never retry/hide a genuine client
+  error" requires.
+- Request attributes are explicitly captured on the calling Servlet thread and
+  re-bound (then cleared) on the `ThreadPoolBulkhead`'s thread around the
+  actual call (D52) — without this, moving the call off the calling thread
+  (the entire point of a thread-pool bulkhead) would silently break
+  `FeignAuthorizationForwardingConfig`'s JWT-forwarding interceptor, since
+  `RequestContextHolder` is a plain, non-inheritable `ThreadLocal`.
+- `/actuator/metrics` added to payment-service's actuator exposure so
+  Resilience4j's Micrometer-bound meters (`resilience4j.circuitbreaker.*`,
+  `.retry.*`, `.bulkhead.*`, `.timelimiter.*`) are browsable now, ahead of M13
+  wiring a real Prometheus scrape target.
+- Every existing API contract is unchanged: `MerchantResolver.resolveCallerMerchant()`
+  keeps its exact synchronous signature and return type; `PaymentService` and
+  every controller/DTO are untouched.
+
+**Endpoints added:** none (internal resilience wrapper only).
+
+**Database changes:** none.
+
+**Kafka topics:** none.
+
+**Redis features added:** none.
+
+**Infra/Docker changes:** none.
+
+**Files created:** `payment-service/.../merchant/MerchantResilienceProperties.java`
+(Feign timeout + retry-backoff externalized config), `MerchantResilienceConfig.java`
+(`RetryConfigCustomizer` bean + a small dedicated `ScheduledExecutorService`
+bean — resilience4j-spring-boot3's own
+`ContextAwareScheduledThreadPoolAutoConfiguration` did not activate in this
+app's context, see Problems), `FeignClientConfig.java` (per-client
+`Request.Options`, deliberately *not* `@Configuration`-annotated — see
+Problems), `MerchantResolverTest.java` (8 tests, no Spring context — built
+against real Resilience4j registries with only `MerchantClient` mocked),
+`MerchantResilienceIntegrationTest.java` (7 tests, full `@SpringBootTest` +
+Testcontainers + a controllable JDK `HttpServer` merchant-service stub).
+
+**Files modified:** `payment-service/.../merchant/MerchantResolver.java`
+(rewritten around the Resilience4j decorator chain), `MerchantClient.java`
+(`configuration = FeignClientConfig.class`), `application.yaml`
+(`resilience4j.*` config blocks, `paymentflow.resilience.merchant-service.*`,
+actuator `metrics` exposure), `payment-service/build.gradle.kts`
+(`resilience4j-spring-boot3`, `resilience4j-micrometer`),
+`gradle/libs.versions.toml` + `platform-bom/build.gradle.kts`
+(`resilience4j-bom`), `PROJECT_CONTEXT.md`.
+
+**Test coverage (15 new tests, all green):** `MerchantResolverTest` (8, no
+Spring context, real Resilience4j registries + a mocked `MerchantClient`):
+not-onboarded passes through without retry/circuit impact (both a single call
+and 10 repeated calls never opening the circuit), a transient failure is
+retried then succeeds, retries-exhausted surfaces as 503, the circuit opens
+after the failure threshold and fails fast without calling the client again,
+the circuit transitions OPEN → HALF_OPEN → CLOSED once the downstream
+recovers, the bulkhead rejects a call beyond its capacity, the time limiter
+fails fast on a slow downstream (bounded-elapsed-time assertion).
+`MerchantResilienceIntegrationTest` (7, Testcontainers Postgres/Redis + a
+controllable JDK `HttpServer` stub, full HTTP requests through
+`POST /api/v1/payments`): a healthy call still correctly forwards the caller's
+JWT despite running on the bulkhead thread, merchant-service down eventually
+surfaces as 503, a too-slow merchant-service fails fast rather than hanging
+the request thread (bounded-elapsed-time assertion), a transient failure is
+retried and the request eventually succeeds, repeated failures open the
+circuit (confirmed via `CircuitBreakerRegistry` state, not just HTTP status)
+and it recovers through HALF_OPEN back to CLOSED, concurrent calls beyond the
+bulkhead's capacity are rejected, and Resilience4j meters are found in the
+injected `MeterRegistry`. All of payment-service's pre-existing 51 tests
+(`PaymentServiceTest`, `PaymentIntegrationTest`, `PaymentTest`,
+`PaymentStatusTest`, `IdempotencyServiceTest`, `OutboxRelayIntegrationTest`)
+continued passing unchanged. Full suite re-run 3 times with no flakiness.
+
+**Verification:** `./gradlew build` green across all 14 modules. Manual
+end-to-end verification against the real running platform (identity, gateway,
+merchant, payment services, real compose Postgres/Redis/Kafka): a baseline
+payment succeeded normally with the resilience wrapper active (no behavior
+change on the happy path); merchant-service was then killed mid-session — a
+single request degraded gracefully to 503 in ~780ms (genuinely reflecting
+retry attempts, not an instant failure); a burst of 10 requests showed the
+first two taking ~800–950ms each (still retrying) before the circuit opened
+and every subsequent request failed in ~70–90ms (fail-fast while OPEN,
+confirmed via elapsed-time logging on each request); merchant-service was
+restarted, and after waiting past `waitDurationInOpenState`, requests began
+succeeding again as the circuit passed through automatic HALF_OPEN recovery
+back to CLOSED, settling into consistent 201s. All four services were then
+stopped cleanly and confirmed down via health-check probes.
+
+**Important design decisions:** D49–D52 (see §9).
+
+**Problems faced → solutions**
+1. `ThreadPoolBulkhead.executeSupplier(...)` returns a `CompletionStage<T>`,
+   not a `Callable`/`Future` as initially assumed — verified via `javap`
+   against the resolved jar (this codebase's established practice, per D20's
+   and prior milestones' precedent) rather than guessing, then rebuilt the
+   whole composition around each component's `CompletionStage` decorator
+   (`TimeLimiter.decorateCompletionStage`, `CircuitBreaker.decorateCompletionStage`,
+   `Retry.decorateCompletionStage`) instead of the initially-assumed
+   `Callable`-based chain.
+2. `RetryConfigCustomizer` lives at
+   `io.github.resilience4j.common.retry.configuration.RetryConfigCustomizer`
+   (the `resilience4j-framework-common` module), not the guessed
+   `io.github.resilience4j.retry.configure` package — again found via `javap`
+   listing the actual jar contents before writing the import.
+3. resilience4j-spring-boot3's own
+   `ContextAwareScheduledThreadPoolAutoConfiguration` (needed by
+   `TimeLimiter`/`Retry`'s `CompletionStage` decorators, which require a
+   `ScheduledExecutorService`) did not activate in this application's context
+   — `NoSuchBeanDefinitionException` surfaced only in full-`@SpringBootTest`
+   integration tests, not `compileJava`. Declared a small, explicit
+   `ScheduledExecutorService` bean instead of chasing why the auto-configuration
+   didn't fire, consistent with this project's general preference for explicit
+   beans over relying on auto-configuration magic that doesn't behave as
+   documented.
+4. **A real bug found during testing, not assumed**: `BulkheadFullException`
+   was initially left off both `recordExceptions` and `ignoreExceptions` for
+   the circuit breaker, on the theory that "not listed" would mean "not
+   counted." Resilience4j's actual behavior is that once `recordExceptions` is
+   non-empty, *any* unmatched exception is counted as a **success** — meaning
+   sustained bulkhead saturation would have looked like a perfectly healthy
+   merchant-service to the circuit breaker. Caught via
+   `MerchantResilienceIntegrationTest`'s circuit-open test showing `CLOSED`
+   with a rising "success" counter and `callCount=0` (the stub was never even
+   reached) — diagnosed by logging the exact exception class reaching
+   `MerchantResolver`'s catch block. Fixed by adding `BulkheadFullException`
+   to `ignoreExceptions` explicitly (D51).
+5. Test-isolation bug in `MerchantResilienceIntegrationTest`: the "slow
+   merchant-service" test's background Feign call keeps running for its full
+   simulated duration even after the caller gives up (TimeLimiter cancels the
+   `CompletableFuture` it's waiting on, not the underlying blocking socket
+   read — a real, documented Resilience4j/`CompletableFuture` characteristic,
+   not a bug in this codebase). Since the test class's single-slot bulkhead is
+   shared across every test method in the same Spring context, that lingering
+   background call kept occupying the bulkhead thread into the *next* test,
+   which then saw a false `BulkheadFullException` instead of its own intended
+   scenario. Fixed by draining the lingering call (a bounded `Thread.sleep`)
+   at the end of the slow-service test, and by resetting the
+   `CircuitBreaker`'s state in `@BeforeEach` so one test's OPEN circuit can
+   never leak into the next.
+6. **A second real bug found while manually verifying the real running app**:
+   `resilience4jMetricsAreExposedThroughMicrometer` passed in the automated
+   suite, yet `/actuator/metrics` on the actual running service showed zero
+   resilience4j meters. Root cause: no concrete Micrometer registry
+   implementation is a dependency anywhere in the platform yet (only
+   `micrometer-core`, the instrumentation API, via `spring-boot-starter-actuator`)
+   — Boot's default `CompositeMeterRegistry` has no children and silently
+   discards every recorded metric, while Spring Boot Test quietly supplies its
+   own `SimpleMeterRegistry` that masked this in the automated test.
+   Considered adding `micrometer-registry-simple` as a stopgap, but
+   `SimpleMeterRegistry` ships inside `micrometer-core` itself — there is no
+   separate `micrometer-registry-simple` artifact to depend on — and a
+   permanent throwaway in-memory registry would just be discarded once M13
+   adds `micrometer-registry-prometheus` anyway. Left as a documented Known
+   Issue instead of pulling M13's scope forward: the Micrometer *binding* is
+   proven correct (by the automated test and by Resilience4j's registries
+   being genuinely Spring-managed beans); the *metrics backend* is
+   deliberately M13's job.
+7. Found and fixed *before* it ever reached a running system (D52): moving the
+   Feign call onto `ThreadPoolBulkhead`'s own thread broke JWT forwarding,
+   since `FeignAuthorizationForwardingConfig`'s interceptor reads
+   `RequestContextHolder` — a thread-bound `ThreadLocal` the new thread simply
+   doesn't see. Fixed by capturing the caller's `RequestAttributes` before
+   dispatch and explicitly re-binding (then clearing) them on the bulkhead
+   thread around the actual call.
+
+**Next milestone:** M9 — Containerization (per-service multi-stage
+Dockerfiles, healthchecks, layered jars).
 
 

@@ -16,10 +16,15 @@ springBoot = "4.0.2"
 # NOTE: verify/adjust this alias when the Gateway module is introduced (M3).
 springCloud = "2025.1.0"
 
+# Resilience4j — introduced in M8 (payment-service's circuit breaker/retry/bulkhead/
+# timeout around its one synchronous cross-service call to merchant-service).
+resilience4j = "2.3.0"
+
 [libraries]
 # Imported as platforms (BOMs) by platform-bom — these align all transitive versions.
 spring-boot-bom = { group = "org.springframework.boot", name = "spring-boot-dependencies", version.ref = "springBoot" }
 spring-cloud-bom = { group = "org.springframework.cloud", name = "spring-cloud-dependencies", version.ref = "springCloud" }
+resilience4j-bom = { group = "io.github.resilience4j", name = "resilience4j-bom", version.ref = "resilience4j" }
 
 [plugins]
 # Applied by service modules starting in later milestones (not in M0).

@@ -51,12 +51,96 @@ paymentflow:
       base-uri: http://localhost:8082
   outbox:
     relay-interval-ms: 2000
+  resilience:
+    merchant-service:
+      # Hard Feign socket timeouts (FeignClientConfig) — deliberately under
+      # timelimiter.instances.merchantService.timeout-duration below, so the socket
+      # itself gives up before the app-level TimeLimiter would need to.
+      connect-timeout-ms: 1000
+      read-timeout-ms: 1500
+      # Exponential-backoff-with-jitter parameters (MerchantResilienceConfig's
+      # RetryConfigCustomizer) — plain resilience4j.retry.* YAML can't express both
+      # exponential growth and jitter together (D50).
+      retry-initial-interval-ms: 200
+      retry-multiplier: 2.0
+      retry-randomization-factor: 0.5
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      merchantService:
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        # Require a meaningful sample before judging failure rate — avoids flapping
+        # OPEN on the first handful of calls after a cold start.
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        # A call that merely runs slowly (but doesn't hit the TimeLimiter's harder
+        # cutoff below) also degrades the breaker's health signal, not just outright
+        # exceptions — real merchant-service degradation is rarely all-or-nothing.
+        slowCallDurationThreshold: 2s
+        slowCallRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        recordExceptions:
+          - feign.RetryableException
+          - feign.FeignException$FeignServerException
+          - java.util.concurrent.TimeoutException
+        # A 4xx from merchant-service (or the already-handled not-onboarded case) is
+        # a client-side outcome, not a merchant-service health signal — must never
+        # count toward opening the circuit (see D51). BulkheadFullException must be
+        # ignored too, not merely left off recordExceptions: resilience4j treats any
+        # exception matching neither list as a SUCCESS once recordExceptions is
+        # non-empty — leaving it off would make sustained bulkhead saturation look
+        # like a 100% healthy merchant-service to the circuit breaker (a real gap
+        # found via testing, not a hypothetical — see the M8 changelog's Problems).
+        ignoreExceptions:
+          - com.paymentflow.payment.exception.MerchantNotOnboardedException
+          - feign.FeignException$FeignClientException
+          - io.github.resilience4j.bulkhead.BulkheadFullException
+  retry:
+    instances:
+      merchantService:
+        maxAttempts: 3
+        # Base wait before MerchantResilienceConfig's RetryConfigCustomizer applies
+        # exponential-backoff-with-jitter on top; harmless if the customizer runs
+        # first, kept for clarity of intent.
+        waitDuration: 200ms
+        retryExceptions:
+          - feign.RetryableException
+          - feign.FeignException$FeignServerException
+          - java.util.concurrent.TimeoutException
+        # Same "never retry a client error" rule as the circuit breaker above — a 4xx
+        # will never be different on the next attempt without the request itself
+        # changing (D51). BulkheadFullException is deliberately absent too: retrying
+        # into an already-saturated bulkhead undermines the whole point of shedding
+        # load rather than piling more of it on.
+        ignoreExceptions:
+          - com.paymentflow.payment.exception.MerchantNotOnboardedException
+          - feign.FeignException$FeignClientException
+  thread-pool-bulkhead:
+    instances:
+      merchantService:
+        coreThreadPoolSize: 5
+        maxThreadPoolSize: 10
+        queueCapacity: 10
+        keepAliveDuration: 20ms
+  timelimiter:
+    instances:
+      merchantService:
+        timeoutDuration: 2s
+        cancelRunningFuture: true
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        # "metrics" added in M8 so Resilience4j's Micrometer-bound meters
+        # (resilience4j.circuitbreaker.*, .retry.*, .bulkhead.*, .timelimiter.*) are
+        # browsable now, ahead of M13 wiring a real Prometheus scrape target.
+        include: health,info,prometheus,metrics
   endpoint:
     health:
       probes:
