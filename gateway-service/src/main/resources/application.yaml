@@ -5,18 +5,25 @@ spring:
     gateway:
       server:
         webflux:
+          # Applies to every route below — added once here rather than repeated per
+          # route now that there's more than one (D22 follow-through: keep routes
+          # declarative and free of copy-pasted filter blocks as services are added).
+          default-filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${paymentflow.gateway.rate-limit.replenish-rate}
+                redis-rate-limiter.burstCapacity: ${paymentflow.gateway.rate-limit.burst-capacity}
+                redis-rate-limiter.requestedTokens: ${paymentflow.gateway.rate-limit.requested-tokens}
+                key-resolver: "#{@rateLimitKeyResolver}"
           routes:
             - id: identity-service
               uri: ${paymentflow.services.identity.base-uri}
               predicates:
                 - Path=/api/v1/auth/**,/api/v1/users/**,/oauth2/jwks
-              filters:
-                - name: RequestRateLimiter
-                  args:
-                    redis-rate-limiter.replenishRate: ${paymentflow.gateway.rate-limit.replenish-rate}
-                    redis-rate-limiter.burstCapacity: ${paymentflow.gateway.rate-limit.burst-capacity}
-                    redis-rate-limiter.requestedTokens: ${paymentflow.gateway.rate-limit.requested-tokens}
-                    key-resolver: "#{@rateLimitKeyResolver}"
+            - id: merchant-service
+              uri: ${paymentflow.services.merchant.base-uri}
+              predicates:
+                - Path=/api/v1/merchants/**
   data:
     redis:
       # Local default points at the compose Redis (host port 56379). Overridden by
@@ -34,6 +41,8 @@ paymentflow:
       base-uri: http://localhost:8081
       jwks-uri: ${paymentflow.services.identity.base-uri}/oauth2/jwks
       issuer: https://identity.paymentflow.local
+    merchant:
+      base-uri: http://localhost:8082
   gateway:
     cors:
       allowed-origins: http://localhost:3000

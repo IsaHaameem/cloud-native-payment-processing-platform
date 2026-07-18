@@ -1,0 +1,81 @@
+package com.paymentflow.merchant.service;
+
+import com.paymentflow.common.dto.page.PageResponse;
+import com.paymentflow.common.exception.ResourceNotFoundException;
+import com.paymentflow.merchant.domain.Merchant;
+import com.paymentflow.merchant.dto.ApiKeyIssuedResponse;
+import com.paymentflow.merchant.dto.MerchantOnboardResponse;
+import com.paymentflow.merchant.dto.MerchantResponse;
+import com.paymentflow.merchant.dto.OnboardMerchantRequest;
+import com.paymentflow.merchant.dto.UpdateMerchantRequest;
+import com.paymentflow.merchant.exception.MerchantAlreadyExistsException;
+import com.paymentflow.merchant.mapper.MerchantMapper;
+import com.paymentflow.merchant.repository.MerchantRepository;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.UUID;
+
+@Service
+@Transactional(readOnly = true)
+public class MerchantService {
+
+    private final MerchantRepository merchantRepository;
+    private final ApiKeyService apiKeyService;
+    private final MerchantMapper merchantMapper;
+
+    public MerchantService(MerchantRepository merchantRepository, ApiKeyService apiKeyService,
+                           MerchantMapper merchantMapper) {
+        this.merchantRepository = merchantRepository;
+        this.apiKeyService = apiKeyService;
+        this.merchantMapper = merchantMapper;
+    }
+
+    @Transactional
+    public MerchantOnboardResponse onboard(UUID ownerUserId, OnboardMerchantRequest request) {
+        if (merchantRepository.existsByOwnerUserId(ownerUserId)) {
+            throw new MerchantAlreadyExistsException(ownerUserId);
+        }
+        Merchant merchant = merchantRepository.save(
+                Merchant.onboard(ownerUserId, request.businessName(), request.contactEmail()));
+        ApiKeyService.IssuedApiKey issued = apiKeyService.issue(merchant.getId());
+        return new MerchantOnboardResponse(merchantMapper.toResponse(merchant), toIssuedResponse(issued));
+    }
+
+    @Cacheable(cacheNames = "merchants", key = "#ownerUserId")
+    public MerchantResponse getMine(UUID ownerUserId) {
+        return merchantRepository.findByOwnerUserId(ownerUserId)
+                .map(merchantMapper::toResponse)
+                .orElseThrow(() -> ResourceNotFoundException.of("Merchant", ownerUserId));
+    }
+
+    @CacheEvict(cacheNames = "merchants", key = "#ownerUserId")
+    @Transactional
+    public MerchantResponse updateMine(UUID ownerUserId, UpdateMerchantRequest request) {
+        Merchant merchant = merchantRepository.findByOwnerUserId(ownerUserId)
+                .orElseThrow(() -> ResourceNotFoundException.of("Merchant", ownerUserId));
+        merchant.updateProfile(request.businessName(), request.contactEmail());
+        return merchantMapper.toResponse(merchant);
+    }
+
+    @Transactional
+    public ApiKeyIssuedResponse rotateMyApiKey(UUID ownerUserId) {
+        Merchant merchant = merchantRepository.findByOwnerUserId(ownerUserId)
+                .orElseThrow(() -> ResourceNotFoundException.of("Merchant", ownerUserId));
+        return toIssuedResponse(apiKeyService.rotate(merchant.getId()));
+    }
+
+    public PageResponse<MerchantResponse> list(Pageable pageable) {
+        Page<MerchantResponse> page = merchantRepository.findAll(pageable).map(merchantMapper::toResponse);
+        return PageResponse.of(page.getContent(), page.getNumber(), page.getSize(), page.getTotalElements());
+    }
+
+    private static ApiKeyIssuedResponse toIssuedResponse(ApiKeyService.IssuedApiKey issued) {
+        return new ApiKeyIssuedResponse(issued.rawValue(), issued.prefix(), Instant.now());
+    }
+}

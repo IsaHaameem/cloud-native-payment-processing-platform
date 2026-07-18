@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M4 (Merchant Service) — *pending approval*
-- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅
-- **Pending milestones:** M4–M15
+- **Current milestone:** M5 (Payment Service) — *pending approval*
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅
+- **Pending milestones:** M5–M15
 
 ---
 
@@ -185,6 +185,11 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D24 | Redis rate-limit key: authenticated → `user:<sub>`, unauthenticated → `ip:<remote-addr>` | key by IP for everyone | Isolates one busy authenticated user from another; still rate-limits the brute-forceable `/api/v1/auth/**` endpoints by source IP since no token exists yet at that point |
 | D25 | Gateway ships its own reactive `CorrelationIdWebFilter` / `GatewayErrorWebExceptionHandler`, not common-lib's servlet ones | make common-lib's filter/handler stack-agnostic | common-lib's servlet auto-configuration correctly stays inactive on the reactive gateway (D11); duplicating the *behavior* in a reactive-native form was the planned shape, not a workaround |
 | D26 | Full MDC-in-reactive log correlation deferred to M13 (Micrometer Tracing/Observation) | bolt on ad hoc Reactor-Context→MDC bridging now | WebFlux isn't thread-bound per request, so servlet-style MDC doesn't transplant cleanly; the header still crosses the wire correctly today (the actual cross-service requirement), which is what M3 asks for |
+| D27 | Extracted `OpaqueTokenGenerator` (SecureRandom + SHA-256) into common-lib; identity's `RefreshTokenService` and merchant's `ApiKeyService` both use it | duplicate the same ~15-line helper in each service | "No duplicated code" is a standing project requirement; low-risk, behavior-preserving refactor now that a genuine second consumer exists (rule of three deliberately not invoked earlier, at a single use) |
+| D28 | Merchant ownership derived from the JWT subject, never a path parameter; the one role-gated endpoint (list-all) stays `@PreAuthorize`-based like identity | accept an owner/merchant id as a path/query parameter | Structurally impossible to request another merchant's profile by guessing an id — no IDOR surface to defend, by construction |
+| D29 | Single active API key per merchant, rotate-in-place (mirrors D16's refresh-token rotation); enforced with a partial unique index (`WHERE revoked_at IS NULL`) | multiple named/scoped keys | Simpler mental model and code, consistent with an already-approved pattern; the DB — not just application logic — guarantees at most one active key |
+| D30 | Cache-aside via Spring `@Cacheable`/`@CacheEvict` over an immutable response DTO, never the JPA entity; Redis JSON serialization via `GenericJacksonJsonRedisSerializer` (Jackson 3-aware) | cache the entity directly; Boot's default JDK-serialization `RedisCacheManager` | Caching a JPA entity risks stale/detached-entity bugs on deserialization; JDK serialization produces an opaque binary blob inconsistent with the platform's JSON-everywhere convention |
+| D31 | No cross-service "validate API key" endpoint built yet, even though payment-service will eventually need one | build the contract now, speculatively | YAGNI — no real caller exists before payment-service (M5); same rationale as D14 (don't guess an abstraction's shape before a real consumer exists) |
 
 ---
 
@@ -196,6 +201,7 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 ## 11. Known Issues
 - Gateway does not yet honor `X-Forwarded-*`/`Forwarded` headers (Spring Cloud Gateway 2025.x disables this by default unless `spring.cloud.gateway.server.webflux.trusted-proxies` is set). Irrelevant with no reverse proxy in front locally; must be configured in M12 once the gateway sits behind an ALB, or HSTS/scheme-dependent behavior will see the wrong (plaintext) scheme.
 - Gateway-local log lines do not carry `correlationId`/`requestId` via MDC (WebFlux isn't thread-bound per request); the header still propagates correctly across the wire. Full reactive log correlation is deferred to M13 (see D26).
+- No cross-service API-key validation contract exists yet for merchant-service (see D31) — payment-service (M5) will need one; its shape is deliberately not guessed ahead of that real consumer.
 
 ## 12. Future Improvements
 - gRPC for internal sync calls; API versioning; blue/green on ECS; OpenTelemetry collector.
@@ -213,7 +219,8 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 ## 15. Deployment Status
 - Local infra (Postgres/Redis/Kafka/Kafka-UI): **runs, 4/4 healthy** via `docker-compose.infra.yml`.
 - **identity-service:** builds, all tests pass, verified running locally on port 8081 against the compose Postgres (Flyway migrated the `identity` schema; full auth flow + RBAC exercised over HTTP).
-- **gateway-service:** builds, all tests pass, verified running locally on port 8080 against the compose Redis, proxying to a locally-running identity-service — full register→login→gateway-authenticated-request flow exercised over HTTP, including a real Redis-backed 429 under concurrent load.
+- **gateway-service:** builds, all tests pass, verified running locally on port 8080 against the compose Redis, proxying to identity-service and merchant-service — full register→login→gateway-authenticated-request flow exercised over HTTP, including a real Redis-backed 429 under concurrent load.
+- **merchant-service:** builds, all tests pass, verified running locally on port 8082 against the compose Postgres/Redis (Flyway migrated the `merchant` schema) — onboarding, cached profile reads, cache-busting updates, API-key rotation, and ADMIN-only listing all exercised over HTTP through the gateway.
 - Other services: skeletons only. AWS: not yet started.
 
 ## 16. Lessons Learned
@@ -504,3 +511,117 @@ confirmed on both success and error responses.
 
 **Next milestone:** M4 — Merchant Service (onboarding, API-key issuance, merchant
 profile caching).
+
+---
+
+### M4 — Merchant Service ✅ (2026-07-18)
+
+**Objectives:** Merchant onboarding tied to an identity-service user, self-service
+API-key issuance and rotation, and Redis cache-aside merchant profile reads — routed
+through the gateway alongside identity, extending the vertical slice to a second
+downstream service.
+
+**Features implemented**
+- Onboarding (`POST /api/v1/merchants`): one merchant profile per identity user,
+  enforced at the DB level (`unique (owner_user_id)`); issues the merchant's first
+  API key in the same call.
+- Ownership derived entirely from the JWT subject — no path/query parameter ever
+  names a merchant id for self-service endpoints, so there is no id to guess (D28).
+- API keys: opaque, SHA-256-hashed, `pf_`-prefixed, single active key per merchant,
+  rotate-in-place (mirrors identity's refresh-token rotation, D16/D29); a partial
+  unique index (`WHERE revoked_at IS NULL`) makes "at most one active key" a DB
+  guarantee, not just an application-level one.
+- Cache-aside merchant profile reads (`GET /me`) via Spring `@Cacheable`, Redis,
+  10-minute TTL, JSON-serialized (D30); `PATCH /me` evicts the cache entry so
+  updates are never served stale.
+- ADMIN-only paginated listing (`GET /api/v1/merchants`), mirroring identity's
+  `@PreAuthorize("hasRole('ADMIN')")` pattern exactly.
+- merchant-service validates JWTs against identity's JWKS with no signing key of
+  its own — identity remains the platform's sole issuer (D17 zero-trust, extended
+  to a second service).
+- Wired into the gateway: a second route (`/api/v1/merchants/**` → merchant-service);
+  the gateway's per-route `RequestRateLimiter` filter was promoted to
+  `default-filters` now that there are two routes, instead of repeating the block.
+
+**Endpoints added**
+| Method | Path | Access |
+|---|---|---|
+| POST | `/api/v1/merchants` | any authenticated |
+| GET | `/api/v1/merchants/me` | any authenticated (own profile, cached) |
+| PATCH | `/api/v1/merchants/me` | any authenticated (own profile, evicts cache) |
+| POST | `/api/v1/merchants/me/api-key/rotate` | any authenticated (own key) |
+| GET | `/api/v1/merchants` | ADMIN, paginated |
+
+**Database changes (schema `merchant`, Flyway `V1__init_merchant.sql`):** tables
+`merchants` (unique `owner_user_id`) and `api_keys` (FK to `merchants`, unique
+`key_hash`, partial unique index on `merchant_id` where `revoked_at is null`).
+
+**Kafka topics:** none.
+
+**Redis features added:** cache-aside (`@Cacheable`/`@CacheEvict`) merchant-profile
+cache, 10-minute TTL, JSON-serialized via `GenericJacksonJsonRedisSerializer`
+(Jackson 3-aware, not the legacy Jackson-2-only serializer — D30).
+
+**Infra/Docker changes:** none (runs against the existing compose Postgres/Redis).
+
+**Files created:** ~20 — app (`MerchantServiceApplication`), domain (`Merchant`,
+`ApiKey`), repositories, DTOs, mapper, exception (`MerchantAlreadyExistsException`),
+services (`MerchantService`, `ApiKeyService`), config (`SecurityConfig`,
+`IdentityServiceProperties`, `CacheConfig`), security (`SecurityErrorWriter`,
+`RestAuthenticationEntryPoint`, `RestAccessDeniedHandler`), web
+(`MerchantController`, `SecurityExceptionHandler`), `application.yaml`, `V1`
+migration, and 3 test classes. Plus common-lib's new `OpaqueTokenGenerator` (D27).
+
+**Files modified:** `merchant-service/build.gradle.kts`,
+`identity-service/.../RefreshTokenService.java` (now delegates to
+`OpaqueTokenGenerator` instead of its own private hash/generate methods — no
+behavior change, regression-tested via the existing identity suite),
+`gateway-service/src/main/resources/application.yaml` (merchant route,
+`default-filters` refactor), `PROJECT_CONTEXT.md`.
+
+**Test coverage (18 tests, all green):** common-lib's `OpaqueTokenGeneratorTest`
+(3, unit). merchant-service's `ApiKeyServiceTest` + `MerchantServiceTest` (8,
+Mockito unit). `MerchantIntegrationTest` (7, Testcontainers Postgres + Redis, JWTs
+signed against a JDK-`HttpServer`-served test JWKS — no new test dependency):
+onboard→get-mine round trip, duplicate-owner 409, 401 with no token, update busts
+the cache (asserted by reading the *new* value right after, proving it wasn't
+served stale), rotation revokes the old key and issues a distinct new one
+(asserted directly against `ApiKeyRepository`), ADMIN-vs-USER on the list endpoint,
+and a validation-failure 400.
+
+**Verification:** `./gradlew build` green across all 10 modules; identity, gateway,
+and merchant-service run together locally — register → login → onboard a merchant
+→ get cached profile → update (cache-bust confirmed) → rotate key → admin list, all
+through the gateway over real HTTP with a real Postgres/Redis; 401/403/409 all
+confirmed at the edge.
+
+**Important design decisions:** D27–D31 (see §9).
+
+**Problems faced → solutions**
+1. Boot 4's modular auto-config (same pattern as D20) split caching out too:
+   `RedisCacheManagerBuilderCustomizer` lives in
+   `org.springframework.boot.cache.autoconfigure` (module `spring-boot-cache`), not
+   `org.springframework.boot.autoconfigure.data.redis` — found via `javap` against
+   the resolved jar.
+2. Rotating an API key deterministically hit
+   `duplicate key value violates unique constraint "uq_api_keys_active_per_merchant"`
+   — Hibernate's default flush order is inserts-then-updates *regardless of call
+   order*, so the new key's `INSERT` reached Postgres before the old key's
+   revoke-`UPDATE` was flushed, and the partial unique index (correctly) rejected
+   two simultaneously-active rows for one merchant. Fixed with an explicit
+   `saveAndFlush` on the revoke step before issuing the replacement key.
+3. Verified `GenericJacksonJsonRedisSerializer` (no "2") takes the Jackson 3
+   `tools.jackson.databind.ObjectMapper` directly, unlike the legacy
+   `GenericJackson2JsonRedisSerializer` — confirmed via `javap` before wiring
+   `CacheConfig`, avoiding a repeat of the D19 Jackson-2-assumption trap.
+4. `PROJECT_CONTEXT.md`'s M3 status/decisions/changelog content had reverted to its
+   pre-M3 state in the working tree by the time M4 started (M3's code/commit were
+   unaffected). Restored per this file's own stated policy — "if code and this
+   document disagree, fix whichever is wrong, never leave it stale" — alongside
+   the M4 update rather than leaving the milestone log inconsistent with `git log`.
+
+**Next milestone:** M5 — Payment Service (FSM, idempotency, transactional outbox,
+Kafka publish). The core of the platform and the first service to actually consume
+Kafka and a merchant's API key.
+
+
