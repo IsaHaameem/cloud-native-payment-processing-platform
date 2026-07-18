@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M3 (Gateway Service) — *pending approval*
-- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅
-- **Pending milestones:** M3–M15
+- **Current milestone:** M4 (Merchant Service) — *pending approval*
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅
+- **Pending milestones:** M4–M15
 
 ---
 
@@ -180,6 +180,11 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D19 | **Spring Boot 4 uses Jackson 3** (`tools.jackson.*`), not Jackson 2 | assume `com.fasterxml` | The auto-configured `ObjectMapper` bean is `tools.jackson.databind.ObjectMapper`; inject that. Jackson 2 lingers transitively but has no bean |
 | D20 | Boot 4 **modular auto-config**: add `spring-boot-flyway`, `spring-boot-webmvc-test`; Testcontainers **2.x** renamed artifacts to `testcontainers-*` | rely on Boot 3 coordinates | Autoconfig split out of the monolithic `spring-boot-autoconfigure`; plain `flyway-core` no longer wires Flyway |
 | D21 | Security errors rendered as `ApiError`: filter-chain via handlers, method-security via a service-local `@RestControllerAdvice` | let 403s fall through to 500 | `@PreAuthorize` denials surface at the DispatcherServlet, not the filter chain; common-lib stays security-agnostic |
+| D22 | Gateway routes/filters defined declaratively in YAML (`spring.cloud.gateway.server.webflux.routes`) | `RouteLocatorBuilder` fluent Java config | Ops can retune routes/rate-limits per environment without a redeploy; consistent with how every other cross-cutting setting in the platform already lives in `application.yaml` |
+| D23 | Gateway authenticates only (valid-JWT gate); RBAC stays in each downstream service | duplicate role checks at the edge | Avoids a second, drift-prone copy of authorization rules as more services are added; consistent with D17's per-service zero-trust stance |
+| D24 | Redis rate-limit key: authenticated → `user:<sub>`, unauthenticated → `ip:<remote-addr>` | key by IP for everyone | Isolates one busy authenticated user from another; still rate-limits the brute-forceable `/api/v1/auth/**` endpoints by source IP since no token exists yet at that point |
+| D25 | Gateway ships its own reactive `CorrelationIdWebFilter` / `GatewayErrorWebExceptionHandler`, not common-lib's servlet ones | make common-lib's filter/handler stack-agnostic | common-lib's servlet auto-configuration correctly stays inactive on the reactive gateway (D11); duplicating the *behavior* in a reactive-native form was the planned shape, not a workaround |
+| D26 | Full MDC-in-reactive log correlation deferred to M13 (Micrometer Tracing/Observation) | bolt on ad hoc Reactor-Context→MDC bridging now | WebFlux isn't thread-bound per request, so servlet-style MDC doesn't transplant cleanly; the header still crosses the wire correctly today (the actual cross-service requirement), which is what M3 asks for |
 
 ---
 
@@ -189,7 +194,8 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - AWS cost during Phase 5 → single small RDS/ElastiCache, teardown scripts, cost notes.
 
 ## 11. Known Issues
-- None yet.
+- Gateway does not yet honor `X-Forwarded-*`/`Forwarded` headers (Spring Cloud Gateway 2025.x disables this by default unless `spring.cloud.gateway.server.webflux.trusted-proxies` is set). Irrelevant with no reverse proxy in front locally; must be configured in M12 once the gateway sits behind an ALB, or HSTS/scheme-dependent behavior will see the wrong (plaintext) scheme.
+- Gateway-local log lines do not carry `correlationId`/`requestId` via MDC (WebFlux isn't thread-bound per request); the header still propagates correctly across the wire. Full reactive log correlation is deferred to M13 (see D26).
 
 ## 12. Future Improvements
 - gRPC for internal sync calls; API versioning; blue/green on ECS; OpenTelemetry collector.
@@ -207,6 +213,7 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 ## 15. Deployment Status
 - Local infra (Postgres/Redis/Kafka/Kafka-UI): **runs, 4/4 healthy** via `docker-compose.infra.yml`.
 - **identity-service:** builds, all tests pass, verified running locally on port 8081 against the compose Postgres (Flyway migrated the `identity` schema; full auth flow + RBAC exercised over HTTP).
+- **gateway-service:** builds, all tests pass, verified running locally on port 8080 against the compose Redis, proxying to a locally-running identity-service — full register→login→gateway-authenticated-request flow exercised over HTTP, including a real Redis-backed 429 under concurrent load.
 - Other services: skeletons only. AWS: not yet started.
 
 ## 16. Lessons Learned
@@ -386,3 +393,114 @@ java -jar …`) against compose Postgres — Flyway migrated, full flow + RBAC c
 **Next milestone:** M3 — Gateway Service (Spring Cloud Gateway, reactive): routing to
 identity, edge JWT validation via JWKS, Redis rate-limiting, CORS, security headers,
 correlation-id propagation. Completes the first end-to-end vertical slice.
+
+---
+
+### M3 — Gateway Service ✅ (2026-07-18)
+
+**Objectives:** Stand up the platform's reactive edge — routing to identity-service,
+JWT validation via JWKS, Redis-backed rate limiting, CORS, security headers, and
+correlation-id propagation — completing the first full external-request → gateway →
+identity vertical slice.
+
+**Features implemented**
+- Single declarative route (`identity-service`) matching `/api/v1/auth/**`,
+  `/api/v1/users/**`, `/oauth2/jwks`, proxying unchanged to identity-service.
+- Reactive OAuth2 resource server: RS256 JWT verified against identity's live JWKS
+  (`NimbusReactiveJwtDecoder`), issuer-checked; `roles` claim mapped to `ROLE_*`
+  authorities. Gateway **authenticates only** — RBAC stays in each downstream service
+  (D23), matching the existing per-service zero-trust stance (D17).
+- Redis-backed `RequestRateLimiter` (token bucket) on every proxied route; key
+  resolver is per-authenticated-user (`user:<sub>`) or per-source-IP (`ip:<addr>`)
+  for unauthenticated calls — critically, the brute-forceable `/api/v1/auth/**`
+  endpoints (D24).
+- CORS restricted to a configured origin allow-list (`http://localhost:3000` for the
+  future Next.js console), credential-less, `X-Correlation-Id` exposed.
+- Security headers via the Spring Security reactive DSL: `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`, CSP, Permissions-Policy, Referrer-Policy, HSTS.
+- `CorrelationIdWebFilter` (reactive, gateway-native — D25/D11): generates or
+  preserves `X-Correlation-Id`/`X-Request-Id`, forwards both downstream, and echoes
+  the correlation id back to the caller via `ServerHttpResponse.beforeCommit(...)`
+  (dedupes against the same header identity-service's own filter also echoes back).
+- `GatewayErrorWebExceptionHandler` (reactive, gateway-native — D25/D11) plus a
+  dedicated `ServerAuthenticationEntryPoint`/`ServerAccessDeniedHandler`: every
+  gateway-originated error (401/403/404-no-route/5xx-downstream) renders the same
+  `ApiError` envelope as every other service, reusing `common-dto`'s `ApiError` and
+  `common-lib`'s `CommonErrorCode` directly (both stack-agnostic; only the
+  servlet-only filter/handler classes in common-lib stay unused here).
+
+**Endpoints added:** none of its own (pure edge/proxy); `/actuator/health`,
+`/actuator/info`, `/actuator/prometheus` on the gateway itself.
+
+**Database changes:** none.
+
+**Kafka topics:** none.
+
+**Redis features added:** reactive connection (Lettuce, via
+`spring-boot-starter-data-redis-reactive`) backing the gateway's token-bucket rate
+limiter; no other Redis usage yet.
+
+**Infra/Docker changes:** none (gateway runs against the existing compose Redis on
+host port 56379; no compose file changes needed).
+
+**Files created:** ~13 — app (`GatewayServiceApplication`), config
+(`SecurityConfig`, `IdentityServiceProperties`, `GatewayCorsProperties`,
+`RateLimiterConfig`), filter (`CorrelationIdWebFilter`), security
+(`GatewayErrorResponseWriter`, `RestServerAuthenticationEntryPoint`,
+`RestServerAccessDeniedHandler`), web (`GatewayErrorWebExceptionHandler`),
+`application.yaml` (+ `-local`), and 2 test classes.
+
+**Files modified:** `gateway-service/build.gradle.kts`, `PROJECT_CONTEXT.md`.
+
+**Test coverage (11 tests, all green):** `CorrelationIdWebFilterTest` (unit: id
+generation vs. preservation, response echo). `GatewayIntegrationTest`
+(`@SpringBootTest` random port + Testcontainers Redis + a Reactor Netty stub
+standing in for identity-service, its own JWKS/RSA key so JWT signature validation
+is real, not mocked): public routing, 401 without/with-malformed token, valid-token
+routing with Authorization + correlation-id forwarding asserted on the stub side,
+404-ApiError for an unmapped path (authenticated — an unauthenticated call to an
+unmapped path fails closed at 401 before routing is attempted, asserted
+separately), security headers, CORS preflight, and a real Redis 429 once burst
+capacity is exceeded.
+
+**Verification:** `./gradlew build` green across all 10 modules; both services run
+locally (`SPRING_PROFILES_ACTIVE=local`) against the compose Redis/Postgres —
+register → login → gateway-authenticated `/api/v1/users/me` confirmed over real
+HTTP with a real signed JWT verified against identity's live JWKS; CORS allow/deny
+by origin confirmed; 60 concurrent requests against the real Redis limiter produced
+genuine `429`s once burst capacity was exceeded; single (deduped) `X-Correlation-Id`
+confirmed on both success and error responses.
+
+**Important design decisions:** D22–D26 (see §9).
+
+**Problems faced → solutions**
+1. Spring Cloud Gateway 2025.1.0 renamed the reactive starter to
+   `spring-cloud-starter-gateway-server-webflux` and moved route configuration under
+   `spring.cloud.gateway.server.webflux.*` (was `spring.cloud.gateway.*`) — confirmed
+   against the current reference docs before wiring routes; `KeyResolver` itself
+   stayed at its original package despite the module rename.
+2. Reactive Spring Security API drift vs. the servlet DSL used in identity-service:
+   `ServerAccessDeniedHandler` lives in `...web.server.authorization`, not
+   `...web.server.access`; `HstsSpec.includeSubdomains(boolean)` is lowercase-`d`
+   (found via `javap` against the resolved jar rather than guessing).
+3. `JWKSet.toJSONObject()` returns a plain `Map`, not a JSON-serializing type — the
+   test's hand-rolled identity/JWKS stub was feeding `Map.toString()` (Java syntax,
+   not JSON) to the decoder, which failed with "Invalid JSON object"; fixed by using
+   `JWKSet.toString()` instead. (identity's real `JwksController` was never affected
+   — Spring's Jackson message converter serializes the `Map` correctly there.)
+4. A response header set *before* `chain.filter()` and one set via `.doFinally()`
+   *after* it both failed to produce a single, correct `X-Correlation-Id`: the first
+   left a duplicate (identity's own echoed header gets copied onto the gateway
+   response by the proxy filter, additively); the second ran too late, since a
+   streamed proxy response commits headers as soon as body-writing starts — well
+   before the chain's `Mono<Void>` signals completion. Fixed with
+   `ServerHttpResponse.beforeCommit(...)`, the purpose-built WebFlux hook for
+   mutating headers at the correct instant regardless of when the stream starts.
+5. An unauthenticated request to a genuinely unmapped path returns **401**, not
+   404 — `anyExchange().authenticated()` runs before route matching is even
+   attempted, so it fails closed without leaking whether the path exists. Correct,
+   intentional behavior, not a bug; the 404-mapping test authenticates first so it
+   actually reaches the "no route matched" branch it's meant to exercise.
+
+**Next milestone:** M4 — Merchant Service (onboarding, API-key issuance, merchant
+profile caching).

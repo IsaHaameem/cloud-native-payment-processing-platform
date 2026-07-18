@@ -1,0 +1,7 @@
+# Activated with SPRING_PROFILES_ACTIVE=local. Same as the defaults in application.yaml
+# today — kept as an explicit profile so per-environment local overrides (e.g. a wider
+# CORS allow-list for frontend dev) have a home without touching the base config.
+paymentflow:
+  gateway:
+    cors:
+      allowed-origins: http://localhost:3000
