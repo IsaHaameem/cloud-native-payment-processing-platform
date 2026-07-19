@@ -61,15 +61,38 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        include: health,info,prometheus,metrics
   endpoint:
     health:
       probes:
         enabled: true
       show-details: when_authorized
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    metrics:
+      export:
+        # Prometheus (pull-based scrape) is this platform's metrics backend;
+        # the OTel starter also auto-enables an OTLP metrics push exporter by
+        # default, which has no receiver configured (Tempo only ingests traces)
+        # and was found spamming connection-refused retries in every service's
+        # logs during verification. Tracing export stays enabled below.
+        enabled: false
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # Local default points at the compose Tempo. Overridden by
+          # MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT in containers.
+          endpoint: http://localhost:4318/v1/traces
 
-# NOTE: unlike the servlet services, MDC is not auto-populated with correlationId/requestId
-# here — WebFlux isn't thread-bound per request, so common-lib's MDC-based log pattern
-# doesn't apply without Reactor Context propagation (Micrometer Observation, deferred to
-# M13). CorrelationIdWebFilter still guarantees the header crosses the wire correctly to
-# downstream services, which is the actual cross-service requirement for M3.
+# M13 closes the gap M3's own note here used to describe: Micrometer Tracing's
+# context-propagation library bridges Reactor Context -> MDC automatically once the
+# tracing bridge is on the classpath (no custom filter/webfilter code needed), so
+# traceId/spanId now populate correctly even though WebFlux isn't thread-bound per
+# request. correlationId/requestId still come from CorrelationIdWebFilter (D25) — that
+# part was already correct, just not tied to a trace/span pair until now.
+logging:
+  pattern:
+    level: "%5p [correlationId=%X{correlationId:-},requestId=%X{requestId:-},traceId=%X{traceId:-},spanId=%X{spanId:-}]"

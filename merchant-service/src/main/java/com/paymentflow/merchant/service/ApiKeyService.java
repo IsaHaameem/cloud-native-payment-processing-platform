@@ -3,6 +3,7 @@ package com.paymentflow.merchant.service;
 import com.paymentflow.common.security.OpaqueTokenGenerator;
 import com.paymentflow.merchant.domain.ApiKey;
 import com.paymentflow.merchant.repository.ApiKeyRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,9 +22,11 @@ public class ApiKeyService {
     private static final int VISIBLE_PREFIX_LENGTH = 12;
 
     private final ApiKeyRepository apiKeyRepository;
+    private final MeterRegistry meterRegistry;
 
-    public ApiKeyService(ApiKeyRepository apiKeyRepository) {
+    public ApiKeyService(ApiKeyRepository apiKeyRepository, MeterRegistry meterRegistry) {
         this.apiKeyRepository = apiKeyRepository;
+        this.meterRegistry = meterRegistry;
     }
 
     @Transactional
@@ -45,6 +48,7 @@ public class ApiKeyService {
             existing.revoke();
             apiKeyRepository.saveAndFlush(existing);
         });
+        meterRegistry.counter("api_key_rotated_total").increment();
         return issue(merchantId);
     }
 

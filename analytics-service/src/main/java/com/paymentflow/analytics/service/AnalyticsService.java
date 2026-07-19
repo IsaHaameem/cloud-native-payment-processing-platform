@@ -6,6 +6,7 @@ import com.paymentflow.analytics.event.AnalyticsEventPayload;
 import com.paymentflow.analytics.repository.MerchantPaymentStatsRepository;
 import com.paymentflow.analytics.repository.ProcessedEventRepository;
 import com.paymentflow.common.dto.event.EventEnvelope;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -32,13 +33,15 @@ public class AnalyticsService {
     private final ProcessedEventRepository processedEventRepository;
     private final MerchantPaymentStatsRepository merchantPaymentStatsRepository;
     private final TransactionTemplate transactionTemplate;
+    private final MeterRegistry meterRegistry;
 
     public AnalyticsService(ProcessedEventRepository processedEventRepository,
                             MerchantPaymentStatsRepository merchantPaymentStatsRepository,
-                            TransactionTemplate transactionTemplate) {
+                            TransactionTemplate transactionTemplate, MeterRegistry meterRegistry) {
         this.processedEventRepository = processedEventRepository;
         this.merchantPaymentStatsRepository = merchantPaymentStatsRepository;
         this.transactionTemplate = transactionTemplate;
+        this.meterRegistry = meterRegistry;
     }
 
     public void processEvent(EventEnvelope<AnalyticsEventPayload> envelope) {
@@ -88,5 +91,7 @@ public class AnalyticsService {
         merchantPaymentStatsRepository.save(stats);
 
         processedEventRepository.save(ProcessedEvent.of(envelope.eventId(), envelope.eventType()));
+        meterRegistry.counter("analytics_stats_updates_total", "eventType", envelope.eventType(),
+                "currency", payload.currency()).increment();
     }
 }

@@ -9,8 +9,10 @@ import com.paymentflow.merchant.dto.UpdateWebhookRequest;
 import com.paymentflow.merchant.exception.MerchantAlreadyExistsException;
 import com.paymentflow.merchant.mapper.MerchantMapper;
 import com.paymentflow.merchant.repository.MerchantRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -35,6 +37,9 @@ class MerchantServiceTest {
     private ApiKeyService apiKeyService;
     @Spy
     private MerchantMapper merchantMapper = new MerchantMapper();
+    // Deep stubs: meterRegistry.counter(...) must return a (mock) Counter, not null.
+    @Mock(answer = Answers.RETURNS_DEEP_STUBS)
+    private MeterRegistry meterRegistry;
 
     @InjectMocks
     private MerchantService merchantService;

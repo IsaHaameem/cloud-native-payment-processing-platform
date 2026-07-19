@@ -1,0 +1,85 @@
+# Alert rules (M13). Each one ties to a real signal this platform already emits —
+# Spring Boot's built-in http.server.requests/JVM meters (free once a registry
+# exists), Resilience4j's Micrometer-bound circuit-breaker state (M8), and the
+# business counters added this milestone (PaymentEventPublisher, OutboxRelay,
+# WebhookDeliveryService, LedgerService). No synthetic/placeholder rule —
+# everything here fires against a metric a real service genuinely produces.
+
+groups:
+  - name: paymentflow.availability
+    rules:
+      - alert: ServiceDown
+        expr: up{job="paymentflow-services"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} is down"
+          description: "Prometheus has not been able to scrape {{ $labels.service }} for 1 minute."
+
+      - alert: HighHttpErrorRate
+        expr: |
+          sum by (application) (rate(http_server_requests_seconds_count{outcome="SERVER_ERROR"}[5m]))
+          /
+          sum by (application) (rate(http_server_requests_seconds_count[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.application }} 5xx rate above 5%"
+          description: "{{ $labels.application }} has returned 5xx responses for more than 5% of requests over the last 5 minutes."
+
+  - name: paymentflow.resilience
+    rules:
+      - alert: MerchantServiceCircuitBreakerOpen
+        expr: resilience4j_circuitbreaker_state{name="merchantService", state="open"} == 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "payment-service's circuit breaker to merchant-service is OPEN"
+          description: "payment-service (M8) has stopped calling merchant-service and is fail-fasting every request that needs merchant resolution."
+
+  - name: paymentflow.business
+    rules:
+      - alert: OutboxRelayPublishFailing
+        expr: increase(outbox_relay_publish_total{outcome="failure"}[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "payment-service's outbox relay is failing to publish to Kafka"
+          description: "At least one outbox_relay_publish_total{outcome=\"failure\"} in the last 10 minutes — events are queuing in outbox_events instead of reaching payment.events."
+
+      - alert: WebhookDeadLetterRateHigh
+        expr: increase(webhook_delivery_attempts_total{outcome="dead_lettered"}[15m]) > 3
+        labels:
+          severity: warning
+        annotations:
+          summary: "Merchant webhook deliveries are being dead-lettered"
+          description: "More than 3 webhook deliveries reached payment.events.dlq in the last 15 minutes — merchant endpoints may be unreachable."
+
+      - alert: LedgerPostingRetriesElevated
+        expr: rate(ledger_posting_retries_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "transaction-service's ledger postings are retrying frequently"
+          description: "Sustained optimistic-lock contention on shared clearing/merchant accounts (M6) — expected under load, worth a look if persistent."
+
+  - name: paymentflow.jvm
+    rules:
+      - alert: JvmHeapUsageHigh
+        expr: |
+          sum by (application) (jvm_memory_used_bytes{area="heap"})
+          /
+          sum by (application) (jvm_memory_max_bytes{area="heap"})
+          > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.application }} heap usage above 85%"
+          description: "{{ $labels.application }}'s JVM heap has been over 85% of its max for 5 minutes — risk of GC pressure or OOM."

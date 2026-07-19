@@ -1,0 +1,19 @@
+# Alertmanager (M13). No real Slack/PagerDuty/email integration is wired up —
+# same honest-stand-in stance as notification-service's simulated email (D45):
+# there's no real on-call channel to hook up in this portfolio deployment, and
+# a placeholder webhook URL that always fails would be worse than no receiver
+# at all (it would train you to ignore "delivery failed" noise). Every alert
+# in observability/prometheus/alert-rules.yml still fires, groups, and is
+# visible in Alertmanager's own UI (http://localhost:9093) and via Grafana's
+# Prometheus/Alertmanager datasource — wiring a real receiver is a one-block
+# addition here whenever a real destination exists.
+
+route:
+  receiver: default
+  group_by: ["alertname", "service"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: default

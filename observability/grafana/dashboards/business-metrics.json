@@ -1,0 +1,123 @@
+{
+  "title": "PaymentFlow / Business Metrics",
+  "uid": "paymentflow-business-metrics",
+  "editable": true,
+  "timezone": "utc",
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["paymentflow"],
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Payment lifecycle events (payment-service)",
+      "description": "PaymentEventPublisher.publish — one point per outbox row written, by event type",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum by (eventType) (rate(payment_lifecycle_events_total[5m]))", "legendFormat": "{{eventType}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Ledger postings (transaction-service)",
+      "description": "LedgerService.post — one balanced double-entry posting per lifecycle event",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum by (eventType) (rate(ledger_postings_total[5m]))", "legendFormat": "{{eventType}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Outbox relay publish outcomes (payment-service)",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum by (outcome) (rate(outbox_relay_publish_total[5m]))", "legendFormat": "{{outcome}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Idempotency-key outcomes (payment-service)",
+      "description": "replayed = client retried the exact same request; reused_conflict = same key, different body; in_flight_conflict = fast-rejected 409",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum by (outcome) (rate(idempotency_key_outcomes_total[5m]))", "legendFormat": "{{outcome}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Webhook delivery outcomes (notification-service)",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum by (outcome) (rate(webhook_delivery_attempts_total[5m]))", "legendFormat": "{{outcome}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Audit events recorded (audit-service)",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum by (outcome) (rate(audit_events_total[5m]))", "legendFormat": "{{outcome}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Auth outcomes (identity-service)",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum by (outcome) (rate(auth_login_outcomes_total[5m]))", "legendFormat": "login: {{outcome}}", "refId": "A" },
+        { "expr": "sum by (outcome) (rate(auth_register_outcomes_total[5m]))", "legendFormat": "register: {{outcome}}", "refId": "B" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Merchants onboarded / API keys rotated (last 1h)",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "increase(merchant_onboarded_total[1h])", "legendFormat": "onboarded", "refId": "A" },
+        { "expr": "increase(api_key_rotated_total[1h])", "legendFormat": "keys rotated", "refId": "B" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value_and_name" }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Analytics aggregate updates (analytics-service)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum by (eventType) (rate(analytics_stats_updates_total[5m]))", "legendFormat": "{{eventType}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Ledger posting retries (optimistic-lock contention, M6)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "rate(ledger_posting_retries_total[5m])", "legendFormat": "retries/sec", "refId": "A" }
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      { "name": "datasource", "type": "datasource", "query": "prometheus", "current": { "text": "Prometheus", "value": "Prometheus" } }
+    ]
+  }
+}

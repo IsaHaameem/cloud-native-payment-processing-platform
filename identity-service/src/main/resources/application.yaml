@@ -29,12 +29,34 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        include: health,info,prometheus,metrics
   endpoint:
     health:
       probes:
         enabled: true
       show-details: when_authorized
+  tracing:
+    sampling:
+      # 100% sampling — this platform's demo/portfolio traffic volume makes head-based
+      # sampling loss a bigger problem than trace-storage cost, unlike a real
+      # production deployment. Revisit if M14's load testing shows otherwise.
+      probability: 1.0
+  otlp:
+    metrics:
+      export:
+        # Prometheus (pull-based scrape) is this platform's metrics backend;
+        # the OTel starter also auto-enables an OTLP metrics push exporter by
+        # default, which has no receiver configured (Tempo only ingests traces)
+        # and was found spamming connection-refused retries in every service's
+        # logs during verification. Tracing export stays enabled below.
+        enabled: false
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # Local default points at the compose Tempo. Overridden by
+          # MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT in containers.
+          endpoint: http://localhost:4318/v1/traces
 
 paymentflow:
   security:
@@ -45,7 +67,10 @@ paymentflow:
       # private-key / public-key intentionally unset for local dev: an ephemeral RSA
       # keypair is generated at startup. In production these come from Secrets Manager.
 
-# Correlation & request ids (populated by common-lib's filter) surface on every log line.
+# Correlation/request ids (common-lib's filter) and trace/span ids (Micrometer
+# Tracing, M13) surface on every log line — the trace/span pair is what actually
+# correlates a log line to a Tempo trace and to other services' logs for the same
+# request in Grafana (Loki's derived-fields trace-id link).
 logging:
   pattern:
-    level: "%5p [%X{correlationId:-},%X{requestId:-}]"
+    level: "%5p [correlationId=%X{correlationId:-},requestId=%X{requestId:-},traceId=%X{traceId:-},spanId=%X{spanId:-}]"

@@ -17,6 +17,15 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // Concrete Micrometer registry backend (M13) — closes the gap M8 flagged: the
+    // /actuator/prometheus endpoint has been exposed since M8/M9 but had nothing
+    // behind it (Boot's default CompositeMeterRegistry has no children).
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
+    // Distributed tracing (M13/D26): OTLP export to Tempo. Boot 4 ships a dedicated
+    // starter bundling the OTel SDK + Micrometer Tracing bridge + OTLP exporter —
+    // auto-configured entirely from management.tracing.*/management.opentelemetry.*
+    // properties, no custom config class needed.
+    implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
 
     // Boot 4 modularized auto-configuration: FlywayAutoConfiguration lives in
     // spring-boot-flyway (which brings flyway-core), not in plain flyway-core.

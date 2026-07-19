@@ -3,6 +3,7 @@ package com.paymentflow.notification.service;
 import com.paymentflow.notification.config.NotificationProperties;
 import com.paymentflow.notification.domain.WebhookDelivery;
 import com.paymentflow.notification.repository.WebhookDeliveryRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -26,13 +27,16 @@ public class WebhookDeliveryService {
     private final RestClient webhookRestClient;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final NotificationProperties properties;
+    private final MeterRegistry meterRegistry;
 
     public WebhookDeliveryService(WebhookDeliveryRepository webhookDeliveryRepository, RestClient webhookRestClient,
-                                  KafkaTemplate<String, String> kafkaTemplate, NotificationProperties properties) {
+                                  KafkaTemplate<String, String> kafkaTemplate, NotificationProperties properties,
+                                  MeterRegistry meterRegistry) {
         this.webhookDeliveryRepository = webhookDeliveryRepository;
         this.webhookRestClient = webhookRestClient;
         this.kafkaTemplate = kafkaTemplate;
         this.properties = properties;
+        this.meterRegistry = meterRegistry;
     }
 
     public void attemptDelivery(WebhookDelivery delivery) {
@@ -45,12 +49,14 @@ public class WebhookDeliveryService {
                     .toBodilessEntity();
             delivery.markDelivered();
             webhookDeliveryRepository.save(delivery);
+            meterRegistry.counter("webhook_delivery_attempts_total", "outcome", "delivered").increment();
         } catch (Exception e) {
             delivery.recordFailedAttempt();
             webhookDeliveryRepository.save(delivery);
             log.warn("Webhook delivery failed for event {} (attempt {}): {}",
                     delivery.getEventId(), delivery.getAttemptCount(), e.toString());
             kafkaTemplate.send(properties.retryTopic(), delivery.getEventId().toString());
+            meterRegistry.counter("webhook_delivery_attempts_total", "outcome", "failed").increment();
         }
     }
 }

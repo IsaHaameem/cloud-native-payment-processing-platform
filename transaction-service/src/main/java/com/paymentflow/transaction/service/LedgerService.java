@@ -12,6 +12,7 @@ import com.paymentflow.transaction.repository.AccountRepository;
 import com.paymentflow.transaction.repository.LedgerEntryRepository;
 import com.paymentflow.transaction.repository.LedgerTransactionRepository;
 import com.paymentflow.transaction.repository.ProcessedEventRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -64,15 +65,18 @@ public class LedgerService {
     private final LedgerTransactionRepository ledgerTransactionRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
     private final TransactionTemplate transactionTemplate;
+    private final MeterRegistry meterRegistry;
 
     public LedgerService(ProcessedEventRepository processedEventRepository, AccountRepository accountRepository,
                          LedgerTransactionRepository ledgerTransactionRepository,
-                         LedgerEntryRepository ledgerEntryRepository, TransactionTemplate transactionTemplate) {
+                         LedgerEntryRepository ledgerEntryRepository, TransactionTemplate transactionTemplate,
+                         MeterRegistry meterRegistry) {
         this.processedEventRepository = processedEventRepository;
         this.accountRepository = accountRepository;
         this.ledgerTransactionRepository = ledgerTransactionRepository;
         this.ledgerEntryRepository = ledgerEntryRepository;
         this.transactionTemplate = transactionTemplate;
+        this.meterRegistry = meterRegistry;
     }
 
     public void processEvent(EventEnvelope<PaymentLedgerEventPayload> envelope) {
@@ -86,6 +90,7 @@ public class LedgerService {
                 }
                 log.warn("Retrying event {} (attempt {}/{}) after {}", envelope.eventId(), attempt,
                         MAX_ATTEMPTS, e.getClass().getSimpleName());
+                meterRegistry.counter("ledger_posting_retries_total").increment();
                 backoff(attempt);
             }
         }
@@ -169,6 +174,13 @@ public class LedgerService {
                 transaction.getId(), debitAccount.getId(), Direction.DEBIT, amountMinor, payload.currency()));
         ledgerEntryRepository.save(LedgerEntry.of(
                 transaction.getId(), creditAccount.getId(), Direction.CREDIT, amountMinor, payload.currency()));
+
+        // Business metric (M13): one balanced posting per lifecycle event, by event type
+        // and currency — the ledger-activity counterpart to payment-service's
+        // payment_lifecycle_events_total, recorded at the one place every posting path
+        // (authorize/capture/refund/reversal) already funnels through.
+        meterRegistry.counter("ledger_postings_total", "eventType", envelope.eventType(), "currency", payload.currency())
+                .increment();
     }
 
     /**

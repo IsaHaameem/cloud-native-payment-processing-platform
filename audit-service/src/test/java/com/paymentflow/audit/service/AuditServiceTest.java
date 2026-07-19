@@ -2,6 +2,7 @@ package com.paymentflow.audit.service;
 
 import com.paymentflow.audit.domain.AuditLogEntry;
 import com.paymentflow.audit.repository.AuditLogEntryRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,7 +33,7 @@ class AuditServiceTest {
 
     @BeforeEach
     void setUp() {
-        auditService = new AuditService(auditLogEntryRepository);
+        auditService = new AuditService(auditLogEntryRepository, new SimpleMeterRegistry());
     }
 
     private JsonNode envelope(UUID eventId) {

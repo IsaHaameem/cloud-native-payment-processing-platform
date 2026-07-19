@@ -11,6 +11,7 @@ import com.paymentflow.identity.exception.InvalidCredentialsException;
 import com.paymentflow.identity.mapper.UserMapper;
 import com.paymentflow.identity.repository.UserRepository;
 import com.paymentflow.identity.security.JwtService;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,23 +28,26 @@ public class AuthService {
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final UserMapper userMapper;
+    private final MeterRegistry meterRegistry;
 
     public AuthService(UserRepository userRepository,
                        PasswordEncoder passwordEncoder,
                        JwtService jwtService,
                        RefreshTokenService refreshTokenService,
-                       UserMapper userMapper) {
+                       UserMapper userMapper, MeterRegistry meterRegistry) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
         this.userMapper = userMapper;
+        this.meterRegistry = meterRegistry;
     }
 
     @Transactional
     public UserResponse register(RegisterRequest request) {
         String email = normalizeEmail(request.email());
         if (userRepository.existsByEmail(email)) {
+            meterRegistry.counter("auth_register_outcomes_total", "outcome", "email_taken").increment();
             throw new EmailAlreadyExistsException(email);
         }
         User user = User.create(
@@ -51,19 +55,22 @@ public class AuthService {
                 passwordEncoder.encode(request.password()),
                 request.fullName(),
                 EnumSet.of(Role.USER));
-        return userMapper.toResponse(userRepository.save(user));
+        UserResponse response = userMapper.toResponse(userRepository.save(user));
+        meterRegistry.counter("auth_register_outcomes_total", "outcome", "success").increment();
+        return response;
     }
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
         String email = normalizeEmail(request.email());
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(InvalidCredentialsException::new);
+        User user = userRepository.findByEmail(email).orElse(null);
 
-        if (!user.isEnabled() || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        if (user == null || !user.isEnabled() || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            meterRegistry.counter("auth_login_outcomes_total", "outcome", "failure").increment();
             throw new InvalidCredentialsException();
         }
 
+        meterRegistry.counter("auth_login_outcomes_total", "outcome", "success").increment();
         return issueTokens(user);
     }
 

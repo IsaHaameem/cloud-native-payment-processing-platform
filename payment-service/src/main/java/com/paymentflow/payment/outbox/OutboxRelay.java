@@ -2,6 +2,7 @@ package com.paymentflow.payment.outbox;
 
 import com.paymentflow.payment.domain.OutboxEvent;
 import com.paymentflow.payment.repository.OutboxEventRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -30,10 +31,13 @@ public class OutboxRelay {
 
     private final OutboxEventRepository outboxEventRepository;
     private final KafkaTemplate<String, String> kafkaTemplate;
+    private final MeterRegistry meterRegistry;
 
-    public OutboxRelay(OutboxEventRepository outboxEventRepository, KafkaTemplate<String, String> kafkaTemplate) {
+    public OutboxRelay(OutboxEventRepository outboxEventRepository, KafkaTemplate<String, String> kafkaTemplate,
+                       MeterRegistry meterRegistry) {
         this.outboxEventRepository = outboxEventRepository;
         this.kafkaTemplate = kafkaTemplate;
+        this.meterRegistry = meterRegistry;
     }
 
     @Scheduled(fixedDelayString = "${paymentflow.outbox.relay-interval-ms:2000}")
@@ -50,9 +54,13 @@ public class OutboxRelay {
             kafkaTemplate.send(event.getTopic(), event.getAggregateId().toString(), event.getPayload())
                     .get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             event.markPublished();
+            meterRegistry.counter("outbox_relay_publish_total", "topic", event.getTopic(), "outcome", "success")
+                    .increment();
         } catch (Exception e) {
             log.error("Failed to publish outbox event {} (type={}, topic={}) — will retry next tick",
                     event.getId(), event.getEventType(), event.getTopic(), e);
+            meterRegistry.counter("outbox_relay_publish_total", "topic", event.getTopic(), "outcome", "failure")
+                    .increment();
         }
     }
 }

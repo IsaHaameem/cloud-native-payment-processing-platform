@@ -5,6 +5,7 @@ import com.paymentflow.notification.domain.DeliveryStatus;
 import com.paymentflow.notification.domain.WebhookDelivery;
 import com.paymentflow.notification.repository.WebhookDeliveryRepository;
 import com.paymentflow.notification.service.WebhookDeliveryService;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -36,14 +37,17 @@ public class WebhookRetryListener {
     private final WebhookDeliveryService webhookDeliveryService;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final NotificationProperties properties;
+    private final MeterRegistry meterRegistry;
 
     public WebhookRetryListener(WebhookDeliveryRepository webhookDeliveryRepository,
                                 WebhookDeliveryService webhookDeliveryService,
-                                KafkaTemplate<String, String> kafkaTemplate, NotificationProperties properties) {
+                                KafkaTemplate<String, String> kafkaTemplate, NotificationProperties properties,
+                                MeterRegistry meterRegistry) {
         this.webhookDeliveryRepository = webhookDeliveryRepository;
         this.webhookDeliveryService = webhookDeliveryService;
         this.kafkaTemplate = kafkaTemplate;
         this.properties = properties;
+        this.meterRegistry = meterRegistry;
     }
 
     @KafkaListener(
@@ -78,6 +82,7 @@ public class WebhookRetryListener {
             kafkaTemplate.send(properties.dlqTopic(), delivery.getEventId().toString());
             log.warn("Webhook delivery for event {} dead-lettered after {} attempts",
                     eventId, delivery.getAttemptCount());
+            meterRegistry.counter("webhook_delivery_attempts_total", "outcome", "dead_lettered").increment();
             return;
         }
 

@@ -8,6 +8,7 @@ import com.paymentflow.notification.event.PaymentNotificationEventPayload;
 import com.paymentflow.notification.repository.EmailLogEntryRepository;
 import com.paymentflow.notification.repository.ProcessedEventRepository;
 import com.paymentflow.notification.repository.WebhookDeliveryRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
@@ -28,18 +29,21 @@ public class NotificationService {
     private final WebhookDeliveryService webhookDeliveryService;
     private final TransactionTemplate transactionTemplate;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
     public NotificationService(ProcessedEventRepository processedEventRepository,
                                EmailLogEntryRepository emailLogEntryRepository,
                                WebhookDeliveryRepository webhookDeliveryRepository,
                                WebhookDeliveryService webhookDeliveryService,
-                               TransactionTemplate transactionTemplate, ObjectMapper objectMapper) {
+                               TransactionTemplate transactionTemplate, ObjectMapper objectMapper,
+                               MeterRegistry meterRegistry) {
         this.processedEventRepository = processedEventRepository;
         this.emailLogEntryRepository = emailLogEntryRepository;
         this.webhookDeliveryRepository = webhookDeliveryRepository;
         this.webhookDeliveryService = webhookDeliveryService;
         this.transactionTemplate = transactionTemplate;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
     }
 
     public void handleEvent(EventEnvelope<PaymentNotificationEventPayload> envelope) {
@@ -52,6 +56,7 @@ public class NotificationService {
             emailLogEntryRepository.save(EmailLogEntry.of(
                     envelope.eventId(), payload.merchantId(), payload.merchantContactEmail(),
                     subjectFor(envelope.eventType()), bodyFor(envelope.eventType(), payload)));
+            meterRegistry.counter("email_logged_total", "eventType", envelope.eventType()).increment();
 
             WebhookDelivery delivery = null;
             String webhookUrl = payload.merchantWebhookUrl();

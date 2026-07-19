@@ -31,6 +31,10 @@ dependencies {
     // Micrometer metrics binding (M8's requirement) works identically either way.
     implementation("io.github.resilience4j:resilience4j-spring-boot3")
     implementation("io.github.resilience4j:resilience4j-micrometer")
+    // Concrete Micrometer registry backend (M13) — finally gives M8's
+    // resilience4j.* meters (and everything else) somewhere real to land.
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
+    implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
 
     implementation("org.springframework.boot:spring-boot-flyway")
     runtimeOnly("org.flywaydb:flyway-database-postgresql")

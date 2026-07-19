@@ -20,6 +20,13 @@ dependencies {
     compileOnly("org.springframework.boot:spring-boot-autoconfigure")
     compileOnly("org.springframework.boot:spring-boot-starter-web")
     compileOnly("org.springframework.boot:spring-boot-starter-validation")
+    // M13: ObservabilityAutoConfiguration's MeterRegistryCustomizer bean. compileOnly
+    // for the same reason as the web/validation deps above — every service already
+    // brings spring-boot-starter-actuator (+ a concrete Micrometer registry) itself;
+    // common-lib only needs these types to compile against, not to force as a
+    // transitive dependency onto a module that doesn't want actuator at all.
+    compileOnly("io.micrometer:micrometer-core")
+    compileOnly("org.springframework.boot:spring-boot-micrometer-metrics")
 
     // Generates auto-configuration metadata so condition evaluation is fast/lazy.
     // The annotationProcessor configuration doesn't extend implementation, so it needs
@@ -29,6 +36,7 @@ dependencies {
 
     testImplementation("org.springframework.boot:spring-boot-starter-web")
     testImplementation("org.springframework.boot:spring-boot-starter-validation")
+    testImplementation("org.springframework.boot:spring-boot-starter-actuator")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

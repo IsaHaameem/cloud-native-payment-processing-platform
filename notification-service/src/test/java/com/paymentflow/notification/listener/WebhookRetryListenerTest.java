@@ -5,6 +5,7 @@ import com.paymentflow.notification.domain.DeliveryStatus;
 import com.paymentflow.notification.domain.WebhookDelivery;
 import com.paymentflow.notification.repository.WebhookDeliveryRepository;
 import com.paymentflow.notification.service.WebhookDeliveryService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,7 +38,8 @@ class WebhookRetryListenerTest {
     void setUp() {
         NotificationProperties properties = new NotificationProperties(
                 "payment.events.retry", "group", 3, "payment.events.dlq", 3000, 5000);
-        listener = new WebhookRetryListener(webhookDeliveryRepository, webhookDeliveryService, kafkaTemplate, properties);
+        listener = new WebhookRetryListener(webhookDeliveryRepository, webhookDeliveryService, kafkaTemplate, properties,
+                new SimpleMeterRegistry());
     }
 
     @Test

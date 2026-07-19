@@ -2,8 +2,10 @@ package com.paymentflow.merchant.service;
 
 import com.paymentflow.merchant.domain.ApiKey;
 import com.paymentflow.merchant.repository.ApiKeyRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -22,6 +24,9 @@ class ApiKeyServiceTest {
 
     @Mock
     private ApiKeyRepository apiKeyRepository;
+    // Deep stubs: meterRegistry.counter(...) must return a (mock) Counter, not null.
+    @Mock(answer = Answers.RETURNS_DEEP_STUBS)
+    private MeterRegistry meterRegistry;
 
     @InjectMocks
     private ApiKeyService apiKeyService;

@@ -11,6 +11,7 @@ import com.paymentflow.transaction.repository.AccountRepository;
 import com.paymentflow.transaction.repository.LedgerEntryRepository;
 import com.paymentflow.transaction.repository.LedgerTransactionRepository;
 import com.paymentflow.transaction.repository.ProcessedEventRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -59,7 +60,7 @@ class LedgerServiceTest {
     @BeforeEach
     void setUp() {
         ledgerService = new LedgerService(processedEventRepository, accountRepository,
-                ledgerTransactionRepository, ledgerEntryRepository, transactionTemplate);
+                ledgerTransactionRepository, ledgerEntryRepository, transactionTemplate, new SimpleMeterRegistry());
 
         lenient().doAnswer(inv -> {
             Consumer<TransactionStatus> action = inv.getArgument(0);

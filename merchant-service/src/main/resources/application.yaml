@@ -47,14 +47,34 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        include: health,info,prometheus,metrics
   endpoint:
     health:
       probes:
         enabled: true
       show-details: when_authorized
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    metrics:
+      export:
+        # Prometheus (pull-based scrape) is this platform's metrics backend;
+        # the OTel starter also auto-enables an OTLP metrics push exporter by
+        # default, which has no receiver configured (Tempo only ingests traces)
+        # and was found spamming connection-refused retries in every service's
+        # logs during verification. Tracing export stays enabled below.
+        enabled: false
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # Local default points at the compose Tempo. Overridden by
+          # MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT in containers.
+          endpoint: http://localhost:4318/v1/traces
 
-# Correlation & request ids (populated by common-lib's filter) surface on every log line.
+# Correlation/request ids (common-lib's filter) and trace/span ids (Micrometer
+# Tracing, M13) surface on every log line.
 logging:
   pattern:
-    level: "%5p [%X{correlationId:-},%X{requestId:-}]"
+    level: "%5p [correlationId=%X{correlationId:-},requestId=%X{requestId:-},traceId=%X{traceId:-},spanId=%X{spanId:-}]"

@@ -20,6 +20,11 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
     implementation("org.springframework.boot:spring-boot-starter-data-redis-reactive")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // Concrete Micrometer registry backend + distributed tracing (M13) — same
+    // additions as every servlet service; Boot's tracing/metrics autoconfiguration
+    // is stack-agnostic (WebFlux gets its own observation autoconfig automatically).
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
+    implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")

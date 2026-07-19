@@ -1,0 +1,32 @@
+# Single-node Tempo (M13), local filesystem storage — the trace-storage backend
+# behind Micrometer Tracing's OTLP export from every service (D26's "reactive log
+# correlation deferred to M13" is closed by this + the tracing bridge, not by any
+# custom filter code).
+
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal
+
+compactor:
+  compaction:
+    block_retention: 48h
+
+# Portfolio/demo scale: every trace is worth keeping (100% sampling is already
+# set at the application side, management.tracing.sampling.probability=1.0), so
+# no tail-based sampling / metrics-generator overrides are configured here.

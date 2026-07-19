@@ -5,6 +5,7 @@ import com.paymentflow.analytics.event.AnalyticsEventPayload;
 import com.paymentflow.analytics.repository.MerchantPaymentStatsRepository;
 import com.paymentflow.analytics.repository.ProcessedEventRepository;
 import com.paymentflow.common.dto.event.EventEnvelope;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,7 +46,8 @@ class AnalyticsServiceTest {
 
     @BeforeEach
     void setUp() {
-        analyticsService = new AnalyticsService(processedEventRepository, merchantPaymentStatsRepository, transactionTemplate);
+        analyticsService = new AnalyticsService(processedEventRepository, merchantPaymentStatsRepository, transactionTemplate,
+                new SimpleMeterRegistry());
 
         lenient().doAnswer(inv -> {
             Consumer<TransactionStatus> action = inv.getArgument(0);

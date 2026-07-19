@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M13 (Observability) — *not yet started*. Infrastructure is now reconciled, applied, and verified end-to-end (see the two Infrastructure Recovery changelog entries); nothing further blocks resuming the roadmap, pending the user's explicit go-ahead to begin M13.
-- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅ · M9 (Containerization) ✅ · M10 (CI/CD) ✅ · M11 (Terraform Infrastructure) ✅ · M12 (AWS ECS Fargate) ✅
-- **Pending milestones:** M13–M15
+- **Current milestone:** M14 (Performance) — *pending approval to start*. M13 (Observability) is complete: every service instrumented with Micrometer (Prometheus registry + OTel tracing), meaningful business metrics, and a full local Prometheus/Grafana/Loki/Tempo/Alertmanager stack, all verified against a real running platform (not just config review).
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅ · M9 (Containerization) ✅ · M10 (CI/CD) ✅ · M11 (Terraform Infrastructure) ✅ · M12 (AWS ECS Fargate) ✅ · M13 (Observability) ✅
+- **Pending milestones:** M14–M15
 - **Out-of-band work:** Infrastructure Recovery — **complete**: partial-apply root-caused and fixed (RDS engine version, MSK Serverless → self-managed Kafka), applied for real (28 added/0 changed/3 destroyed), and verified end-to-end (all 9 ECS services healthy, RDS/Redis/Kafka connectivity confirmed, ALB target healthy, a full register→login→onboard→create→authorize→capture→refund lifecycle passed over real HTTP through the public ALB). Two real application-level bugs found and fixed along the way (Redis TLS, JWT PKCS8 encoding — D82/D83). All infrastructure is now live and billing continuously.
 
 ---
@@ -243,6 +243,14 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D81 | `modules/security-groups`' `msk_serverless` security group and its rules are renamed to `kafka`, with a new self-referencing NFS (port 2049) ingress rule added for the broker's own EFS mount | Keep the `msk_serverless` name on the renamed resource to minimize the diff | The old SG had zero real attachments in AWS — the MSK cluster it was provisioned for never got created — so renaming it is a same-day, zero-blast-radius correction (`terraform plan` shows it as a clean destroy-and-recreate of an unused resource, confirmed before committing), not a change to any running workload. A security group still named after a service the platform no longer uses would actively mislead the next reader |
 | D82 | `SPRING_DATA_REDIS_SSL_ENABLED=true` added to gateway/merchant/payment-service's AWS env vars only (not local docker-compose) | Disable ElastiCache transit encryption instead | A real bug caught during post-apply verification, not assumed away: ElastiCache's `transit_encryption_enabled = true` (M11, required for the AUTH token — D-precedent in the elasticache module) means the endpoint is TLS-only, but no service ever set Spring Data Redis's `ssl.enabled` property, so Lettuce attempted a plaintext handshake against a TLS-only port and hung until timeout (`gateway-service` logs: `RedisConnectionException: Unable to connect to ...:6379`). Disabling transit encryption would also break the AUTH token (the two are linked in ElastiCache's own resource model) and weaken a real security property for no reason. A single environment-specific env var — exactly the same "zero application code changes, only env vars differ AWS-vs-local" pattern D18/D73 already established — is the correct, minimal fix |
 | D83 | Terraform's `secrets` module now writes `tls_private_key.jwt_signing_key.private_key_pem_pkcs8` into Secrets Manager (was `.private_key_pem`) | Change identity-service's `PemUtils.parsePrivateKey` to accept PKCS#1 instead | A real bug caught during the first post-apply end-to-end test: identity-service's `/api/v1/auth/register`/`/login` both 500'd with `IllegalStateException: Failed to parse RSA private key` → `algid parse error, not a sequence`. Root cause: the `tls` provider's default `private_key_pem` attribute is PKCS#1 (`BEGIN RSA PRIVATE KEY`), a different DER structure from the PKCS#8 (`BEGIN PRIVATE KEY`) that `PemUtils.parsePrivateKey`'s `PKCS8EncodedKeySpec` requires — not a header-text difference, an actual encoding mismatch. Fixing the Terraform side (the `tls` provider, pinned at 4.3.0, has shipped `private_key_pem_pkcs8` specifically for this since well before this pin) is one line and keeps the Java code's PKCS#8 expectation, which was already the more standard/correct choice and already matched the public-key side (X.509 SubjectPublicKeyInfo, unaffected) |
+| D84 | M13's observability stack (Prometheus, Grafana, Loki, Tempo) runs locally via docker-compose only this milestone — no AWS deployment | Also stand up self-hosted Prometheus/Grafana/Tempo on ECS Fargate + EFS (mirroring the M12-recovery `kafka-broker` module pattern), with CloudWatch Logs as the AWS-side log backend via a Grafana CloudWatch datasource | Confirmed with the user (AskUserQuestion) before implementing, given the real ongoing AWS cost already live from the M12 recovery (NAT Gateway, RDS, ALB, ElastiCache, 9 Fargate tasks) — adding 3+ more Fargate tasks + EFS volumes was a genuine, costed trade-off, not a default to wave through. Every service is still instrumented identically regardless of environment (Micrometer/Prometheus registry/tracing are application code, deployed to AWS automatically); only the *backend* (where metrics/traces/dashboards actually live) is local-only for now. AWS observability deployment remains a well-defined, ready-to-do follow-up whenever wanted |
+| D85 | Distributed tracing wired via the official `org.springframework.boot:spring-boot-starter-opentelemetry` starter, not manually assembling `micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp` | Add the two artifacts individually | Boot 4 ships a dedicated starter bundling exactly what's needed (verified via `javap`/jar inspection, this project's established practice) — one dependency line instead of two, and it's the vendor-recommended path rather than reconstructing what the starter already assembles. Confirmed the correct property is `management.opentelemetry.tracing.export.otlp.endpoint`, not the legacy `management.otlp.tracing.endpoint` (deprecated at `error` level since Boot 4.0.0, found by reading the resolved jar's own `spring-configuration-metadata.json` rather than trusting a web search, which surfaced both the current and the stale property with no way to tell which was current without checking the source of truth directly) |
+| D86 | Grafana Tempo chosen as the trace-storage/visualization backend | No backend at all (trace/span ids in logs only, no dedicated UI); Jaeger/Zipkin | The roadmap explicitly scopes M13 to "distributed tracing," and the user's own instruction named Prometheus/Grafana/Loki/Micrometer without naming a tracing backend — Micrometer Tracing only generates and propagates trace/span ids, it doesn't store or visualize them. Tempo is the natural, minimal-friction choice: native Grafana integration (trace-to-logs via Loki, trace-to-metrics via Prometheus exemplars, service graphs), OTLP ingestion is Boot's own default export protocol (no format conversion needed), and it completes the same "Grafana LGTM stack" (Loki/Grafana/Tempo/Metrics) the other three tools already imply |
+| D87 | A `MeterRegistryCustomizer` bean in common-lib (`ObservabilityAutoConfiguration`) tags every metric with `application=${spring.application.name}` | Repeat `management.metrics.tags.application` in each of the 9 services' `application.yaml` | The one common tag every Prometheus query/Grafana panel needs once 9 services share one Prometheus instance — declaring it once as auto-configuration (same `@AutoConfiguration` + `@ConditionalOnClass` pattern as `CorrelationIdAutoConfiguration`) is this project's standing "no duplicated code" requirement applied to a 9-way-repeated YAML line instead of Java code |
+| D88 | Business metrics are recorded at the one existing method every relevant code path already funnels through (`PaymentEventPublisher.publish`, `LedgerService.post`, `AuditService.recordEvent`, etc.), not scattered across each public entry-point method that could reach them | Add a counter increment at every public method of `PaymentService`/`AnalyticsService`/etc. individually | Every payment mutation (`create`, `authorize`, `capture`, `refund`, `void`) already calls `PaymentEventPublisher.publish(...)` exactly once; recording the metric there means one call site instead of five, staying correct automatically if a future milestone adds a sixth mutation path, and matching this project's existing preference for single choke-points over repeated call-site logic (e.g. `mutate()`'s own shared shape, M5) |
+| D89 | `management.otlp.metrics.export.enabled: false` set explicitly on every service | Leave it at its default (enabled) | A real bug found during local verification, not assumed away: `spring-boot-starter-opentelemetry` also auto-configures an OTLP *metrics* push exporter (separate from tracing), which has no configured receiver (Tempo only ingests traces; this platform's metrics backend is Prometheus's pull-based scrape) — every service was silently retrying a doomed push to `localhost:4318/v1/metrics` on a timer and logging a connection-refused stack trace each time. Disabling just the metrics half of OTLP export (tracing export stays on) removed the noise with no loss of capability, since Prometheus already has every metric via scraping |
+| D90 | Promtail ships container logs to Loki via Docker service discovery (`docker_sd_configs` against the mounted Docker socket), not the Loki Docker logging-driver plugin | `docker plugin install grafana/loki-docker-driver` + switch each service's `logging.driver` | The service-discovery approach needs zero host-level Docker plugin installation and zero changes to any of the 9 services' own `docker-compose.yml` entries (they keep logging to plain stdout, exactly as before M13) — more portable across dev machines, and consistent with this project's general preference for config-only changes over environment-specific host setup steps |
+| D91 | Local observability stack uses ports 9091 (Prometheus) and 3002 (Grafana), not each tool's own documented default (9090/3000) | Keep the defaults | A real, encountered-in-practice collision found during verification: this dev machine already had an unrelated project's own `caching-prometheus`/`caching-grafana` containers bound to 9090/3000, and a second unrelated project's Grafana on 3001 — confirmed via `docker ps`/`netstat` before picking replacement ports, not guessed. Exactly the kind of coexistence problem D9's dedicated-port-range convention already exists to avoid; documented here since observability tooling's defaults are common enough to collide with other local work regularly |
 
 ---
 
@@ -253,7 +261,7 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 11. Known Issues
 - Gateway does not yet honor `X-Forwarded-*`/`Forwarded` headers (Spring Cloud Gateway 2025.x disables this by default unless `spring.cloud.gateway.server.webflux.trusted-proxies` is set). Irrelevant with no reverse proxy in front locally; must be configured in M12 once the gateway sits behind an ALB, or HSTS/scheme-dependent behavior will see the wrong (plaintext) scheme.
-- Gateway-local log lines do not carry `correlationId`/`requestId` via MDC (WebFlux isn't thread-bound per request); the header still propagates correctly across the wire. Full reactive log correlation is deferred to M13 (see D26).
+- ~~Gateway-local log lines do not carry `correlationId`/`requestId` via MDC~~ — resolved in M13 (D26): Micrometer Tracing's context-propagation library bridges Reactor Context → MDC automatically once the OTel bridge is on the classpath, no custom filter code needed. Verified with a real trace: a single trace ID (from a login attempt through the gateway) appears in both `gateway-service`'s and `identity-service`'s spans in Tempo, and the exact same trace/span ids appear in identity-service's real log line — genuine end-to-end propagation, not just configuration that looks plausible.
 - No merchant-API-key-based auth path exists for payment creation (see D32) — only JWT-via-gateway, matching §4. Deferred until a real server-to-server caller for it exists.
 - ~~No circuit breaker/retry/fallback around payment-service's Feign call to merchant-service~~ — resolved in M8 (D49–D52).
 - Concurrent duplicate requests sharing an `Idempotency-Key` fail fast (409) rather than blocking briefly and replaying once the first completes. Simpler and deterministic; a documented simplification, not a bug.
@@ -263,7 +271,7 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - notification-service's webhook delivery has no HMAC/signature scheme yet — a receiving merchant endpoint can't cryptographically verify a webhook actually came from this platform. Real payment platforms sign webhook bodies; deferred as out of scope for this milestone's "webhook delivery + retry + DLQ" line item.
 - audit-service/analytics-service (like transaction-service, D42) have no query API for their data yet — verifying audit/aggregate state today requires a direct `psql` query. Deferred until a real consumer for that data exists (candidate: M15's merchant console).
 - Concurrent duplicate webhook-delivery attempts for the same event are not possible by construction today (only the main listener's inline attempt and the dedicated retry listener ever touch a `webhook_deliveries` row, never both at once) — `WebhookDelivery`'s `@Version` is defensive only, not load-bearing yet.
-- No concrete Micrometer registry implementation (e.g. `micrometer-registry-prometheus`) is wired into any service yet — Resilience4j's meters are correctly bound to Micrometer's meter-registration SPI (proven via `MerchantResilienceIntegrationTest` reading `MeterRegistry` directly, since Spring Boot Test supplies its own `SimpleMeterRegistry`), but the real running app has no concrete registry backing it, so `/actuator/metrics/resilience4j.*` returns nothing meaningful today — every recorded metric is silently discarded by Boot's default empty `CompositeMeterRegistry`. This is exactly M13's job ("Ensure they will later integrate with Prometheus in M13"), not pulled forward.
+- ~~No concrete Micrometer registry implementation is wired into any service yet~~ — resolved in M13: every service now has `micrometer-registry-prometheus`, confirmed via a real `terraform`-free local check — `/actuator/prometheus` returns real Resilience4j meters (`resilience4j.circuitbreaker.*` etc., the exact gap this bullet used to describe) plus every business counter added this milestone, and Prometheus's own `/api/v1/targets` shows all 9 services `"health":"up"`.
 - TimeLimiter's `cancelRunningFuture(true)` cancels the `CompletableFuture` the caller is waiting on, but does not interrupt the underlying blocking Feign HTTP call already in flight on its `ThreadPoolBulkhead` thread — the real socket read keeps running in the background until it completes or the Feign-level `read-timeout-ms` fires on its own. The caller still gets a fail-fast response either way (that's what TimeLimiter is for); this only means "abandoned" calls linger briefly on the bulkhead's own small pool, not the application's main threads. Feign's own socket timeouts (`paymentflow.resilience.merchant-service.read-timeout-ms`) are kept comfortably under TimeLimiter's budget specifically so this window stays short.
 - Container images run on `eclipse-temurin:*-alpine` (musl libc), so Reactor Netty (gateway-service) falls back to its pure-Java NIO transport instead of the native epoll transport available on glibc hosts. Functionally identical, slightly less throughput under very high concurrency — irrelevant at this platform's local-dev/demo scale; worth a plain (non-Alpine) base image only if a future load-testing milestone (M14) shows it matters.
 - Building all 8 Docker images with Compose's default parallel-build behavior on this dev machine (16 CPUs, ~11.5GB allocated to the Docker Desktop VM) overloads the daemon — each build spins up its own single-use Gradle daemon doing a full multi-module resolve+compile, and 7 of those running concurrently exhausts the VM's memory and crashes BuildKit's gRPC connection. Building sequentially (or with `COMPOSE_PARALLEL_LIMIT` set low) works reliably; not a problem in CI (M10), which typically builds and pushes one image per job/runner rather than all 8 in one machine at once.
@@ -287,6 +295,10 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - The async event pipeline (payment-service's transactional-outbox → Kafka → transaction/audit/notification/analytics-service consumers) could **not** be directly confirmed end-to-end during this session's verification, despite the synchronous payment API working correctly over real HTTP. No `psql`/bastion access into the private RDS instance and no SSM Session Manager plugin available in this environment (ECS Exec isn't enabled on any service either) meant the only available evidence was indirect: payment-service's Kafka producer completed a genuine `InitProducerId` handshake against the real broker (proves live connectivity), `OutboxRelay.publishOne()` logs an ERROR with full stack trace on any publish failure and logged zero errors across 450+ scheduled ticks spanning the whole test window, and all 4 consumers successfully joined their consumer groups against the same Cluster ID. The complete silence on the consumer side is fully explained by the code itself (`OutboxRelay` logs only on failure, `PaymentEventListener` logs only on parse failure, `LedgerService` logs at DEBUG on the happy path) rather than being suspicious on its own. Net assessment: very likely working, not confirmed with the same certainty as the synchronous path. Enabling `enable_execute_command` on the Kafka-touching services (or getting `psql` access) would let a future session confirm this directly — not done here to avoid an unrequested infrastructure change mid-verification.
 - Two ad-hoc diagnostic ECS tasks were run against the `kafka-broker` task definition during this session's investigation (`aws ecs run-task` with a `kafka-console-consumer.sh` command override) — both intentionally short-lived, already `STOPPED`, and left no persistent AWS resources behind. Recorded here only for a complete audit trail of what touched this AWS account during the session, not because anything needs cleaning up.
 - **All infrastructure is now live and billing continuously**: VPC + NAT Gateway, ALB, RDS (`db.t4g.micro`), ElastiCache (`cache.t4g.micro`-class), the Kafka broker's Fargate task + EFS, and 9 Fargate tasks total (8 app services + kafka-broker). This is a real, ongoing AWS cost (no longer just S3/DynamoDB bootstrap) — worth keeping in mind for teardown planning (§10 Risks already commits to this being torn-down-able; a `terraform destroy` plan hasn't been exercised or verified this session).
+- **M13's observability stack (Prometheus/Grafana/Loki/Tempo) is local-only** (D84) — confirmed with the user before implementing. AWS has no Prometheus/Grafana/Tempo deployed and no Loki log shipping; the AWS deployment's only observability today is what M11 already gave it (CloudWatch Logs/Container Insights) plus whatever `/actuator/prometheus`/`/actuator/health` each live ECS task now exposes internally (unscraped by anything in AWS). Deploying the stack to AWS is a well-scoped, ready-to-do follow-up (the `kafka-broker` Fargate+EFS module pattern already proven this session generalizes directly), deliberately not done to avoid adding more continuous AWS cost without being asked.
+- notification-service's "email" channel is simulated/logged only (D45, unchanged) — email-related business metrics (`email_logged_total`, M13) therefore only ever prove "a simulated send was logged," not real delivery, matching the existing simulation's own honest scope.
+- Prometheus, Loki, and Tempo all use single-node/local-filesystem storage with no retention policy tuned against a real load profile (Loki's `limits_config`, Tempo's `compaction.block_retention: 48h`, Prometheus's own default retention) — appropriate for a portfolio/demo deployment restarted frequently, not a sizing decision that would survive real production traffic. Revisit only if a future milestone needs to demonstrate real capacity planning.
+- Alertmanager has no real notification channel wired up (no Slack/PagerDuty/email integration) — alerts fire, group, and are visible in Alertmanager's own UI and via Grafana, but nothing pages anyone. Same honest-stand-in stance as D45's simulated email: no real on-call destination exists for this portfolio deployment to point at.
 
 ## 12. Future Improvements
 - gRPC for internal sync calls; API versioning; blue/green on ECS; OpenTelemetry collector.
@@ -2361,5 +2373,268 @@ pushed to ECR (`679140927441.dkr.ecr.us-east-1.amazonaws.com/paymentflow/
 **Next milestone:** M13 — Observability. Infrastructure is now live,
 applied, and verified end-to-end; nothing further blocks resuming the
 roadmap, pending the user's go-ahead to actually start M13.
+
+---
+
+### M13 — Observability ✅ (2026-07-19)
+
+**Objectives:** Instrument every one of the 9 services (8 microservices +
+gateway) with Micrometer, wire a real Prometheus registry (closing the gap
+M8/M9's own changelogs already flagged as "exactly M13's job"), add
+distributed tracing (closing D26's deferred reactive-log-correlation gap),
+and stand up a production-quality Prometheus + Grafana + Loki + Tempo +
+Alertmanager stack with real dashboards and alert rules — verified against
+a live running platform, not just reviewed as config.
+
+**Scope decision confirmed before implementing:** whether to also deploy the
+observability stack to AWS this milestone (AskUserQuestion) — the user chose
+local-only (D84), given the real, already-live AWS cost from the M12
+recovery session. AWS deployment is scoped out entirely; every service is
+still instrumented identically regardless of environment (the application
+code doesn't know or care where its metrics/traces end up).
+
+**Features implemented**
+- **common-lib**: new `ObservabilityAutoConfiguration` (D87) — a
+  `MeterRegistryCustomizer` bean tagging every metric with
+  `application=${spring.application.name}`, the one common tag a
+  9-services-in-one-Prometheus-instance setup needs, declared once instead
+  of repeated in 9 `application.yaml` files.
+- **Every service** (`build.gradle.kts`): `micrometer-registry-prometheus`
+  (`runtimeOnly`) + `spring-boot-starter-opentelemetry` (D85, the official
+  Boot 4 starter — bundles the OTel SDK, Micrometer Tracing bridge, and OTLP
+  exporter in one dependency rather than assembling the pieces by hand).
+- **Every service** (`application.yaml`): `metrics` added to actuator
+  exposure (previously only `payment-service` had it, from M8);
+  `management.tracing.sampling.probability: 1.0` (100% — portfolio-scale
+  traffic, not real production volume); `management.opentelemetry.tracing.export.otlp.endpoint`
+  pointing at the local compose Tempo by default, overridden via
+  `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT` in containers (same
+  "local default, env-var override" pattern every other cross-cutting
+  setting already uses); `management.otlp.metrics.export.enabled: false`
+  (D89, see Problems); `logging.pattern.level` extended from
+  `[correlationId,requestId]` to self-describing
+  `[correlationId=...,requestId=...,traceId=...,spanId=...]` key=value pairs
+  (needed for Loki's derived-fields trace-id regex to actually parse the log
+  line, not just decoration).
+- **gateway-service, identity-service, merchant-service, payment-service**
+  (`SecurityConfig`): `/actuator/metrics`/`/actuator/metrics/**` added to the
+  existing GET-permitted actuator paths; gateway-service additionally gained
+  `/actuator/prometheus`, which — a real, pre-existing gap found while
+  wiring this — had never actually been permitted despite being "exposed"
+  in `application.yaml` since M3.
+- **Distributed tracing closes D26 for real**, not just in principle: Boot's
+  context-propagation library bridges Reactor Context → MDC automatically
+  once the OTel bridge is on the classpath, so `gateway-service`'s
+  WebFlux-isn't-thread-bound MDC gap is gone with zero custom filter code.
+  Verified with a real trace, not asserted: a login attempt's trace ID
+  appears as spans from *both* `gateway-service` (Spring Security
+  `authorize exchange`, the rate-limiter's Redis `EVALSHA` span) and
+  `identity-service` in the same Tempo trace, and that exact trace/span pair
+  appears in identity-service's own real log line for the same request.
+- **Business metrics** (D88 — recorded at the one existing method every
+  relevant code path already funnels through, not scattered per call site):
+  - payment-service: `payment_lifecycle_events_total{eventType,currency}`
+    (`PaymentEventPublisher.publish`, every create/authorize/capture/
+    refund/void path); `idempotency_key_outcomes_total{outcome}`
+    (replayed/reused_conflict/in_flight_conflict, `IdempotencyService`);
+    `outbox_relay_publish_total{topic,outcome}` (`OutboxRelay.publishOne`).
+  - transaction-service: `ledger_postings_total{eventType,currency}`
+    (`LedgerService.post`); `ledger_posting_retries_total`
+    (optimistic-lock contention).
+  - audit-service: `audit_events_total{outcome,eventType}`
+    (recorded/duplicate_skipped/concurrent_duplicate).
+  - notification-service: `email_logged_total{eventType}`;
+    `webhook_delivery_attempts_total{outcome}`
+    (delivered/failed/dead_lettered, across `WebhookDeliveryService` and
+    `WebhookRetryListener`).
+  - analytics-service: `analytics_stats_updates_total{eventType,currency}`.
+  - identity-service: `auth_register_outcomes_total{outcome}`,
+    `auth_login_outcomes_total{outcome}` (`AuthService`).
+  - merchant-service: `merchant_onboarded_total`, `api_key_rotated_total`
+    (`MerchantService`, `ApiKeyService`).
+  - Free, no code needed: Spring MVC/WebFlux's `http_server_requests_seconds_*`
+    (every request, every service, once a registry exists), Resilience4j's
+    `resilience4j.*` meters (M8, finally have somewhere to land), Spring
+    Cache's `cache.*` meters (merchant-service), JVM/HikariCP/Kafka-client
+    meters — all auto-bound by Boot the moment a concrete registry appears.
+- **Local observability stack** (`docker-compose.observability.yml`, new,
+  merges via `-f` like the other two compose files, D56-precedent):
+  Prometheus (scrapes all 9 `/actuator/prometheus` endpoints, static
+  targets by container DNS name), Alertmanager (7 real alert rules — see
+  below — no real notification channel wired up, D45-style honest
+  stand-in), Loki + Promtail (D90 — Docker service-discovery log shipping,
+  no host-level plugin install, zero changes to any service's own logging
+  config), Tempo (D86 — OTLP trace receiver + storage/query), Grafana
+  (auto-provisioned datasources with cross-linking — Loki logs →
+  Tempo traces via a `traceId=` derived field, Tempo traces → Loki logs,
+  Tempo → Prometheus exemplars/service-graph — and 3 auto-provisioned
+  dashboards, no manual import step).
+- **3 Grafana dashboards** (`observability/grafana/dashboards/`):
+  *Platform Overview* (service up/down, request rate, 5xx error rate,
+  p50/p95/p99 latency, `merchantService` circuit-breaker state, requests by
+  status code); *Business Metrics* (payment lifecycle funnel, ledger
+  postings, outbox publish outcomes, idempotency outcomes, webhook delivery
+  outcomes, audit events, auth outcomes, merchant onboarding/key rotation,
+  analytics updates, ledger retry rate); *JVM & Infrastructure* (heap %, GC
+  pause rate, live threads, HikariCP active/idle, bulkhead available slots,
+  Kafka consumer fetch lag).
+- **7 Prometheus alert rules** (`observability/prometheus/alert-rules.yml`):
+  `ServiceDown`, `HighHttpErrorRate` (>5% 5xx for 5m),
+  `MerchantServiceCircuitBreakerOpen`, `OutboxRelayPublishFailing`,
+  `WebhookDeadLetterRateHigh`, `LedgerPostingRetriesElevated`,
+  `JvmHeapUsageHigh` (>85% for 5m) — every one ties to a real metric this
+  platform genuinely emits, none synthetic/placeholder.
+
+**Endpoints added:** none new REST endpoints. `/actuator/prometheus` and
+`/actuator/metrics` go from "declared in config, backed by nothing" to
+genuinely functional on all 9 services; `/actuator/health/liveness` and
+`/actuator/health/readiness` (already auto-configured since `health.probes.enabled: true`
+has existed since before this milestone) are now meaningfully exercised for
+the first time via Grafana/manual verification.
+
+**Database / Kafka / Redis changes:** none.
+
+**Infra/Docker changes:** `docker-compose.observability.yml` (new);
+`docker-compose.yml` (added `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT`
+to all 8 services' `environment:` blocks); `observability/` (new directory —
+`prometheus/{prometheus.yml,alert-rules.yml}`, `alertmanager/alertmanager.yml`,
+`loki/loki-config.yml`, `promtail/promtail-config.yml`, `tempo/tempo.yml`,
+`grafana/provisioning/{datasources,dashboards}/*.yml`,
+`grafana/dashboards/*.json`); `.env`/`.env.example` (6 new observability
+port/credential variables, D91 for the two non-default port choices).
+
+**Files created:** `common-lib/.../autoconfigure/ObservabilityAutoConfiguration.java`;
+`docker-compose.observability.yml`; 15 files under `observability/`.
+
+**Files modified:** all 9 services' `build.gradle.kts` + `application.yaml`;
+4 services' `SecurityConfig.java` (gateway/identity/merchant/payment);
+`common-lib/build.gradle.kts` (+`AutoConfiguration.imports`);
+`payment-service/.../event/PaymentEventPublisher.java`,
+`.../idempotency/IdempotencyService.java`, `.../outbox/OutboxRelay.java`;
+`transaction-service/.../service/LedgerService.java`;
+`audit-service/.../service/AuditService.java`;
+`notification-service/.../service/{NotificationService,WebhookDeliveryService}.java`,
+`.../listener/WebhookRetryListener.java`;
+`analytics-service/.../service/AnalyticsService.java`;
+`identity-service/.../service/AuthService.java`;
+`merchant-service/.../service/{MerchantService,ApiKeyService}.java`;
+9 corresponding test classes (constructor-injection fixes, see Problems);
+`docker-compose.yml`; `.env`/`.env.example`; `PROJECT_CONTEXT.md`.
+
+**Testing completed:** Full `./gradlew test` suite green across all 14
+modules after every change (run repeatedly through the session as changes
+landed, not just once at the end). Existing tests needed updates purely for
+the new `MeterRegistry` constructor dependency — no test assertions changed,
+no behavior changed: 6 files fixed with `new SimpleMeterRegistry()`
+(`IdempotencyServiceTest`, `AuditServiceTest`, `AnalyticsServiceTest`,
+`LedgerServiceTest`, `NotificationServiceTest`, `WebhookDeliveryServiceTest`,
+`WebhookRetryListenerTest`), 3 fixed with a `@Mock(answer = Answers.RETURNS_DEEP_STUBS)`
+`MeterRegistry` field (`AuthServiceTest`, `ApiKeyServiceTest`,
+`MerchantServiceTest`, all `@InjectMocks`-based). A handful of
+Testcontainers-based integration test failures mid-session were confirmed
+transient Docker-resource contention (the same class of issue M9's
+changelog already documented for concurrent Kafka container startups), not
+regressions — resolved by re-running with capped worker parallelism.
+
+**Verification steps (against a real running platform, not just review):**
+1. Built all 8 Docker images with the M13 changes baked in; brought up the
+   full stack (`docker compose -f docker-compose.infra.yml -f docker-compose.yml
+   -f docker-compose.observability.yml up -d`) — all 17 containers reached
+   `healthy`/`Up`.
+2. `curl http://localhost:9091/api/v1/targets` — all 9 `paymentflow-services`
+   scrape targets (+ Prometheus itself) `"health":"up"`, confirming every
+   service's real Prometheus registry is genuinely reachable over the
+   compose network, not just configured.
+3. Drove a real register→login→onboard→create→authorize→capture→refund
+   lifecycle through the containerized gateway over real HTTP, then
+   confirmed `payment_lifecycle_events_total`, `ledger_postings_total`,
+   `audit_events_total`, and `analytics_stats_updates_total` all show the
+   exact expected event-type breakdown directly from Prometheus queries —
+   genuine end-to-end proof the async pipeline (payment-service → Kafka →
+   4 consumers) works, complementing the AWS session's indirect-only
+   evidence for the same pipeline with a direct one.
+4. Confirmed distributed tracing end-to-end (see Features above) — a single
+   trace ID spanning `gateway-service` and `identity-service`, matched
+   against identity-service's own log line for the same request.
+5. Queried Loki directly (`/loki/api/v1/query_range`) and confirmed real,
+   labeled log lines from `payment-service`'s container.
+6. `curl http://localhost:9091/api/v1/rules` — all 7 alert rules loaded with
+   zero syntax errors.
+7. Grafana API (`/api/search`, `/api/datasources`, `/api/dashboards/uid/...`)
+   confirmed all 3 datasources and all 3 dashboards auto-provisioned
+   correctly, with the Platform Overview dashboard's exact 6 panels present
+   and no load errors.
+8. Full `./gradlew test` re-run clean after the final fix (Problem #1
+   below), confirming no regression from any M13 change.
+9. Stack torn down cleanly (`docker compose ... down`), no orphaned
+   containers/networks.
+
+**Important design decisions:** D84–D91 (see §9).
+
+**Problems faced → solutions**
+1. **A real bug found only once the stack was actually running, not from
+   config review**: every service's logs showed a repeating
+   `Failed to publish metrics to OTLP receiver ... Connection refused`
+   stack trace on a timer. Root cause: `spring-boot-starter-opentelemetry`
+   auto-configures an OTLP *metrics* push exporter in addition to tracing —
+   this platform's metrics backend is Prometheus's pull-based scrape, so
+   the push exporter had no receiver to talk to. Found the exact disabling
+   property (`management.otlp.metrics.export.enabled: false`) by reading
+   `spring-boot-micrometer-metrics`'s own `spring-configuration-metadata.json`
+   rather than guessing (D89) — the same "check the resolved jar, don't
+   assume" discipline this project has used since D20.
+2. **Boot 4's modular auto-configuration (D20's recurring pattern) hit
+   twice more**: `MeterRegistryCustomizer` isn't in
+   `spring-boot-actuator-autoconfigure` at all — it's in the separate
+   `spring-boot-micrometer-metrics` module (found via `unzip -l` against
+   the resolved jar before guessing an import). OTLP tracing autoconfiguration
+   is in `spring-boot-micrometer-tracing-opentelemetry`, and the correct
+   property is `management.opentelemetry.tracing.export.otlp.endpoint` —
+   a web search actually surfaced the *deprecated* `management.otlp.tracing.endpoint`
+   as one of two candidate answers with no way to tell which was current;
+   only reading the jar's own configuration metadata (which explicitly
+   marks the old property `"deprecated": true, "level": "error"`) resolved
+   the ambiguity definitively.
+3. **Local port collisions with completely unrelated projects on this dev
+   machine**: Grafana's default 3000 was already reserved (this project's
+   own future M15 frontend), but 3001 *also* turned out to already be
+   bound by an unrelated project's own Grafana container, and Prometheus's
+   default 9090 by an unrelated project's own Prometheus — both confirmed
+   via `docker ps`/`netstat` before picking genuinely free replacements
+   (3002/9091, D91), not guessed. A stale `Created`-but-never-started
+   `paymentflow-prometheus`/`paymentflow-grafana` container from an earlier
+   failed attempt also needed removing before the retry could succeed.
+4. A leftover `./gradlew :identity-service:bootRun` process from an earlier
+   ad hoc smoke test (used to verify the Prometheus/tracing wiring on one
+   service before replicating it to the other 8) was still holding port
+   8081 on the host, causing the first full-stack `up` attempt to fail —
+   found and killed by PID via `netstat`, not assumed cleaned up.
+5. `@InjectMocks`-based unit tests (`AuthServiceTest`, `ApiKeyServiceTest`,
+   `MerchantServiceTest`) NPE'd on the new `MeterRegistry` dependency since
+   Mockito only auto-injects `@Mock`/`@Spy`-annotated fields, and a plain
+   `@Mock MeterRegistry` returns `null` from `.counter(...)` by default
+   (a mock's unstubbed method returning an object returns `null`, not a
+   further mock) — fixed with `@Mock(answer = Answers.RETURNS_DEEP_STUBS)`
+   so the chained `.counter(...).increment()` call resolves to further
+   mocks instead of NPEing, rather than hand-stubbing every call site.
+6. `AuthService.login()` originally had two separate `InvalidCredentialsException`
+   throw sites (no-such-user, wrong-password) sharing one message by
+   design (no user-enumeration signal) — adding the login-outcome metric
+   at both sites would have duplicated the increment call; refactored to a
+   single `orElse(null)` + explicit null-check so the metric (and the
+   exception) both have exactly one call site, with identical
+   externally-observable behavior (confirmed by the pre-existing
+   `AuthServiceTest` assertions passing unchanged).
+
+**Explicitly not done this milestone (deliberate, D84):** no AWS deployment
+of Prometheus/Grafana/Tempo/Loki — confirmed with the user first. The
+`gateway-service` `SPRING_PROFILES_ACTIVE=local` AWS misconfiguration found
+during the M12-recovery session remains unfixed (still out of this
+milestone's scope; unrelated to observability). `cd.yml`/GHCR→ECR push
+pipeline remains unexercised (unrelated to this milestone).
+
+**Next milestone:** M14 — Performance (Gatling load tests; record
+P95/P99/throughput/error-rate) — and now has real dashboards to read the
+results from instead of raw Gatling reports alone.
 
 

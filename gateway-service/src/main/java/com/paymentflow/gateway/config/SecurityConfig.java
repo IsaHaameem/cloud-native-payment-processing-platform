@@ -58,7 +58,8 @@ public class SecurityConfig {
                 .authorizeExchange(exchange -> exchange
                         .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .pathMatchers("/api/v1/auth/**", "/oauth2/jwks").permitAll()
-                        .pathMatchers(HttpMethod.GET, "/actuator/health/**", "/actuator/info").permitAll()
+                        .pathMatchers(HttpMethod.GET, "/actuator/health/**", "/actuator/info",
+                                "/actuator/prometheus", "/actuator/metrics", "/actuator/metrics/**").permitAll()
                         .anyExchange().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt

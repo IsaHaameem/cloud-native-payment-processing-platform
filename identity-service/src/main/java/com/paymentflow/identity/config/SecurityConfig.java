@@ -42,7 +42,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/oauth2/jwks").permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**", "/actuator/info",
-                                "/actuator/prometheus").permitAll()
+                                "/actuator/prometheus", "/actuator/metrics", "/actuator/metrics/**").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth
                         .jwt(jwt -> jwt

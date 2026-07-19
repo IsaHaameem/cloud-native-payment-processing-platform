@@ -5,6 +5,7 @@ import com.paymentflow.notification.domain.DeliveryStatus;
 import com.paymentflow.notification.domain.WebhookDelivery;
 import com.paymentflow.notification.repository.WebhookDeliveryRepository;
 import com.sun.net.httpserver.HttpServer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,7 +54,8 @@ class WebhookDeliveryServiceTest {
         requestFactory.setConnectTimeout(1000);
         requestFactory.setReadTimeout(1000);
         RestClient restClient = RestClient.builder().requestFactory(requestFactory).build();
-        webhookDeliveryService = new WebhookDeliveryService(webhookDeliveryRepository, restClient, kafkaTemplate, properties);
+        webhookDeliveryService = new WebhookDeliveryService(webhookDeliveryRepository, restClient, kafkaTemplate, properties,
+                new SimpleMeterRegistry());
     }
 
     @AfterEach

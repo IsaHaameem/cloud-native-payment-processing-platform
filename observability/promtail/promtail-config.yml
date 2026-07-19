@@ -1,0 +1,37 @@
+# Promtail (M13): ships every container's stdout log lines into Loki, labeled by
+# container/service name. Docker service discovery (not a static file-path scrape)
+# — reads the Docker daemon's own container list via the mounted socket
+# (read-only) rather than requiring every service to also write to a shared log
+# file/volume; this is the standard, most portable Loki-plus-docker-compose
+# pattern and needs zero changes to the 8 services' own logging config (still
+# plain stdout, same as before M13).
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Keep only this platform's own containers (paymentflow-*), not every
+      # container Docker happens to know about on this host.
+      - source_labels: [__meta_docker_container_name]
+        regex: "/paymentflow-(.*)"
+        target_label: service
+        replacement: "$1"
+      - source_labels: [__meta_docker_container_name]
+        regex: "/paymentflow-(.*)"
+        action: keep
+      - source_labels: [__meta_docker_container_name]
+        target_label: container
+        regex: "/(.*)"
+        replacement: "$1"

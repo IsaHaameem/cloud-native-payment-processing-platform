@@ -1,0 +1,42 @@
+# Single-node Loki (M13), filesystem storage — matches this platform's local-dev
+# scale exactly the way the local Kafka/Postgres/Redis containers are single-node
+# too. No S3/GCS backend needed for a portfolio deployment.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # A portfolio-scale platform under manual/scripted E2E testing produces bursty,
+  # low-volume log traffic — well under Loki's real defaults, but the defaults are
+  # tuned for much larger production ingest and would need real tuning work to be
+  # meaningfully different here. Left at Loki's own defaults deliberately (no
+  # invented number without a real load profile to tune against — same reasoning
+  # this project already applied to M8's Resilience4j thresholds).
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+
+compactor:
+  working_directory: /loki/compactor

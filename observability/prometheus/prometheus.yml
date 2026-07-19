@@ -1,0 +1,48 @@
+# Prometheus scrape configuration (M13). Every one of the 8 microservices +
+# gateway-service exposes /actuator/prometheus (unauthenticated, same trust
+# boundary as /actuator/health — never proxied through the gateway, so it's
+# only ever reachable from inside the compose network, D-precedent). Static
+# targets by container DNS name — no service-discovery mechanism needed at
+# this scale, mirrors the fixed set of services docker-compose.yml already
+# hardcodes.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    platform: paymentflow
+
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: paymentflow-services
+    metrics_path: /actuator/prometheus
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["gateway-service:8080"]
+        labels: { service: gateway-service }
+      - targets: ["identity-service:8081"]
+        labels: { service: identity-service }
+      - targets: ["merchant-service:8082"]
+        labels: { service: merchant-service }
+      - targets: ["payment-service:8083"]
+        labels: { service: payment-service }
+      - targets: ["transaction-service:8084"]
+        labels: { service: transaction-service }
+      - targets: ["audit-service:8091"]
+        labels: { service: audit-service }
+      - targets: ["notification-service:8092"]
+        labels: { service: notification-service }
+      - targets: ["analytics-service:8093"]
+        labels: { service: analytics-service }

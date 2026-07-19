@@ -2,6 +2,7 @@ package com.paymentflow.audit.service;
 
 import com.paymentflow.audit.domain.AuditLogEntry;
 import com.paymentflow.audit.repository.AuditLogEntryRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -27,9 +28,11 @@ public class AuditService {
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
 
     private final AuditLogEntryRepository auditLogEntryRepository;
+    private final MeterRegistry meterRegistry;
 
-    public AuditService(AuditLogEntryRepository auditLogEntryRepository) {
+    public AuditService(AuditLogEntryRepository auditLogEntryRepository, MeterRegistry meterRegistry) {
         this.auditLogEntryRepository = auditLogEntryRepository;
+        this.meterRegistry = meterRegistry;
     }
 
     @Transactional
@@ -37,6 +40,7 @@ public class AuditService {
         UUID eventId = UUID.fromString(envelope.get("eventId").asString());
         if (auditLogEntryRepository.existsByEventId(eventId)) {
             log.debug("Event {} already recorded, skipping", eventId);
+            meterRegistry.counter("audit_events_total", "outcome", "duplicate_skipped").increment();
             return;
         }
 
@@ -51,8 +55,10 @@ public class AuditService {
         try {
             auditLogEntryRepository.save(
                     AuditLogEntry.of(eventId, eventType, aggregateId, occurredAt, correlationId, payload));
+            meterRegistry.counter("audit_events_total", "outcome", "recorded", "eventType", eventType).increment();
         } catch (DataIntegrityViolationException e) {
             log.debug("Event {} was recorded by a concurrent redelivery, ignoring", eventId);
+            meterRegistry.counter("audit_events_total", "outcome", "concurrent_duplicate").increment();
         }
     }
 }

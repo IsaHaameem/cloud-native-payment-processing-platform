@@ -4,6 +4,7 @@ import com.paymentflow.payment.domain.IdempotencyRecord;
 import com.paymentflow.payment.exception.IdempotencyKeyInFlightException;
 import com.paymentflow.payment.exception.IdempotencyKeyReusedException;
 import com.paymentflow.payment.repository.IdempotencyRecordRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -47,7 +48,7 @@ class IdempotencyServiceTest {
     @BeforeEach
     void setUp() {
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        idempotencyService = new IdempotencyService(redisTemplate, repository, objectMapper);
+        idempotencyService = new IdempotencyService(redisTemplate, repository, objectMapper, new SimpleMeterRegistry());
     }
 
     @Test

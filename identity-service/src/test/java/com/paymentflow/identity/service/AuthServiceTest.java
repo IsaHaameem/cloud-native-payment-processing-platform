@@ -11,8 +11,10 @@ import com.paymentflow.identity.exception.InvalidCredentialsException;
 import com.paymentflow.identity.mapper.UserMapper;
 import com.paymentflow.identity.repository.UserRepository;
 import com.paymentflow.identity.security.JwtService;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -44,6 +46,11 @@ class AuthServiceTest {
     @Spy
     private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder =
             new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(4);
+    // Deep stubs: meterRegistry.counter(...) must return a (mock) Counter, not null, or
+    // the M13 metric-recording call sites NPE — this test only cares that the service
+    // logic runs correctly, not that specific counters were incremented.
+    @Mock(answer = Answers.RETURNS_DEEP_STUBS)
+    private MeterRegistry meterRegistry;
 
     @InjectMocks
     private AuthService authService;

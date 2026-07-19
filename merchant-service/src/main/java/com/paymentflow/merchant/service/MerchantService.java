@@ -12,6 +12,7 @@ import com.paymentflow.merchant.dto.UpdateWebhookRequest;
 import com.paymentflow.merchant.exception.MerchantAlreadyExistsException;
 import com.paymentflow.merchant.mapper.MerchantMapper;
 import com.paymentflow.merchant.repository.MerchantRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
@@ -29,12 +30,14 @@ public class MerchantService {
     private final MerchantRepository merchantRepository;
     private final ApiKeyService apiKeyService;
     private final MerchantMapper merchantMapper;
+    private final MeterRegistry meterRegistry;
 
     public MerchantService(MerchantRepository merchantRepository, ApiKeyService apiKeyService,
-                           MerchantMapper merchantMapper) {
+                           MerchantMapper merchantMapper, MeterRegistry meterRegistry) {
         this.merchantRepository = merchantRepository;
         this.apiKeyService = apiKeyService;
         this.merchantMapper = merchantMapper;
+        this.meterRegistry = meterRegistry;
     }
 
     @Transactional
@@ -45,6 +48,7 @@ public class MerchantService {
         Merchant merchant = merchantRepository.save(
                 Merchant.onboard(ownerUserId, request.businessName(), request.contactEmail()));
         ApiKeyService.IssuedApiKey issued = apiKeyService.issue(merchant.getId());
+        meterRegistry.counter("merchant_onboarded_total").increment();
         return new MerchantOnboardResponse(merchantMapper.toResponse(merchant), toIssuedResponse(issued));
     }
 

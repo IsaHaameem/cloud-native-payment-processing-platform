@@ -1,0 +1,15 @@
+# Auto-provisions every dashboard JSON file in observability/grafana/dashboards/
+# (M13) — no manual "import dashboard" step; a fresh `docker compose up` already
+# has all three dashboards ready.
+
+apiVersion: 1
+
+providers:
+  - name: paymentflow
+    orgId: 1
+    folder: PaymentFlow
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards

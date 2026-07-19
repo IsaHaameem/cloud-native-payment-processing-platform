@@ -20,6 +20,10 @@
 #   Rebuild one service after a code change:
 #     docker compose -f docker-compose.infra.yml -f docker-compose.yml up -d --build payment-service
 #
+# M13 adds a third file, docker-compose.observability.yml (Prometheus/Grafana/
+# Loki/Tempo) — same merge pattern, add it as a fourth -f flag; see that file's
+# own header for the full command.
+#
 # Configuration comes from the same local .env file as the infra stack (copy from
 # .env.example). Every Spring property that must differ inside the container
 # network (datasource/redis/kafka hosts, cross-service base URIs) is overridden
@@ -45,6 +49,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-paymentflow}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8081:8081"
     depends_on:
@@ -71,6 +76,7 @@ services:
       SPRING_DATA_REDIS_PORT: "6379"
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-paymentflow}
       PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI: http://identity-service:8081/oauth2/jwks
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8082:8082"
     depends_on:
@@ -103,6 +109,7 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI: http://identity-service:8081/oauth2/jwks
       PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI: http://merchant-service:8082
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8083:8083"
     depends_on:
@@ -137,6 +144,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8084:8084"
     depends_on:
@@ -162,6 +170,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8091:8091"
     depends_on:
@@ -187,6 +196,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8092:8092"
     depends_on:
@@ -212,6 +222,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8093:8093"
     depends_on:
@@ -240,6 +251,7 @@ services:
       PAYMENTFLOW_SERVICES_IDENTITY_BASE_URI: http://identity-service:8081
       PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI: http://merchant-service:8082
       PAYMENTFLOW_SERVICES_PAYMENT_BASE_URI: http://payment-service:8083
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8080:8080"
     depends_on:

@@ -7,6 +7,7 @@ import com.paymentflow.notification.event.PaymentNotificationEventPayload;
 import com.paymentflow.notification.repository.EmailLogEntryRepository;
 import com.paymentflow.notification.repository.ProcessedEventRepository;
 import com.paymentflow.notification.repository.WebhookDeliveryRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,7 +53,8 @@ class NotificationServiceTest {
     @BeforeEach
     void setUp() {
         notificationService = new NotificationService(processedEventRepository, emailLogEntryRepository,
-                webhookDeliveryRepository, webhookDeliveryService, transactionTemplate, objectMapper);
+                webhookDeliveryRepository, webhookDeliveryService, transactionTemplate, objectMapper,
+                new SimpleMeterRegistry());
 
         lenient().when(transactionTemplate.execute(any())).thenAnswer(inv -> {
             TransactionCallback<?> callback = inv.getArgument(0);

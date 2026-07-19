@@ -5,6 +5,7 @@ import com.paymentflow.payment.domain.IdempotencyRecord;
 import com.paymentflow.payment.exception.IdempotencyKeyInFlightException;
 import com.paymentflow.payment.exception.IdempotencyKeyReusedException;
 import com.paymentflow.payment.repository.IdempotencyRecordRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -38,13 +39,15 @@ public class IdempotencyService {
     private final StringRedisTemplate redisTemplate;
     private final IdempotencyRecordRepository idempotencyRecordRepository;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
     public IdempotencyService(StringRedisTemplate redisTemplate,
                               IdempotencyRecordRepository idempotencyRecordRepository,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper, MeterRegistry meterRegistry) {
         this.redisTemplate = redisTemplate;
         this.idempotencyRecordRepository = idempotencyRecordRepository;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
     }
 
     /** SHA-256 fingerprint of an operation name plus its request body, to detect key reuse with a different request. */
@@ -82,8 +85,13 @@ public class IdempotencyService {
         return idempotencyRecordRepository.findByMerchantIdAndIdempotencyKey(merchantId, idempotencyKey)
                 .map(record -> {
                     if (!record.getRequestFingerprint().equals(fingerprint)) {
+                        meterRegistry.counter("idempotency_key_outcomes_total", "outcome", "reused_conflict").increment();
                         throw new IdempotencyKeyReusedException(idempotencyKey);
                     }
+                    // A genuine replay: the caller retried the exact same request (network
+                    // retry, at-least-once client) rather than issuing a new one — worth its
+                    // own metric as a real signal of retry behavior actually happening.
+                    meterRegistry.counter("idempotency_key_outcomes_total", "outcome", "replayed").increment();
                     return objectMapper.readValue(record.getResponseBody(), responseType);
                 });
     }
@@ -92,6 +100,7 @@ public class IdempotencyService {
         Boolean acquired = redisTemplate.opsForValue()
                 .setIfAbsent(lockKey(merchantId, idempotencyKey), "1", LOCK_TTL);
         if (!Boolean.TRUE.equals(acquired)) {
+            meterRegistry.counter("idempotency_key_outcomes_total", "outcome", "in_flight_conflict").increment();
             throw new IdempotencyKeyInFlightException(idempotencyKey);
         }
     }
