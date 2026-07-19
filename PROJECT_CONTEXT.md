@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M10 (CI/CD) — *pending approval*
-- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅ · M9 (Containerization) ✅
-- **Pending milestones:** M10–M15
+- **Current milestone:** M11 (Terraform Infrastructure) — *pending approval*
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅ · M9 (Containerization) ✅ · M10 (CI/CD) ✅
+- **Pending milestones:** M11–M15
 
 ---
 
@@ -215,6 +215,11 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D54 | The builder stage runs the real Gradle wrapper (`./gradlew :<module>:bootJar`) against the actual monorepo — copying in build files first (their own Docker layer) and then only the requested module's `src/` plus `common-dto`/`common-lib` — rather than building jars on the host and `COPY`-ing a prebuilt artifact into the image | build outside Docker and `COPY` a prebuilt jar in | The image is built from exactly the same Gradle/Java-25 toolchain invocation a developer runs locally (reproducible builds, requirement #3) with no separate host-side build step to keep in sync; schema-per-service's "no cross-service coupling" extends to the Docker build context too, since no sibling service's source is ever copied in to build one image |
 | D55 | Runtime images extract the Spring Boot layered jar (`java -Djarmode=tools ... extract --layers --launcher`) onto `eclipse-temurin:25-jre-alpine`, copied in as four separate `COPY --from=builder` layers (dependencies → spring-boot-loader → snapshot-dependencies → application, least- to most-often-changing) | ship the plain uber-jar (`java -jar app.jar`) in a single `COPY` | A pure application-code change only busts the final (application) layer during a later rebuild, not the three dependency layers underneath it (requirement #2's "optimize image size using layered builds"); confirmed working end-to-end with a real local extract-and-run before committing to the approach, not assumed from documentation alone |
 | D56 | `docker-compose.yml` (M9) holds only the eight application services, not a second copy of Postgres/Redis/Kafka/Kafka-UI, and is designed to always run merged with the existing `docker-compose.infra.yml` via multiple `-f` flags (`docker compose -f docker-compose.infra.yml -f docker-compose.yml up -d`) | duplicate the infra service definitions into one all-in-one compose file | Realizes the split M0 already forecast ("Application services get their own compose file in a later phase") without duplicating infra config; critically, `depends_on: condition: service_healthy` only resolves across service definitions known to the *same* Compose model, so merging via `-f` (not two independently-run projects) is what makes postgres/redis/kafka health-gating the app services actually work, not just an aesthetic file-organization choice |
+| D57 | CI (`.github/workflows/ci.yml`) caches Gradle via `gradle/actions/setup-gradle@v4`, not a hand-rolled `actions/cache` step keyed on hashed lockfiles | a manual `actions/cache` block over `~/.gradle/caches` and the wrapper distribution | `gradle/actions/setup-gradle` is the current, actively-maintained mechanism for this in Actions — it caches dependencies, the wrapper distribution, and build-cache entries together, adds a build summary/provenance, and is what the Gradle project itself now recommends over the older `gradle-build-action`/manual-cache pattern. Deliberately not combined with `actions/setup-java`'s own `cache: gradle` option, which would just double-cache the same artifacts |
+| D58 | The `docker-build` job's matrix caps concurrency at `max-parallel: 4` rather than leaving it unbounded (8 legs at once) | let all 8 matrix legs run in parallel, one per service | M9 found that building all 8 images concurrently exhausts a *single shared* Docker Desktop VM's memory (7 Gradle daemons, one machine). GitHub-hosted runners are isolated VMs per matrix leg, so that exact failure mode doesn't reproduce identically here — but the underlying lesson (never let unbounded concurrent image builds outrun the resources actually available) still applies, this time against the account's concurrent-job quota rather than local VM memory; capping at 4 is the conservative, quota-conscious choice that honors the lesson without needing to actually re-trigger the failure in CI to justify it |
+| D59 | Docker images are built and GHCR-tagged (`ghcr.io/<owner>/<service>:latest` and `:<sha>`) with `push: false, load: true` — built and verified locally on the runner, never pushed to any registry | actually push to GHCR now, or skip building/tagging images at all until a later milestone | The user's explicit scope for M10 is "design so it can later push to GHCR without major restructuring... do NOT implement deployment yet." Tagging in the final GHCR-qualified shape now means enabling push later is exactly two changes (add `packages: write` to `permissions:`, flip `push: false`→`true` alongside the already-written, currently-commented-out `docker/login-action` step) — no restructuring of the job, matrix, or tagging logic |
+| D60 | The `docker-build` job declares `needs: build-and-test`, so a failing Gradle build/test skips all 8 Docker builds entirely | run Gradle and Docker builds as independent, parallel jobs | "Fail immediately if any test fails" (explicit M10 requirement) extends naturally to not spending Docker-build minutes validating images built from code that doesn't even pass its own test suite — mirrors this project's whole milestone-gated philosophy (verify before proceeding) applied to a single CI run's own internal ordering |
+| D61 | Each matrix leg ends with a real automated assertion (`docker inspect` checked against the non-root user, the exposed port, and the presence of a `HEALTHCHECK`) rather than treating "the image built" as sufficient verification | trust `docker build`'s exit code alone | A Dockerfile edit that silently dropped `USER`, `EXPOSE`, or `HEALTHCHECK` (all established in M9, D53–D55) would still `docker build` successfully — this is the automated, CI-native equivalent of the same "verify, don't assume" discipline M9's manual verification already applied by hand; deliberately does *not* boot the app against real Postgres/Kafka in CI (that would need service containers/matrix-wide infra plumbing well beyond "build Docker images for every service" — deferred as YAGNI until a real need for in-pipeline integration testing exists, same reasoning as D14/D31/D42) |
 
 ---
 
@@ -239,6 +244,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - TimeLimiter's `cancelRunningFuture(true)` cancels the `CompletableFuture` the caller is waiting on, but does not interrupt the underlying blocking Feign HTTP call already in flight on its `ThreadPoolBulkhead` thread — the real socket read keeps running in the background until it completes or the Feign-level `read-timeout-ms` fires on its own. The caller still gets a fail-fast response either way (that's what TimeLimiter is for); this only means "abandoned" calls linger briefly on the bulkhead's own small pool, not the application's main threads. Feign's own socket timeouts (`paymentflow.resilience.merchant-service.read-timeout-ms`) are kept comfortably under TimeLimiter's budget specifically so this window stays short.
 - Container images run on `eclipse-temurin:*-alpine` (musl libc), so Reactor Netty (gateway-service) falls back to its pure-Java NIO transport instead of the native epoll transport available on glibc hosts. Functionally identical, slightly less throughput under very high concurrency — irrelevant at this platform's local-dev/demo scale; worth a plain (non-Alpine) base image only if a future load-testing milestone (M14) shows it matters.
 - Building all 8 Docker images with Compose's default parallel-build behavior on this dev machine (16 CPUs, ~11.5GB allocated to the Docker Desktop VM) overloads the daemon — each build spins up its own single-use Gradle daemon doing a full multi-module resolve+compile, and 7 of those running concurrently exhausts the VM's memory and crashes BuildKit's gRPC connection. Building sequentially (or with `COMPOSE_PARALLEL_LIMIT` set low) works reliably; not a problem in CI (M10), which typically builds and pushes one image per job/runner rather than all 8 in one machine at once.
+- CI (M10) builds and tags all 8 Docker images (`ghcr.io/<owner>/<service>:latest`/`:<sha>`) but never pushes them anywhere (`push: false`) — there is no GHCR (or any other registry) publishing yet, and therefore nothing for a future ECS task definition (M12) to pull. This is intentional scope discipline (the user explicitly deferred both registry-push and deployment), not an oversight — enabling push needs exactly the two changes called out inline in `ci.yml`'s comments.
+- CI does not boot any service against real Postgres/Kafka/Redis in-pipeline — it builds and structurally verifies each image (non-root user, exposed port, healthcheck present) but doesn't run a containerized integration test the way the M9 manual verification did locally. Testcontainers-based tests inside `./gradlew clean build` already cover real-infra behavior per service; a full docker-compose-driven E2E smoke test *in CI* is a reasonable future addition but isn't part of this milestone's explicit scope ("build Docker images for every service," not "re-run M9's manual E2E in CI").
+- No README.md exists yet (M15's job) to actually hold the CI badge — the ready-to-paste badge markdown is recorded in this file's M10 Deployment Status section below instead of being placed into a file that doesn't exist yet.
 
 ## 12. Future Improvements
 - gRPC for internal sync calls; API versioning; blue/green on ECS; OpenTelemetry collector.
@@ -266,6 +274,8 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - **merchant-service (M7 addition):** the new `PATCH /api/v1/merchants/me/webhook` endpoint verified live through the gateway — HTTPS-only validation correctly rejected a plain-`http://` URL (400), and a valid `https://` URL round-tripped through `GET /me` with the cache correctly busted.
 - **payment-service (M8 addition):** the Resilience4j wrapper around the merchant-service Feign call verified live — merchant-service was stopped mid-session and `POST /api/v1/payments` degraded gracefully (503, no hang); a burst of 10 requests against the real stopped service showed retries genuinely running on the first two (~800–950ms each) before the circuit opened and every subsequent request failed fast (~70–90ms, confirmed via elapsed-time logging); after restarting merchant-service and waiting past `waitDurationInOpenState`, requests began succeeding again (201) as the circuit passed through automatic HALF_OPEN recovery back to CLOSED. Timeout fail-fast and bulkhead-rejection-under-concurrency are both covered by `MerchantResolverTest`/`MerchantResilienceIntegrationTest` rather than re-demonstrated manually (reproducing precise concurrent-saturation timing against a real, unmodified merchant-service process isn't practical without code changes to that service).
 - **All 8 services (M9 — full containerization):** every service builds into its own multi-stage Docker image (`eclipse-temurin:25-jdk-alpine` builder → `eclipse-temurin:25-jre-alpine` runtime, layered-jar extraction, non-root user, `HEALTHCHECK` against its own `/actuator/health`) and the entire platform — 4 infra containers + 8 application containers, 12 total — was brought up together via `docker compose -f docker-compose.infra.yml -f docker-compose.yml up -d`, reaching `healthy` in the correct dependency order with zero manual intervention: postgres/redis/kafka healthy → identity-service healthy → merchant-service/payment-service healthy (parallel) → gateway-service healthy → transaction/audit/notification/analytics-service healthy (parallel with identity, since they only need postgres+kafka). Every port matches the pre-M9 scheme exactly (8080–8084, 8091–8093, 55432/56379/59092/8085). A full register→login→onboard-merchant→create→authorize→capture→refund lifecycle was driven entirely through the containerized gateway over real HTTP, with every consumer verified via direct `psql` against the running containers: transaction-service posted the correct 6 balanced ledger entries; audit-service recorded all 4 lifecycle events verbatim; notification-service logged all 4 simulated emails (no webhook configured for this test merchant, so correctly zero webhook-delivery rows — not a bug, per D46); analytics-service's aggregate showed the exact expected counts/amounts. All 12 containers stopped cleanly afterward.
+- **CI pipeline (M10):** `.github/workflows/ci.yml` — validated with `actionlint` (zero warnings/errors) and a `js-yaml` parse (structurally valid) before committing. `build-and-test` job's exact command (`./gradlew clean build --no-daemon --stacktrace`) re-run locally to confirm it's still green post-M10 (no Java/Gradle files changed by this milestone — only the workflow file was added). `docker-build` job's build-arg/tag scheme reproduced locally for one service (`analytics-service`, tagged `ghcr.io/isahaameem/analytics-service:latest`/`:testsha` exactly as the workflow would) and its "Verify image" `docker inspect` assertions (non-root user `paymentflow:paymentflow`, exposed port `8093/tcp`, a present `HEALTHCHECK`) run by hand against that real image — all three passed. Not yet verified inside actual GitHub Actions infrastructure (this milestone doesn't push to GitHub — see the M10 changelog's Verification steps for exactly what "verify everything instead of assuming" meant here without a live workflow run to observe).
+  - Ready-to-paste CI badge for M15's README: `[![CI](https://github.com/IsaHaameem/cloud-native-payment-processing-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/IsaHaameem/cloud-native-payment-processing-platform/actions/workflows/ci.yml)`
 - Other services: skeletons only. AWS: not yet started (Phase 4/5, M11–M12).
 
 ## 16. Lessons Learned
@@ -274,6 +284,8 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - Introducing a dedicated thread pool for an existing synchronous call (`ThreadPoolBulkhead`, D52) silently broke JWT forwarding, because `RequestContextHolder` is thread-bound. This is a general pattern worth remembering for any future work that moves a call off the calling thread (async processing, a new executor, reactive adapters): anything reading Spring's request-scoped `ThreadLocal` context needs to be explicitly re-propagated, and it will not fail loudly — it just quietly stops working (here, every merchant resolution would have started failing as "not onboarded" for every merchant, indistinguishable from a real onboarding gap without deliberately checking the actual header the downstream service received).
 - M9 validated the Docker packaging approach empirically at every step instead of trusting documentation alone: before writing the real Dockerfile, a bootJar was extracted and run locally with `java -Djarmode=tools ... extract --layers --launcher` + `JarLauncher` to confirm the exact layer directory names and entrypoint class; before building all 8 images, one (`audit-service`) was built and run standalone against the real compose network to confirm Postgres migration, Kafka consumer-group join, and the Docker `HEALTHCHECK` itself all genuinely worked end-to-end. Both checks caught nothing wrong this time, but they converted "should work per the reference docs" into "confirmed working here," which is the standard this project holds every other milestone to as well.
 - A resource ceiling invisible from inside any single Dockerfile: building all 8 images via Compose's default parallelism (one BuildKit container per service, each running its own full-heap Gradle daemon) exhausted the Docker Desktop VM's allotted memory and killed the daemon's gRPC connection mid-build. The fix (build sequentially / cap `COMPOSE_PARALLEL_LIMIT`) is a local-machine-only concern — a reminder that "the build works" and "the build works at the concurrency your CI runner will actually use" are different claims, worth keeping in mind when M10 designs the GitHub Actions build matrix.
+- M10 confirmed that "verify everything instead of assuming" still applies even to CI configuration itself, which can't be run end-to-end without pushing to GitHub (explicitly not done this milestone). The honest substitute wasn't to skip verification — it was to decompose the workflow into independently-checkable pieces and verify each one for real: `actionlint` (a real static analyzer, not just eyeballing YAML) for syntax/schema correctness; re-running the exact `./gradlew clean build` command line locally; and reproducing the exact `docker build` args/tags/`docker inspect` assertions from the "Docker build" job by hand against a real image. None of that proves the workflow runs correctly *inside* GitHub's infrastructure specifically (network egress, runner image quirks, secrets context) — that residual gap is named explicitly in Deployment Status rather than glossed over, since a milestone that can't push shouldn't quietly imply full verification when it only achieved partial verification.
+- Discovered a subtle self-inflicted false alarm while stress-testing the final regression build: piping a background script's commands together (`gradlew ... ; echo ... ; grep -c "FAILED" logfile`) meant the *last* command's exit code became the whole script's reported exit code — and `grep -c` legitimately exits 1 when it finds zero matches (the desired, successful outcome here), not just when something goes wrong. The build had actually succeeded (`BUILD SUCCESSFUL`, confirmed by reading the captured `GRADLE_EXIT=0` from the real command), but the harness's completion summary reported "failed." Worth remembering generally: a composite script's exit code reflects its last command, not necessarily the thing you actually care about — check the real signal (here, the explicitly captured `GRADLE_EXIT`) before trusting a wrapper's aggregate result.
 
 ---
 
@@ -1540,5 +1552,129 @@ D42's "no query API without a real consumer").
 
 **Next milestone:** M10 — CI/CD (GitHub Actions: test + build + image; branch
 protection).
+
+---
+
+### M10 — CI/CD ✅ (2026-07-19)
+
+**Objectives:** Stand up a production-grade GitHub Actions pipeline that runs
+the full Gradle test suite on every push/PR (failing fast on any test
+failure), builds a Docker image for every one of the 8 services using M9's
+existing Dockerfile unchanged, tags them GHCR-shaped, and is structured so
+that enabling an actual registry push later needs no restructuring —
+explicitly without implementing any push or deployment yet.
+
+**Features implemented**
+- Single workflow, `.github/workflows/ci.yml`, triggered on every `push`
+  (no branch filter), every `pull_request`, and `workflow_dispatch` (manual
+  runs). A `concurrency` group cancels a superseded run on the same
+  branch/PR rather than queuing behind it.
+- **`build-and-test` job:** checkout → `actions/setup-java@v4` (Temurin 25) →
+  `gradle/actions/setup-gradle@v4` (D57) → `./gradlew clean build --no-daemon
+  --stacktrace`. Any test failure fails this job immediately (Gradle's own
+  non-zero exit code), which — via `docker-build`'s `needs:` — skips all 8
+  Docker builds entirely rather than wasting minutes validating images from
+  code that doesn't pass its own tests (D60). Test reports
+  (`**/build/reports/tests/**`, `**/build/test-results/**`) are uploaded as a
+  14-day-retention artifact on every run (`if: always()`), so a failure is
+  inspectable from the Actions UI without re-running anything locally.
+- **`docker-build` job:** one matrix leg per service (8 legs: gateway/
+  identity/merchant/payment/transaction/audit/notification/analytics-service,
+  each with its own `port`), capped at `max-parallel: 4` (D58) rather than
+  left unbounded. Each leg: `docker/setup-buildx-action` → computes a
+  lowercased `ghcr.io/<owner>` prefix (GHCR names must be lowercase;
+  `github.repository_owner` isn't guaranteed to be) → builds via
+  `docker/build-push-action@v6` reusing M9's Dockerfile and build-arg
+  contract completely unchanged (`SERVICE_MODULE`, `SERVICE_PORT`), tagged
+  both `:latest` and `:<git-sha>`, with `push: false` / `load: true` (D59)
+  and BuildKit layer caching via the GitHub Actions cache backend
+  (`cache-from`/`cache-to: type=gha`, scoped per service so one service's
+  cache doesn't evict another's).
+- A real automated verification step per leg (D61): `docker inspect` asserts
+  the built image actually has the non-root `paymentflow:paymentflow` user,
+  the correct `EXPOSED` port, and a present `HEALTHCHECK` — all three
+  established in M9 (D53–D55) — so a Dockerfile regression that silently
+  dropped any of them fails CI, not just "did `docker build` exit 0."
+- The exact two changes needed to enable GHCR push later are written
+  in-place as comments at the point they'd apply: a commented-out
+  `docker/login-action@v3` step (GHCR, `github.actor`/`GITHUB_TOKEN`) and a
+  note next to `push: false` to flip it to `true`; `permissions:` currently
+  only grants `contents: read`, with a comment showing where `packages:
+  write` gets added.
+- CI badge markdown prepared for M15's not-yet-existing README (see
+  Deployment Status) rather than creating the README file itself, which
+  stays scoped to M15 per the roadmap.
+
+**Endpoints added:** none (CI/tooling-only milestone).
+
+**Database / Kafka / Redis changes:** none.
+
+**Infra/Docker changes:** `.github/workflows/ci.yml` (new). `Dockerfile` and
+`docker-compose.yml` (M9) are unmodified — CI consumes them exactly as they
+already existed, proving out D53's "one shared Dockerfile" design decision
+from a second, independent caller (a CI matrix) rather than just the local
+Compose file that originally justified it.
+
+**Testing completed:** No new Java tests (this milestone adds no application
+code). Verification instead focused on the workflow itself, since it can't be
+run inside real GitHub Actions without pushing (explicitly not done this
+milestone — see Verification steps). `./gradlew clean build` re-run locally
+from clean, zero failures, confirming the monorepo remains exactly as green
+as it was at the end of M9.
+
+**Verification steps:**
+1. YAML validity: parsed with `js-yaml` (structurally valid) and checked with
+   `actionlint` v1.7.12 (a real static analyzer for GitHub Actions workflows
+   — catches expression-syntax errors, unknown action inputs, shellcheck
+   issues in `run:` blocks, invalid matrix references, etc.) — zero
+   warnings, zero errors.
+2. `build-and-test` job's exact command line
+   (`./gradlew clean build --no-daemon --stacktrace`) run locally: `BUILD
+   SUCCESSFUL`, all 14 modules, zero failures.
+3. `docker-build` job's build reproduced by hand for one service
+   (`analytics-service`): `docker build --build-arg SERVICE_MODULE=analytics-service
+   --build-arg SERVICE_PORT=8093 -t ghcr.io/isahaameem/analytics-service:latest
+   -t ghcr.io/isahaameem/analytics-service:testsha .` — succeeded, using
+   BuildKit's local cache from M9's earlier builds.
+4. The "Verify image" step's exact `docker inspect` assertions run by hand
+   against that real image: user `paymentflow:paymentflow` ✓, exposed port
+   `8093/tcp` ✓, non-nil `HEALTHCHECK` ✓ — all three passed, confirming the
+   verification step's logic is correct against a real image, not just
+   syntactically plausible.
+5. Test images/tags from step 3 removed afterward (`docker rmi`), leaving no
+   residue from the verification exercise.
+6. **Not yet verified:** an actual run inside GitHub's own Actions
+   infrastructure (network conditions, the real `ubuntu-latest` image,
+   GITHUB_TOKEN-scoped permissions) — this milestone doesn't push to GitHub,
+   so that residual gap is named explicitly here and in Known Issues rather
+   than implied as covered.
+
+**Important design decisions:** D57–D61 (see §9).
+
+**Problems faced → solutions**
+1. No Python interpreter reachable from this shell for the originally-planned
+   `yaml.safe_load` validation approach (`python3`/`python` both resolved to
+   a Windows Store install shim rather than a real interpreter) — pivoted to
+   `npx -y js-yaml` (Node is installed and already used elsewhere in this
+   environment) for a structural parse, then downloaded the real
+   `actionlint` binary directly from its GitHub release for genuine
+   GitHub-Actions-schema-aware validation, rather than settling for "the
+   YAML parses" as sufficient proof of "no syntax issues."
+2. GHCR image repository names must be lowercase, but
+   `github.repository_owner` reflects the account's actual casing
+   (`IsaHaameem`), which would have produced an invalid tag. Added a small
+   shell step computing a lowercased prefix into `$GITHUB_ENV` once, reused
+   by every subsequent tag reference, rather than lowercasing inline at each
+   of the (several) places a tag string appears.
+3. A composite verification script's misleading exit code (see Lessons
+   Learned): the final regression build's wrapper script reported "failed"
+   because its *last* command (`grep -c "FAILED" logfile`) exits 1 on zero
+   matches — the correct, successful outcome — not because the actual
+   `./gradlew clean build` (whose real exit code was separately captured as
+   `GRADLE_EXIT=0`) had failed. Diagnosed by reading the captured exit code
+   directly rather than trusting the wrapper's own aggregate result.
+
+**Next milestone:** M11 — Terraform Infrastructure (VPC, ECR, RDS,
+ElastiCache, Kafka, ALB, Secrets Manager, IAM, remote state).
 
 

@@ -1,0 +1,190 @@
+#
+# CI pipeline (M10) — build/test the whole monorepo, then build (but not yet
+# push) a Docker image for every one of the 8 microservices.
+#
+# Two jobs, in sequence:
+#   1. build-and-test — ./gradlew clean build across all 14 modules. Any test
+#      failure fails this job immediately, which skips job 2 entirely
+#      (`needs:` below) — no Docker minutes are spent building images for a
+#      broken commit.
+#   2. docker-build — one matrix leg per service, each leg building exactly
+#      one image via the shared M9 Dockerfile (docker-compose.yml's own
+#      SERVICE_MODULE/SERVICE_PORT build args, unchanged). Tagged
+#      GHCR-shaped (ghcr.io/<owner>/<service>:latest and :<sha>) but NOT
+#      pushed anywhere yet — `push: false` below, deployment/registry
+#      publishing is explicitly out of scope for this milestone. Enabling it
+#      later needs exactly two changes, both called out at the site: add
+#      `packages: write` to `permissions:`, and flip `push: false` to
+#      `push: true` alongside the commented-out login step.
+#
+# Each matrix leg runs on its own isolated GitHub-hosted runner (a separate
+# VM per leg, not one shared Docker daemon), so it does not reproduce M9's
+# exact "7 concurrent Gradle daemons blow out one Docker Desktop VM's memory"
+# failure mode. `max-parallel: 4` still caps how many legs run at once anyway
+# (see D58) — the point of M9's lesson (never let unbounded concurrent image
+# builds outrun the resources actually available) still applies, just against
+# this account's concurrent-job quota instead of local VM memory.
+#
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Superseded runs on the same branch/PR are cancelled automatically instead of
+# queuing behind them — avoids burning runner minutes on stale commits.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  # packages: write   # add this when GHCR push is enabled (see docker-build job)
+
+jobs:
+  build-and-test:
+    name: Build & test (Gradle)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      # gradle/actions/setup-gradle is the current, actively-maintained way to
+      # cache Gradle (dependencies, wrapper distribution, and build-cache
+      # entries) in Actions — it supersedes hand-rolling an actions/cache step
+      # keyed on hashed lockfiles, and adds a build summary + provenance for
+      # free. Deliberately not combined with actions/setup-java's own
+      # cache: gradle option, which would just double-cache the same thing.
+      - name: Set up Gradle (with dependency/build cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: ./gradlew clean build
+        run: ./gradlew clean build --no-daemon --stacktrace
+
+      # Runs even if the build/tests failed above, so a failure is always
+      # inspectable from the Actions UI without re-running anything locally.
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            **/build/reports/tests/**
+            **/build/test-results/**
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Gradle build" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+
+  docker-build:
+    name: Docker build (${{ matrix.service }})
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # See the header comment / D58 — caps concurrent image builds instead of
+      # letting all 8 matrix legs fire at once.
+      max-parallel: 4
+      matrix:
+        include:
+          - service: gateway-service
+            port: 8080
+          - service: identity-service
+            port: 8081
+          - service: merchant-service
+            port: 8082
+          - service: payment-service
+            port: 8083
+          - service: transaction-service
+            port: 8084
+          - service: audit-service
+            port: 8091
+          - service: notification-service
+            port: 8092
+          - service: analytics-service
+            port: 8093
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # GHCR image names must be lowercase; github.repository_owner isn't
+      # guaranteed to be (e.g. "IsaHaameem"). Computed once here rather than
+      # repeating a shell lowercase in every tag reference below.
+      - name: Compute image repository prefix
+        run: |
+          owner_lc=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_PREFIX=ghcr.io/${owner_lc}" >> "$GITHUB_ENV"
+
+      # Not logged in to any registry — this build never pushes (push: false
+      # below). To enable pushing to GHCR in a later milestone, uncomment:
+      #
+      # - name: Log in to GHCR
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: ghcr.io
+      #     username: ${{ github.actor }}
+      #     password: ${{ secrets.GITHUB_TOKEN }}
+      #
+      # ...and also add `packages: write` to the top-level `permissions:` block.
+
+      - name: Build ${{ matrix.service }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          build-args: |
+            SERVICE_MODULE=${{ matrix.service }}
+            SERVICE_PORT=${{ matrix.port }}
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+          # Loaded into the local Docker daemon for the verification step
+          # below, never pushed to any registry — deployment/registry
+          # publishing is out of scope for this milestone (flip this to
+          # `push: true` once the login step above is enabled).
+          push: false
+          load: true
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      # Real, automated verification (not just "it built") — asserts the image
+      # actually has the non-root user, exposed port, and healthcheck M9
+      # established, so a Dockerfile regression that silently drops one of
+      # them fails CI instead of surfacing later during manual verification.
+      - name: Verify image (non-root user, exposed port, healthcheck)
+        run: |
+          set -e
+          tag="${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}"
+          user=$(docker inspect -f '{{ .Config.User }}' "$tag")
+          echo "User: $user"
+          [ "$user" = "paymentflow:paymentflow" ] || { echo "::error::expected non-root user paymentflow:paymentflow, got '$user'"; exit 1; }
+
+          exposed=$(docker inspect -f '{{ range $p, $_ := .Config.ExposedPorts }}{{ $p }}{{ end }}' "$tag")
+          echo "Exposed: $exposed"
+          echo "$exposed" | grep -q "${{ matrix.port }}/tcp" || { echo "::error::expected port ${{ matrix.port }}/tcp exposed, got '$exposed'"; exit 1; }
+
+          healthcheck=$(docker inspect -f '{{ .Config.Healthcheck }}' "$tag")
+          echo "Healthcheck: $healthcheck"
+          [ "$healthcheck" != "<nil>" ] || { echo "::error::expected a HEALTHCHECK, found none"; exit 1; }
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Docker build — ${{ matrix.service }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tags: \`${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest\`, \`${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Pushed: no (deployment/registry publishing deferred, see workflow header)" >> "$GITHUB_STEP_SUMMARY"
