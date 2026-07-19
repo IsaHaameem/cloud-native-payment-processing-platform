@@ -46,25 +46,25 @@ locals {
       SPRING_DATASOURCE_URL                  = local.rds_jdbc_url
       SPRING_DATA_REDIS_HOST                 = module.elasticache.primary_endpoint_address
       SPRING_DATA_REDIS_PORT                 = tostring(module.elasticache.port)
-      SPRING_KAFKA_BOOTSTRAP_SERVERS         = module.msk_serverless.bootstrap_brokers_sasl_iam
+      SPRING_KAFKA_BOOTSTRAP_SERVERS         = module.kafka_broker.bootstrap_brokers
       PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI = "http://identity-service:${local.services["identity-service"].port}/oauth2/jwks"
       PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI = "http://merchant-service:${local.services["merchant-service"].port}"
     }
     transaction-service = {
       SPRING_DATASOURCE_URL          = local.rds_jdbc_url
-      SPRING_KAFKA_BOOTSTRAP_SERVERS = module.msk_serverless.bootstrap_brokers_sasl_iam
+      SPRING_KAFKA_BOOTSTRAP_SERVERS = module.kafka_broker.bootstrap_brokers
     }
     audit-service = {
       SPRING_DATASOURCE_URL          = local.rds_jdbc_url
-      SPRING_KAFKA_BOOTSTRAP_SERVERS = module.msk_serverless.bootstrap_brokers_sasl_iam
+      SPRING_KAFKA_BOOTSTRAP_SERVERS = module.kafka_broker.bootstrap_brokers
     }
     notification-service = {
       SPRING_DATASOURCE_URL          = local.rds_jdbc_url
-      SPRING_KAFKA_BOOTSTRAP_SERVERS = module.msk_serverless.bootstrap_brokers_sasl_iam
+      SPRING_KAFKA_BOOTSTRAP_SERVERS = module.kafka_broker.bootstrap_brokers
     }
     analytics-service = {
       SPRING_DATASOURCE_URL          = local.rds_jdbc_url
-      SPRING_KAFKA_BOOTSTRAP_SERVERS = module.msk_serverless.bootstrap_brokers_sasl_iam
+      SPRING_KAFKA_BOOTSTRAP_SERVERS = module.kafka_broker.bootstrap_brokers
     }
     gateway-service = {
       SPRING_PROFILES_ACTIVE                 = "local"

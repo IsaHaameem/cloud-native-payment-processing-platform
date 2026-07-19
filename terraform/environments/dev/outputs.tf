@@ -26,8 +26,8 @@ output "redis_primary_endpoint_address" {
   value = module.elasticache.primary_endpoint_address
 }
 
-output "msk_bootstrap_brokers_sasl_iam" {
-  value = module.msk_serverless.bootstrap_brokers_sasl_iam
+output "kafka_bootstrap_brokers" {
+  value = module.kafka_broker.bootstrap_brokers
 }
 
 output "ecs_cluster_name" {

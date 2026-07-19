@@ -1,9 +1,9 @@
 #
 # Least-privilege security groups for every tier: internet-facing ALB, the
 # ECS tasks behind it, and each private-tier dependency (RDS, ElastiCache,
-# MSK Serverless). Every non-ALB ingress rule sources from a security group
-# ID, never a CIDR — nothing in a private subnet is reachable except from the
-# specific SG that legitimately calls it.
+# the self-managed Kafka broker). Every non-ALB ingress rule sources from a
+# security group ID, never a CIDR — nothing in a private subnet is reachable
+# except from the specific SG that legitimately calls it.
 #
 
 locals {
@@ -162,27 +162,44 @@ resource "aws_security_group_rule" "elasticache_egress_all" {
   cidr_blocks       = ["0.0.0.0/0"]
 }
 
-# ── MSK Serverless ───────────────────────────────────────────────────────────
+# ── Kafka (self-managed, single-broker, on ECS Fargate) ─────────────────────
+#
+# Replaces the MSK Serverless SG — Amazon MSK's kafka:* API is blocked on
+# this AWS account (see PROJECT_CONTEXT.md decision log; modules/kafka-broker
+# has the full explanation). Ingress from ecs_tasks on the broker's client
+# port, plus a self-referencing NFS rule (2049) so the broker's own Fargate
+# task can reach its EFS-backed data volume — no other service ever touches
+# this SG on 2049, only the broker task itself.
 
-resource "aws_security_group" "msk_serverless" {
-  name        = "${local.name_prefix}-msk-serverless-sg"
-  description = "MSK Serverless (IAM-authenticated) ingress from the ECS tasks SG only."
+resource "aws_security_group" "kafka" {
+  name        = "${local.name_prefix}-kafka-sg"
+  description = "Self-managed Kafka broker: PLAINTEXT ingress from the ECS tasks SG; self-referencing NFS for its own EFS mount."
   vpc_id      = var.vpc_id
 
-  tags = merge(var.tags, { Name = "${local.name_prefix}-msk-serverless-sg" })
+  tags = merge(var.tags, { Name = "${local.name_prefix}-kafka-sg" })
 }
 
-resource "aws_security_group_rule" "msk_ingress_from_ecs" {
-  security_group_id        = aws_security_group.msk_serverless.id
+resource "aws_security_group_rule" "kafka_ingress_from_ecs" {
+  security_group_id        = aws_security_group.kafka.id
   type                     = "ingress"
-  from_port                = var.msk_serverless_port
-  to_port                  = var.msk_serverless_port
+  from_port                = var.kafka_broker_port
+  to_port                  = var.kafka_broker_port
   protocol                 = "tcp"
   source_security_group_id = aws_security_group.ecs_tasks.id
 }
 
-resource "aws_security_group_rule" "msk_egress_all" {
-  security_group_id = aws_security_group.msk_serverless.id
+resource "aws_security_group_rule" "kafka_efs_ingress_self" {
+  security_group_id        = aws_security_group.kafka.id
+  type                     = "ingress"
+  from_port                = 2049
+  to_port                  = 2049
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.kafka.id
+  description              = "NFS so the Kafka broker task can reach its EFS-backed data volume."
+}
+
+resource "aws_security_group_rule" "kafka_egress_all" {
+  security_group_id = aws_security_group.kafka.id
   type              = "egress"
   from_port         = 0
   to_port           = 0

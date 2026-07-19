@@ -15,9 +15,9 @@ variable "security_group_id" {
 }
 
 variable "engine_version" {
-  description = "Matches the local compose stack's Postgres 17 (D-established: same major version dev/prod)."
+  description = "Matches the local compose stack's Postgres 17 (D-established: same major version dev/prod). 17.10 is the latest 17.x minor RDS actually offers in us-east-1 as of this writing (verified via `aws rds describe-db-engine-versions`) — 17.4 does not exist as an RDS version and made the M11/M12 apply's aws_db_instance create fail outright (see PROJECT_CONTEXT.md decision log)."
   type        = string
-  default     = "17.4"
+  default     = "17.10"
 }
 
 variable "instance_class" {

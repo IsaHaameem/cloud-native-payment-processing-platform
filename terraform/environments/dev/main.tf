@@ -2,10 +2,12 @@
 # Wires every module together for the "dev" environment. No resource is
 # declared directly here — this file's only job is passing one module's
 # outputs into the next module's inputs. Declared in actual dependency
-# order: networking -> security-groups -> (ecr, secrets, msk-serverless,
-# ecs-cluster — independent of each other) -> iam (needs the MSK/ECS cluster
-# ARNs to scope its policies) -> (rds, elasticache, alb) -> cloudwatch ->
-# ecs-service (needs almost everything above).
+# order: networking -> security-groups -> (ecr, secrets, ecs-cluster —
+# independent of each other) -> iam (needs the ECS cluster ARN to scope its
+# policies) -> (rds, elasticache, alb) -> cloudwatch -> kafka-broker (needs
+# the ECS cluster/Service Connect namespace, its own security group, and its
+# own CloudWatch log group) -> ecs-service (needs almost everything above,
+# including kafka-broker's bootstrap-brokers output).
 #
 
 module "networking" {
@@ -47,16 +49,6 @@ module "secrets" {
   tags         = local.common_tags
 }
 
-module "msk_serverless" {
-  source = "../../modules/msk-serverless"
-
-  project_name       = var.project_name
-  environment        = var.environment
-  private_subnet_ids = module.networking.private_subnet_ids_list
-  security_group_id  = module.security_groups.msk_serverless_security_group_id
-  tags               = local.common_tags
-}
-
 module "ecs_cluster" {
   source = "../../modules/ecs-cluster"
 
@@ -79,7 +71,6 @@ module "iam" {
   ]
   github_repository = var.github_repository
   ecs_cluster_arn   = module.ecs_cluster.cluster_arn
-  msk_cluster_arn   = module.msk_serverless.cluster_arn
   tags              = local.common_tags
 }
 
@@ -122,10 +113,33 @@ module "alb" {
 module "cloudwatch" {
   source = "../../modules/cloudwatch"
 
-  project_name  = var.project_name
-  environment   = var.environment
-  service_names = local.service_names
+  project_name = var.project_name
+  environment  = var.environment
+  # kafka-broker isn't one of the 8 app services (no ECR repo, no
+  # self-ingress port in local.service_ports) but still needs its own
+  # awslogs group, same shape as every other service's.
+  service_names = concat(local.service_names, ["kafka-broker"])
   tags          = local.common_tags
+}
+
+# Self-managed Kafka (single-broker, KRaft) — replaces MSK Serverless, which
+# this AWS account's kafka:* API blocks outright (see PROJECT_CONTEXT.md
+# decision log and modules/kafka-broker's own header comment).
+module "kafka_broker" {
+  source = "../../modules/kafka-broker"
+
+  project_name       = var.project_name
+  environment        = var.environment
+  private_subnet_ids = module.networking.private_subnet_ids_list
+  security_group_id  = module.security_groups.kafka_security_group_id
+
+  cluster_arn                   = module.ecs_cluster.cluster_arn
+  service_connect_namespace_arn = module.ecs_cluster.service_discovery_namespace_arn
+  execution_role_arn            = module.iam.ecs_task_execution_role_arn
+  log_group_name                = module.cloudwatch.log_group_names["kafka-broker"]
+  aws_region                    = var.aws_region
+
+  tags = local.common_tags
 }
 
 # One ECS task definition + service per microservice (M12) — everything

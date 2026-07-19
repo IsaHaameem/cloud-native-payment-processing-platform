@@ -55,13 +55,14 @@ resource "aws_iam_role_policy" "ecs_task_execution_secrets" {
 
 # ── ECS task role (the running application's own AWS permissions) ──────────
 #
-# M11 shipped this deliberately empty ("reserved for when a real need
-# exists"); M12 is that real need — MSK Serverless authenticates over IAM
-# SASL, not a username/password the way RDS/ElastiCache do, so the 5
-# Kafka-touching services (payment/transaction/audit/notification/analytics)
-# cannot connect to Kafka at all without this. Postgres/Redis access stays
-# network-level (security groups) with no IAM involved, so this policy is
-# scoped to Kafka only, not broadened generally.
+# Deliberately empty — reserved for when a real need exists (M11's original
+# stance). M12 briefly attached a kafka-cluster:* policy here for MSK
+# Serverless's IAM SASL, but MSK is not usable on this AWS account (see
+# PROJECT_CONTEXT.md decision log) and has been replaced by a self-managed
+# Kafka broker (modules/kafka-broker) secured at the network level only,
+# the same way Postgres/Redis already are — no IAM involved. No service
+# calls any AWS API directly today, so this role stays empty again, exactly
+# as M11 left it.
 
 data "aws_iam_policy_document" "ecs_task_assume_role" {
   statement {
@@ -78,46 +79,6 @@ resource "aws_iam_role" "ecs_task" {
   assume_role_policy = data.aws_iam_policy_document.ecs_task_assume_role.json
 
   tags = merge(var.tags, { Name = "${local.name_prefix}-ecs-task" })
-}
-
-locals {
-  # MSK topic/group ARNs are derived from the cluster ARN by swapping the
-  # resource-type segment — AWS's own documented ARN shape for MSK IAM
-  # policies, not a format this project invented.
-  msk_topic_arn_pattern = "${replace(var.msk_cluster_arn, ":cluster/", ":topic/")}/*"
-  msk_group_arn_pattern = "${replace(var.msk_cluster_arn, ":cluster/", ":group/")}/*"
-}
-
-data "aws_iam_policy_document" "ecs_task_msk" {
-  statement {
-    sid       = "MskConnect"
-    actions   = ["kafka-cluster:Connect", "kafka-cluster:DescribeCluster"]
-    resources = [var.msk_cluster_arn]
-  }
-  statement {
-    sid = "MskTopics"
-    actions = [
-      "kafka-cluster:DescribeTopic",
-      "kafka-cluster:CreateTopic",
-      "kafka-cluster:ReadData",
-      "kafka-cluster:WriteData",
-    ]
-    # payment.events / .retry / .dlq (D10) all live under this one cluster —
-    # wildcarded to every topic in it rather than enumerating each literal
-    # topic name, which would need updating here every time a service adds one.
-    resources = [local.msk_topic_arn_pattern]
-  }
-  statement {
-    sid       = "MskConsumerGroups"
-    actions   = ["kafka-cluster:DescribeGroup", "kafka-cluster:AlterGroup"]
-    resources = [local.msk_group_arn_pattern]
-  }
-}
-
-resource "aws_iam_role_policy" "ecs_task_msk" {
-  name   = "${local.name_prefix}-ecs-task-msk"
-  role   = aws_iam_role.ecs_task.id
-  policy = data.aws_iam_policy_document.ecs_task_msk.json
 }
 
 # ── GitHub Actions OIDC CI/CD role (ECR push + ECS deploy) ──────────────────

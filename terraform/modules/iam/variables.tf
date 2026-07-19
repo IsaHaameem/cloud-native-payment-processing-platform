@@ -26,11 +26,6 @@ variable "ecs_cluster_arn" {
   type        = string
 }
 
-variable "msk_cluster_arn" {
-  description = "Scopes the ECS task role's kafka-cluster:* IAM-auth permissions to this one MSK Serverless cluster (M12 — the 5 Kafka-touching services' task role needs this to connect at all, since MSK Serverless uses IAM SASL, not a username/password)."
-  type        = string
-}
-
 variable "create_github_oidc_provider" {
   description = "Whether to create the token.actions.githubusercontent.com OIDC provider. AWS allows only one per account per URL — set to false and supply an existing provider ARN via a future variable if another stack in this account already created one."
   type        = bool

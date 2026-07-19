@@ -14,6 +14,6 @@ output "elasticache_security_group_id" {
   value = aws_security_group.elasticache.id
 }
 
-output "msk_serverless_security_group_id" {
-  value = aws_security_group.msk_serverless.id
+output "kafka_security_group_id" {
+  value = aws_security_group.kafka.id
 }

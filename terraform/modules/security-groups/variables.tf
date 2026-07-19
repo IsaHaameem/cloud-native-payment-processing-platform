@@ -38,10 +38,10 @@ variable "redis_port" {
   default = 6379
 }
 
-variable "msk_serverless_port" {
-  description = "MSK Serverless's IAM-authenticated listener port."
+variable "kafka_broker_port" {
+  description = "Self-managed Kafka's PLAINTEXT client listener port (replaces MSK Serverless's IAM-authenticated 9098 — see modules/kafka-broker)."
   type        = number
-  default     = 9098
+  default     = 9092
 }
 
 variable "tags" {

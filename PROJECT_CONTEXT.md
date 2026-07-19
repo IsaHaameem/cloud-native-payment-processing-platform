@@ -139,9 +139,10 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M13 (Observability) — *pending approval*
+- **Current milestone:** M13 (Observability) — *paused*, blocked on infrastructure reconciliation (see the Infrastructure Recovery changelog entry) — do not start until `terraform apply` has been run and confirmed against the corrected plan.
 - **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅ · M9 (Containerization) ✅ · M10 (CI/CD) ✅ · M11 (Terraform Infrastructure) ✅ · M12 (AWS ECS Fargate) ✅
 - **Pending milestones:** M13–M15
+- **Out-of-band work:** Infrastructure Recovery (partial-apply reconciliation — RDS engine version, MSK Serverless → self-managed Kafka) — code-complete and `terraform plan`-verified, **not yet applied**, awaiting approval.
 
 ---
 
@@ -236,6 +237,10 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D75 | The GitHub Actions OIDC role is renamed `github_actions_ecr_push` -> `github_actions_cicd` and its policy gains `ecs:UpdateService`/`DescribeServices` (scoped to this platform's ECS services only) | Keep the M11 name/scope and add a second role for ECS deploy | M10's D59 registry-push scaffolding and M11's D69 ECR-push role were both explicitly named for their narrower moment; M12's `cd.yml` needs the same authenticated identity to also roll ECS services, so widening one role's honest name and scope beats maintaining two roles a single workflow assumes back-to-back. Renaming an unapplied Terraform resource has zero real-world cost — nothing has ever been created in any AWS account under the old name |
 | D76 | `.github/workflows/cd.yml` triggers only on `workflow_dispatch` (manual), not automatically on push to `main` | Trigger automatically on every push to `main`, matching typical CD conventions | This workflow cannot do anything real yet — M11/M12's Terraform hasn't been applied to any AWS account (explicitly not authorized this milestone), so the OIDC role/ECR repos/ECS services/cluster it needs don't exist. Auto-triggering now would just fail loudly on every future push to `main` for infrastructure that isn't real yet; switching to an automatic trigger is a one-line change once `terraform apply` has actually run |
 | D77 | ECS task definitions reference the mutable `:latest` tag (matching the ECR module's `image_tag_mutability = MUTABLE`, M11), and `cd.yml`'s deploy step is `aws ecs update-service --force-new-deployment` rather than registering a new task-definition revision per deploy | Tag images by git SHA only (immutable) and register a fresh task-definition revision referencing the new tag on every deploy | Simpler, and consistent with the tagging convention M10 already established (`:latest` + `:<sha>`, D59) — `force-new-deployment` re-pulls the current `:latest` digest without this workflow needing to describe the existing task definition, patch its container image, and re-register a new revision itself. A SHA-pinned, immutable-tag rollout strategy is a reasonable future tightening once real deployments are actually happening and rollback-by-revision matters more than it does today |
+| D78 | RDS `engine_version` corrected from `17.4` to `17.10` | Any other 17.x minor (17.5–17.9) | `17.4` was never a real AWS RDS Postgres version — confirmed via `aws rds describe-db-engine-versions` that this account's `us-east-1` offering for Postgres 17 is 17.5–17.10. This exact typo made the M11/M12 `terraform apply`'s `aws_db_instance` create fail outright while everything else in the graph that didn't depend on it succeeded (see the Infrastructure Recovery changelog entry). 17.10, the newest available minor, is the natural correction and matches the module's own existing `auto_minor_version_upgrade = true` preference for staying current |
+| D79 | Self-managed, single-broker Kafka (KRaft mode) on ECS Fargate + EFS (new `modules/kafka-broker`) replaces MSK Serverless entirely | Provisioned (non-Serverless) MSK; an external managed Kafka (Confluent Cloud or similar) | Amazon MSK's `kafka:*` API is blocked account-wide on this AWS account — confirmed with `aws kafka list-clusters`/`list-clusters-v2`, both returning `SubscriptionRequiredException`, and by the harder evidence that `aws_msk_serverless_cluster` never made it into Terraform state at all during the M11/M12 apply, while every independent resource around it did. Provisioned MSK shares the identical `kafka:*` API surface and would fail identically — not a real fix, just a different resource type hitting the same wall. An external managed Kafka would add a real dependency and ongoing cost outside this platform's already-settled "everything runs on AWS ECS Fargate" stack decision. Self-managed Kafka was already D62's fully-reasoned runner-up, rejected then only because Fargate's EFS-vs-EBS reliability trade-off looked worse than a *working* MSK Serverless alternative — with MSK now confirmed non-functional on this account, that comparison no longer applies. It mirrors the local docker-compose broker exactly (same image, same KRaft single-node config, same PLAINTEXT protocol, same data path), needs zero application code or Spring Kafka property changes, and incidentally closes the gap M12's own changelog flagged (no service ever had `aws-msk-iam-auth` wired up) — PLAINTEXT is exactly what every service is already configured for |
+| D80 | The ECS task role's Kafka policy (D74's `kafka-cluster:*` statements) is removed entirely; the task role is empty again | Write an equivalent IAM policy for the new self-managed broker too | Self-managed Kafka authenticates nothing over IAM — it's secured at the network level only (a dedicated security group, ingress from `ecs_tasks` on the broker's client port), the exact pattern RDS and ElastiCache already use. No service calls any AWS API directly today, so the task role correctly reverts to M11's original "reserved for future use" empty state. D74 isn't wrong in hindsight — it was the correct design for MSK Serverless's IAM SASL specifically — it's superseded by D79's replacement, not retracted |
+| D81 | `modules/security-groups`' `msk_serverless` security group and its rules are renamed to `kafka`, with a new self-referencing NFS (port 2049) ingress rule added for the broker's own EFS mount | Keep the `msk_serverless` name on the renamed resource to minimize the diff | The old SG had zero real attachments in AWS — the MSK cluster it was provisioned for never got created — so renaming it is a same-day, zero-blast-radius correction (`terraform plan` shows it as a clean destroy-and-recreate of an unused resource, confirmed before committing), not a change to any running workload. A security group still named after a service the platform no longer uses would actively mislead the next reader |
 
 ---
 
@@ -264,16 +269,17 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - CI does not boot any service against real Postgres/Kafka/Redis in-pipeline — it builds and structurally verifies each image (non-root user, exposed port, healthcheck present) but doesn't run a containerized integration test the way the M9 manual verification did locally. Testcontainers-based tests inside `./gradlew clean build` already cover real-infra behavior per service; a full docker-compose-driven E2E smoke test *in CI* is a reasonable future addition but isn't part of this milestone's explicit scope ("build Docker images for every service," not "re-run M9's manual E2E in CI").
 - No README.md exists yet (M15's job) to actually hold the CI badge — the ready-to-paste badge markdown is recorded in this file's M10 Deployment Status section below instead of being placed into a file that doesn't exist yet.
 - ~~`terraform/bootstrap` (the S3 state bucket + DynamoDB lock table) has not been applied~~ — applied by hand outside any milestone's normal workflow (as designed, D64): `paymentflow-terraform-state` (versioned, us-east-1) and `paymentflow-terraform-locks` (PAY_PER_REQUEST) both confirmed live via `aws s3api head-bucket`/`get-bucket-versioning` and `aws dynamodb describe-table`, matching bootstrap's own local state exactly. `environments/dev` can now be initialized against the real `s3` backend instead of `-backend=false`. Bootstrap's own state stays local by design (chicken-and-egg — it can't use the backend it creates) and is git-ignored, never committed.
-- None of M11's Terraform code has been applied to real AWS — no VPC, ECS cluster, RDS instance, ElastiCache replication group, MSK Serverless cluster, ALB, ECR repository, or IAM role actually exists in any AWS account yet. Every module is `fmt`/`validate`-clean and the non-AWS-provider portion of the graph (`random`/`tls` resources in the `secrets` module) has a real, verified `terraform plan` output; the AWS-provider portion has not been plan-verified against a real account (no AWS credentials are configured in this environment, and M11 explicitly forbids creating real resources anyway). M12 is where this actually gets applied.
+- ~~None of M11's Terraform code has been applied to real AWS~~ — corrected: `environments/dev` **was** applied outside any milestone's normal workflow at some point after M12 (no changelog entry recorded it at the time). Discovered via direct, read-only AWS API calls while reconciling the infrastructure (see the Infrastructure Recovery changelog entry): the VPC/NAT Gateway, ALB, ElastiCache replication group, ECR repositories, Secrets Manager secrets, ECS cluster shell, and most of `modules/iam` are genuinely live in account `679140927441` (`us-east-1`) and billing continuously. The RDS instance, the Kafka cluster, the MSK-specific IAM policy, and all 8 `ecs-service` instances are *not* live — that apply partially failed (root cause: an invalid RDS `engine_version` and an AWS-account-level MSK API block; both now fixed in code, see D78/D79) and everything depending on either failed resource was correctly skipped by Terraform rather than partially created.
 - ElastiCache is pinned to Redis OSS 7.1 (D67), one major version behind the local compose stack's `redis:8-alpine`. Everything this platform actually uses (cache-aside, TTL, SETNX-style locks, token-bucket rate limiting) works identically on both; revisit only if a future milestone needs a Redis-8-only feature, or migrate to AWS's "valkey" engine instead.
 - The ECS task role (`modules/iam`) is provisioned with no attached permissions — correct today (no service calls an AWS API directly), but means any future in-app AWS SDK call (e.g., S3 access for a future export feature) needs its permission added there first, or it will fail with an access-denied error that has nothing to do with security groups or networking.
 - The ALB has a listener but no target group and no HTTPS support until a certificate ARN is supplied (D66) — hitting the ALB's DNS name before M12 wires up a target group returns a fixed 503 "no target group attached yet" response by design, not a misconfiguration.
 - The GitHub Actions OIDC deploy role (D69) exists in AWS-side Terraform code but is not yet referenced by `.github/workflows/ci.yml` — CI still only builds/tags images for GHCR with `push: false` (M10, D59). Connecting the two (adding `aws-actions/configure-aws-credentials` + enabling ECR push in the workflow) is deferred until a milestone actually needs images to land in ECR.
-- **A real, load-bearing gap found while wiring M12, deliberately not fixed this milestone**: none of the 5 Kafka-touching services (payment/transaction/audit/notification/analytics-service) have the `software.amazon.msk:aws-msk-iam-auth` client library or the `security.protocol=SASL_SSL`/`sasl.mechanism=AWS_MSK_IAM` Spring Kafka properties needed to actually authenticate to MSK Serverless — today they're only configured for the local PLAINTEXT KRaft broker. The Terraform side (task role IAM permissions, `SPRING_KAFKA_BOOTSTRAP_SERVERS` pointed at the real MSK IAM bootstrap string) is correct and complete; the application-code side is not. A real ECS deployment would have every service boot successfully but fail at first Kafka connection attempt. Deliberately not added this milestone because it means changing 5 already-completed services' `build.gradle.kts`/`application.yaml` outside a genuine bug — exactly the kind of change the user's own M12 instructions reserve for "unless a genuine bug is discovered." Flagged here explicitly so it isn't silently assumed to work.
+- ~~A real, load-bearing gap found while wiring M12: none of the 5 Kafka-touching services have the `aws-msk-iam-auth` client library or the `SASL_SSL`/`AWS_MSK_IAM` Spring Kafka properties needed to authenticate to MSK Serverless~~ — moot as of the Infrastructure Recovery reconciliation (D79): MSK Serverless is gone, replaced by a self-managed PLAINTEXT Kafka broker on ECS Fargate. Every service was already configured for exactly PLAINTEXT (that's what the local docker-compose broker uses), so this gap no longer exists and required no application code changes to close.
+- The self-managed Kafka broker (`modules/kafka-broker`, D79) is a single node with no replication — same topology as the local docker-compose broker, and an accepted trade for a portfolio/demo workload with no uptime SLA (matches the pattern already accepted for RDS `multi_az = false`). A broker-task restart (deploy, Spot interruption if capacity providers are ever adopted, AZ issue) is a brief full outage of the event bus, not a data-loss event — EFS persists the KRaft log across restarts. Revisit only if a future milestone specifically needs to demonstrate broker HA.
 - No image has ever been pushed to any of the 8 ECR repositories — M10's CI still only builds/tags for GHCR (`push: false`, D59); M12's `cd.yml` (D76) is `workflow_dispatch`-only and hasn't been run. Every ECS task definition references a `:latest` tag that does not exist in ECR yet — a real `terraform apply` followed by a real ECS deployment would have every task fail to start with an image-pull error until `cd.yml` is actually run at least once.
 - `.github/workflows/cd.yml` cannot do anything real yet: it needs `AWS_ECR_PUSH_ROLE_ARN`/`AWS_REGION`/`ECR_REGISTRY` repository variables populated from `terraform output` after `terraform apply` has actually run against a real AWS account — none of which has happened. This is intentional (D76), not an oversight.
-- Unlike the local docker-compose stack's `depends_on: condition: service_healthy` (D56), ECS has no native equivalent — every one of the 8 ECS services starts independently, with no orchestration-level guarantee that, say, RDS is reachable before identity-service's first Flyway migration attempt. What actually handles this in practice is Spring Boot's own baseline resilience (Flyway/JDBC connection retry, Spring Kafka consumer reconnect-on-failure) plus M8's Resilience4j wrapper around the one synchronous cross-service call — not any new orchestration code, and not something this milestone added. Real dependency timing (RDS/ElastiCache/MSK Serverless can each take several minutes to actually provision) is a legitimate first-deployment concern for M12's eventual real `apply`, worth remembering rather than assuming ECS "just handles it" the way Compose's health-gated startup did locally.
-- None of M12's Terraform code has been applied to real AWS — no ECS task definition, service, target group, or IAM policy actually exists in any AWS account yet, for the same reason as M11 (explicitly not authorized, and no AWS credentials are configured in this environment regardless).
+- Unlike the local docker-compose stack's `depends_on: condition: service_healthy` (D56), ECS has no native equivalent — every one of the 8 ECS services starts independently, with no orchestration-level guarantee that, say, RDS is reachable before identity-service's first Flyway migration attempt. What actually handles this in practice is Spring Boot's own baseline resilience (Flyway/JDBC connection retry, Spring Kafka consumer reconnect-on-failure) plus M8's Resilience4j wrapper around the one synchronous cross-service call — not any new orchestration code, and not something this milestone added. Real dependency timing (RDS/ElastiCache/the self-managed Kafka broker can each take a few minutes to actually provision) is a legitimate first-deployment concern for the next real `apply`, worth remembering rather than assuming ECS "just handles it" the way Compose's health-gated startup did locally.
+- ~~None of M12's Terraform code has been applied to real AWS~~ — corrected, see the note under M11 above: the ECS cluster shell is live, but no task definition, service, target group, or the MSK-specific IAM policy ever got applied — that's exactly the set of resources whose dependencies (RDS, MSK) failed. Now fixed in code (D78–D81) and `terraform plan`-verified against live state (28 to add, 0 to change, 3 to destroy — see the Infrastructure Recovery changelog entry); **not yet re-applied**, pending explicit approval.
 
 ## 12. Future Improvements
 - gRPC for internal sync calls; API versioning; blue/green on ECS; OpenTelemetry collector.
@@ -307,8 +313,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - **AWS ECS Fargate (M12):** code-complete, not applied — same explicit "do not create AWS resources without approval" boundary as M11, and no AWS credentials are configured in this environment regardless (checked again this milestone: no `aws` CLI, no `~/.aws/` files, no `AWS_*` env vars). `terraform fmt -recursive -check` clean across every file (including the new `modules/ecs-service`); `terraform validate` passes with zero errors for both root configurations on the first attempt this milestone (no repeat of M11's OIDC-thumbprint/description-charset issues, since those lessons were already applied while writing the new code). `terraform plan` exercised the same way as M11 — a temporary, git-ignored local-backend override — and produced the identical, correct result: the `secrets` module's non-AWS resources plan cleanly ("3 to add"), then the graph stops at the `aws` provider with "No valid credential sources found." This was re-run twice: once after the initial ECS/ALB/secrets-wiring changes, and again after adding the MSK IAM task-role policy and renaming the GitHub Actions role — both runs produced the same clean, expected result with no new configuration errors introduced by either change.
 - 1 new module (`ecs-service`, reusable, instantiated 8x) + 2 modules extended (`alb` — gateway target group; `iam` — MSK task-role policy + renamed/broadened GitHub Actions role) + 1 new GitHub Actions workflow (`cd.yml`, `workflow_dispatch`-only). Other services: skeletons only. AWS: infrastructure-as-code now covers the full local architecture (VPC through running ECS services) but nothing has been applied to any real AWS account — that's still ahead, gated on explicit approval to `terraform apply`.
 - **Terraform remote-state backend bootstrap (post-M12, manual, outside milestone scope):** applied by hand directly against a real AWS account (`679140927441`, `us-east-1`) — `terraform/bootstrap` created `paymentflow-terraform-state` (S3, versioned, AES256, public access blocked) and `paymentflow-terraform-locks` (DynamoDB, `PAY_PER_REQUEST`). Both independently re-verified live via `aws s3api head-bucket`/`get-bucket-versioning` and `aws dynamodb describe-table` (status `ACTIVE`, billing mode `PAY_PER_REQUEST`, partition key `LockID`) before trusting the user's report — not just taken on faith. Bootstrap's own state remains local (`terraform/bootstrap/terraform.tfstate`, git-ignored, by design — it cannot use the S3 backend it creates). This is the first real AWS infrastructure this project has ever applied; every other module (VPC, ECS, RDS, ElastiCache, MSK, ALB, ECR, IAM) remains code-complete but unapplied. `environments/dev/backend.tf`'s real `s3` backend can now be initialized normally instead of via `-backend=false`.
-- **`environments/dev` initialized against the real S3/DynamoDB backend for the first time:** `terraform init -reconfigure` (no state migration needed — the prior `.terraform/terraform.tfstate` was only leftover local-backend metadata from M11/M12's temporary `override.tf` verification runs, pointing at a state file that was never actually written, since those sessions only ever ran `plan`, never `apply`) succeeded, backed by a real DynamoDB lock (Terraform did flag `dynamodb_table` as a deprecated parameter in favor of newer native S3-key locking (`use_lockfile`) — non-blocking, still functions, noted below as a future cleanup item, not fixed now). `terraform validate` passed clean. A real `terraform plan` (credentials now present — `aws sts get-caller-identity` resolves to account `679140927441`) ran against live AWS for the first time in this project's history: **108 to add, 0 to change, 0 to destroy, zero errors** — full coverage of all 11 modules (VPC, ECR, secrets, MSK Serverless, ECS cluster, IAM, RDS, ElastiCache, ALB, CloudWatch, the 8x `ecs-service` instantiation). The saved plan file was deleted immediately after review (a stale plan should never be applied later without re-planning against then-current state) rather than left on disk. **`terraform apply` has NOT been run — no real AWS resources have been created beyond the bootstrap bucket/table.** Applying is a costly, hard-to-reverse action (NAT Gateway, RDS, MSK Serverless, ALB all bill continuously) and awaits the user's explicit go-ahead.
+- **`environments/dev` initialized against the real S3/DynamoDB backend for the first time:** `terraform init -reconfigure` (no state migration needed — the prior `.terraform/terraform.tfstate` was only leftover local-backend metadata from M11/M12's temporary `override.tf` verification runs, pointing at a state file that was never actually written, since those sessions only ever ran `plan`, never `apply`) succeeded, backed by a real DynamoDB lock (Terraform did flag `dynamodb_table` as a deprecated parameter in favor of newer native S3-key locking (`use_lockfile`) — non-blocking, still functions, noted below as a future cleanup item, not fixed now). `terraform validate` passed clean. A real `terraform plan` (credentials now present — `aws sts get-caller-identity` resolves to account `679140927441`) ran against live AWS for the first time in this project's history: **108 to add, 0 to change, 0 to destroy, zero errors** — full coverage of all 11 modules (VPC, ECR, secrets, MSK Serverless, ECS cluster, IAM, RDS, ElastiCache, ALB, CloudWatch, the 8x `ecs-service` instantiation). The saved plan file was deleted immediately after review (a stale plan should never be applied later without re-planning against then-current state) rather than left on disk. ~~`terraform apply` has NOT been run — no real AWS resources have been created beyond the bootstrap bucket/table.~~ **Corrected — this turned out to be wrong**, discovered during the Infrastructure Recovery reconciliation below: `terraform apply` *was* run against `environments/dev` at some point after this entry was written, outside this document's own change-logging discipline (no changelog entry ever recorded it). See the next bullet for what's actually live.
 - Found and fixed while doing this (real, previously-missing hygiene, not a design change): `.gitignore` had no pattern for `*.tfplan` files or `override.tf` — meaning a saved plan (or a leftover local-backend override) could have been accidentally `git add`-ed despite every prior milestone's changelog describing these as "git-ignored" (they were actually only ever kept out of commits via manual `git status`/`git add -n` dry-run discipline, not a real gitignore rule). Both patterns added now.
+- **Infrastructure Recovery (post-M12, outside milestone scope, this session) — partial-apply drift discovered and reconciled in code:** a routine state/reality check (read-only `aws` CLI calls, no changes) found that `environments/dev` had actually been applied for real at some point (the S3 state file exists, dated after the previous bullet's plan-only session), contradicting this document's own record. Live in account `679140927441` (`us-east-1`) and billing continuously: VPC + NAT Gateway, ALB (`paymentflow-dev-alb`), ElastiCache Redis (`paymentflow-dev-redis`), all 8 ECR repositories (0 images pushed to any), all 3 Secrets Manager secrets, the ECS cluster shell (`paymentflow-dev-cluster`, 0 services/task defs), and most of `modules/iam`. **Not** live: the RDS instance, any Kafka cluster, the MSK-specific IAM policy, and all 8 `ecs-service` instances. Root cause, confirmed with hard evidence (not inferred) — two independent failures in that apply, each correctly stopping only its own dependents: (1) `modules/rds`'s `engine_version` default was `"17.4"`, not a real AWS RDS Postgres version (`aws rds describe-db-engine-versions` confirms `us-east-1` offers 17.5–17.10), so `aws_db_instance` never created (only the dependency-free `aws_db_subnet_group` did); (2) MSK Serverless's cluster create call hit `SubscriptionRequiredException` — this AWS account's `kafka:*` API is blocked entirely (confirmed via `list-clusters` and `list-clusters-v2` returning the identical error), so `aws_msk_serverless_cluster` never entered state. Every one of the 8 `ecs_services` instances references `module.rds`'s JDBC URL (all 8) and/or `module.msk_serverless`'s bootstrap-brokers output (5 of 8) in its environment variables, so both failures independently blocked all 8 from ever being created; `modules/iam`'s MSK-scoped task-role policy (D74) failed the same way, while the MSK-independent IAM resources (execution role, empty task role, GitHub Actions role) succeeded normally. **Fixed in code, not yet re-applied**: RDS `engine_version` corrected to `17.10` (D78); MSK Serverless replaced entirely by a new `modules/kafka-broker` — self-managed, single-broker KRaft Kafka on ECS Fargate + EFS, PLAINTEXT, network-secured only (D79–D81), since provisioned MSK would hit the identical account-level block. `terraform fmt -recursive -check` clean; `terraform init -reconfigure` + `terraform validate` pass with zero errors; a real `terraform plan` against live AWS state (not the old local-backend-override workaround — real credentials and a real initialized backend both exist now) produced **28 to add, 0 to change, 3 to destroy** (the 3 destroys are the orphaned `msk_serverless` SG/rules, which had zero real attachments) — the RDS instance, the Kafka broker's EFS/task/service, and all 8 `ecs_services` now plan cleanly, and nothing already-live was touched unexpectedly. **`terraform apply` has not been run for this fix — awaiting explicit approval**, per this project's own standing rule for costly/hard-to-reverse AWS actions.
 
 ## 16. Lessons Learned
 - A cache-aside bug (D38) shipped in M4 and passed M4's own test suite because that suite's only two `/me` reads were separated by a cache eviction — it never exercised a genuine cache *hit* round trip. Manual, real end-to-end testing across services (not just each service's own test suite in isolation) caught what unit/integration tests scoped to a single service could not: a bug that only manifests when a second service (payment-service, via Feign) calls the first one repeatedly in the pattern real traffic actually produces. Worth remembering for M6+: a fresh service's manual E2E pass is also a regression check on everything it calls.
@@ -2056,5 +2063,138 @@ code, described below.
 
 **Next milestone:** M13 — Observability (Prometheus + Grafana + Loki,
 dashboards, alerts, distributed tracing).
+
+---
+
+### Infrastructure Recovery — Partial-Apply Reconciliation ✅ (2026-07-19, post-M12, outside milestone scope)
+
+**Objectives:** Not a roadmap milestone — M13 was explicitly paused to fix this
+first. A routine reconciliation between Terraform state, live AWS resources,
+and this document's own claims found that `environments/dev` had actually
+been applied for real at some point after M12, undocumented, and only
+partially succeeded. Compare all three sources of truth, find every
+inconsistency, determine exactly why the apply partially succeeded, fix the
+infrastructure code, and update this document — without running
+`terraform apply` again until the user approves it.
+
+**How the drift was found:** read-only `aws` CLI calls (no changes) against
+account `679140927441`, `us-east-1` — `aws sts get-caller-identity`,
+`describe-*`/`list-*` across ECS, RDS, ElastiCache, MSK, ALB, VPC, ECR,
+Secrets Manager — cross-checked against `terraform state list` in
+`environments/dev` and this document's §15. All three disagreed with each
+other.
+
+**Root cause (confirmed, not inferred — see the state-list/AWS-API evidence
+above and in §15):**
+1. `modules/rds/variables.tf`'s `engine_version` default was `"17.4"` — not
+   a real AWS RDS Postgres version. `aws_db_instance` never created; only
+   the dependency-free `aws_db_subnet_group` did.
+2. `aws_msk_serverless_cluster`'s create call hit `SubscriptionRequiredException`
+   — this AWS account's `kafka:*` API is blocked entirely (confirmed
+   identically via `list-clusters` and `list-clusters-v2`), so the resource
+   never entered state at all.
+3. Both failures cascaded: all 8 `ecs_services` instances reference
+   `module.rds`'s JDBC URL (all 8) and/or `module.msk_serverless`'s
+   bootstrap-brokers output (5 of 8) in their environment variables, so
+   either failure alone would have blocked all 8 from being created.
+   `modules/iam`'s MSK-scoped task-role policy (D74) failed the same way
+   (depends on `module.msk_serverless.cluster_arn`), while every
+   MSK-independent resource in the same apply (networking, security groups,
+   ECR, secrets, ElastiCache, ALB, the ECS cluster shell, the non-MSK IAM
+   resources) succeeded normally — a clean, evidence-matching explanation
+   for exactly which resources are live and which aren't.
+
+**Fixes applied (code only — see D78–D81 in §9 for full rationale):**
+- RDS `engine_version` corrected `"17.4"` → `"17.10"` (D78) — verified
+  against `aws rds describe-db-engine-versions`.
+- `modules/msk-serverless` deleted outright; replaced by new
+  `modules/kafka-broker` — self-managed, single-broker Kafka (KRaft mode)
+  on ECS Fargate, EFS-backed storage, PLAINTEXT protocol, mirroring the
+  local docker-compose broker exactly (D79). Provisioned MSK was ruled out
+  as an alternative — it shares the identical blocked `kafka:*` API surface
+  and would fail the same way.
+- `modules/iam`'s MSK task-role policy (D74) removed entirely; the task
+  role is empty again, matching M11's original state (D80) — self-managed
+  Kafka needs no IAM, only network-level security, like RDS/ElastiCache.
+- `modules/security-groups`'s `msk_serverless` SG/rules renamed to `kafka`,
+  with a new self-referencing NFS (2049) rule for the broker's own EFS
+  mount (D81).
+- `environments/dev/main.tf`/`locals.tf`/`outputs.tf` rewired accordingly:
+  `module.msk_serverless` removed, `module.kafka_broker` added (after
+  `cloudwatch`, before `ecs_services`, matching real dependency order); the
+  5 Kafka-touching services' `SPRING_KAFKA_BOOTSTRAP_SERVERS` now points at
+  `module.kafka_broker.bootstrap_brokers` (`kafka-broker:9092`) instead of
+  the old MSK IAM bootstrap string; `cloudwatch`'s `service_names` gained
+  `kafka-broker` for its own log group.
+
+**No application code changed** — every one of the 5 Kafka-touching
+services was already configured for PLAINTEXT (that's what the local
+Kafka broker uses); switching the AWS-side broker to PLAINTEXT as well
+means zero `build.gradle.kts`/`application.yaml` changes, and closes the
+gap M12 itself had flagged (no service ever had `aws-msk-iam-auth` wired
+up) — that gap simply no longer applies.
+
+**Infra/Terraform changes:** `terraform/modules/rds/variables.tf` (1 line);
+`terraform/modules/msk-serverless/` (deleted, 3 files); new
+`terraform/modules/kafka-broker/` (3 files); `terraform/modules/security-groups/{main,variables,outputs}.tf`;
+`terraform/modules/iam/{main,variables}.tf`;
+`terraform/environments/dev/{main,locals,outputs}.tf`. `PROJECT_CONTEXT.md`
+(this file — §9 decisions D78–D81, §11 Known Issues corrections, §15
+Deployment Status, this entry).
+
+**Verification steps:**
+1. `terraform fmt -recursive -check` — clean after one auto-fix (an
+   alignment issue `fmt` corrected itself, not a manual fix).
+2. `terraform init -reconfigure` — succeeded, picked up the new
+   `kafka-broker` module and the removed `msk-serverless` module cleanly.
+3. `terraform validate` — one real error caught (not assumed away): the new
+   EFS security-group-rule `description` contained an apostrophe, hitting
+   the exact AWS character-restriction the M11 changelog already
+   documented once (D-precedent) — reworded, validated clean on retry.
+4. A real `terraform plan` against live AWS state (real credentials, real
+   initialized S3/DynamoDB backend — no local-backend-override workaround
+   needed this time, unlike every prior milestone's plan): **28 to add, 0
+   to change, 3 to destroy**. The 3 destroys are the orphaned
+   `msk_serverless` security group and its 2 rules (zero real attachments,
+   confirmed before accepting the rename). The 28 adds are exactly the
+   expected previously-blocked set: the RDS instance, the Kafka broker's
+   EFS filesystem/mount targets/access point/task definition/service, and
+   all 8 `ecs_services` (task definition + service each). Nothing already
+   live (VPC, ALB, ElastiCache, ECR, secrets, ECS cluster, the
+   MSK-independent IAM resources) appears as a change — confirms the fix is
+   additive/corrective only, not a redesign of anything already working.
+
+**Problems faced → solutions**
+1. `PROJECT_CONTEXT.md` itself was stale in three places (§15's "`terraform
+   apply` has NOT been run" claim, and two "None of M11/M12's Terraform
+   code has been applied" Known Issues bullets) — all three were
+   confidently, specifically wrong, discovered only by actually querying
+   live AWS rather than trusting the document. Corrected with strikethrough
+   + explanation in place, per this file's own top-of-file rule ("if code
+   and this document disagree, fix whichever is wrong — never leave it
+   stale") — extended here to "if AWS and this document disagree."
+2. The EFS security-group-rule description apostrophe (Verification #3)
+   was the same class of mistake M11's changelog already documented once
+   (D-precedent, AWS's real character-restriction on that specific
+   argument) — a reminder that this project's own past lessons need to
+   actually be applied when writing new AWS-resource free-text fields, not
+   just recorded.
+
+**Explicitly not done this session (deliberate):** `terraform apply` was
+not run — this reconciliation fixes and verifies the code only. Applying
+would create the RDS instance, the Kafka broker (EFS + Fargate task), and
+all 8 ECS services for real, and each of the 8 services would still fail
+to start afterward (no image has ever been pushed to any ECR repository —
+`cd.yml` has never been run). Two pre-existing, unrelated uncommitted edits
+found sitting in the working tree at the start of this session
+(`modules/cloudwatch`'s log retention 30→7 days, `modules/ecs-cluster`'s
+default capacity provider FARGATE→FARGATE_SPOT) were deliberately left
+alone and not folded into this commit — genuinely unrelated to the RDS/Kafka
+reconciliation, per this session's own "do not redesign unrelated
+infrastructure" instruction.
+
+**Next:** awaiting explicit approval to run `terraform apply` against this
+now-corrected plan. M13 (Observability) remains paused until infrastructure
+is reconciled and confirmed applied.
 
 
