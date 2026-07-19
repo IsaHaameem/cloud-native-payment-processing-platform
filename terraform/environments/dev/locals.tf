@@ -40,12 +40,14 @@ locals {
       SPRING_DATASOURCE_URL                  = local.rds_jdbc_url
       SPRING_DATA_REDIS_HOST                 = module.elasticache.primary_endpoint_address
       SPRING_DATA_REDIS_PORT                 = tostring(module.elasticache.port)
+      SPRING_DATA_REDIS_SSL_ENABLED          = "true"
       PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI = "http://identity-service:${local.services["identity-service"].port}/oauth2/jwks"
     }
     payment-service = {
       SPRING_DATASOURCE_URL                  = local.rds_jdbc_url
       SPRING_DATA_REDIS_HOST                 = module.elasticache.primary_endpoint_address
       SPRING_DATA_REDIS_PORT                 = tostring(module.elasticache.port)
+      SPRING_DATA_REDIS_SSL_ENABLED          = "true"
       SPRING_KAFKA_BOOTSTRAP_SERVERS         = module.kafka_broker.bootstrap_brokers
       PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI = "http://identity-service:${local.services["identity-service"].port}/oauth2/jwks"
       PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI = "http://merchant-service:${local.services["merchant-service"].port}"
@@ -70,6 +72,7 @@ locals {
       SPRING_PROFILES_ACTIVE                 = "local"
       SPRING_DATA_REDIS_HOST                 = module.elasticache.primary_endpoint_address
       SPRING_DATA_REDIS_PORT                 = tostring(module.elasticache.port)
+      SPRING_DATA_REDIS_SSL_ENABLED          = "true"
       PAYMENTFLOW_SERVICES_IDENTITY_BASE_URI = "http://identity-service:${local.services["identity-service"].port}"
       PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI = "http://merchant-service:${local.services["merchant-service"].port}"
       PAYMENTFLOW_SERVICES_PAYMENT_BASE_URI  = "http://payment-service:${local.services["payment-service"].port}"

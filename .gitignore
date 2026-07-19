@@ -39,7 +39,12 @@ desktop.ini
 !.env.example
 *.pem
 *.key
-secrets/
+# Anchored to the repo root only — an unanchored "secrets/" also matched
+# terraform/modules/secrets/ (a legitimate Terraform module defining secret
+# *infrastructure*, no real secret values) and silently kept it out of every
+# commit since M11 without anyone noticing (found while trying to commit a
+# real fix to that module and seeing git report no changes).
+/secrets/
 
 # ── Docker ──────────────────────────────────────────────────────────────
 **/data/
