@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M11 (Terraform Infrastructure) — *pending approval*
-- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅ · M9 (Containerization) ✅ · M10 (CI/CD) ✅
-- **Pending milestones:** M11–M15
+- **Current milestone:** M12 (AWS ECS Fargate) — *pending approval*
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅ · M9 (Containerization) ✅ · M10 (CI/CD) ✅ · M11 (Terraform Infrastructure) ✅
+- **Pending milestones:** M12–M15
 
 ---
 
@@ -151,7 +151,7 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 2. **Repo layout:** ✅ Monorepo.
 3. **Build order:** ✅ Depth-first vertical slice.
 4. **Base Java package:** ✅ `com.paymentflow` (e.g. `com.paymentflow.identity`).
-5. **AWS Kafka:** Amazon MSK vs self-managed Kafka on ECS — *deferred to M11*.
+5. **AWS Kafka:** ✅ MSK Serverless (confirmed with the user in M11 — see D62).
 
 ---
 
@@ -220,6 +220,14 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D59 | Docker images are built and GHCR-tagged (`ghcr.io/<owner>/<service>:latest` and `:<sha>`) with `push: false, load: true` — built and verified locally on the runner, never pushed to any registry | actually push to GHCR now, or skip building/tagging images at all until a later milestone | The user's explicit scope for M10 is "design so it can later push to GHCR without major restructuring... do NOT implement deployment yet." Tagging in the final GHCR-qualified shape now means enabling push later is exactly two changes (add `packages: write` to `permissions:`, flip `push: false`→`true` alongside the already-written, currently-commented-out `docker/login-action` step) — no restructuring of the job, matrix, or tagging logic |
 | D60 | The `docker-build` job declares `needs: build-and-test`, so a failing Gradle build/test skips all 8 Docker builds entirely | run Gradle and Docker builds as independent, parallel jobs | "Fail immediately if any test fails" (explicit M10 requirement) extends naturally to not spending Docker-build minutes validating images built from code that doesn't even pass its own test suite — mirrors this project's whole milestone-gated philosophy (verify before proceeding) applied to a single CI run's own internal ordering |
 | D61 | Each matrix leg ends with a real automated assertion (`docker inspect` checked against the non-root user, the exposed port, and the presence of a `HEALTHCHECK`) rather than treating "the image built" as sufficient verification | trust `docker build`'s exit code alone | A Dockerfile edit that silently dropped `USER`, `EXPOSE`, or `HEALTHCHECK` (all established in M9, D53–D55) would still `docker build` successfully — this is the automated, CI-native equivalent of the same "verify, don't assume" discipline M9's manual verification already applied by hand; deliberately does *not* boot the app against real Postgres/Kafka in CI (that would need service containers/matrix-wide infra plumbing well beyond "build Docker images for every service" — deferred as YAGNI until a real need for in-pipeline integration testing exists, same reasoning as D14/D31/D42) |
+| D62 | **Amazon MSK Serverless** for the platform's AWS-hosted Kafka | Provisioned MSK (2–3 broker multi-AZ cluster); self-managed Kafka on ECS Fargate + EFS | Confirmed with the user before implementing (Settled Decisions #5 had explicitly deferred this exact choice to M11). Provisioned MSK has a real per-broker-hour minimum cost regardless of actual usage, working against this project's own stated cost-consciousness for a portfolio app; self-managed Kafka on Fargate has no attached-EBS support (EFS only), a real I/O-latency and single-node-reliability downgrade from the already-working local KRaft setup. MSK Serverless has no per-broker minimum, scales to the platform's actual low/intermittent demo traffic, and stays a genuine managed-AWS-Kafka interview talking point with zero broker ops |
+| D63 | One Terraform environment (`environments/dev`) rather than a `dev`/`staging`/`prod` split | Provision multiple environments now, even if only one is ever actually deployed | No roadmap milestone (M11 or otherwise) or existing document section ever mentions multiple environments; §10 Risks already commits to "single small RDS/ElastiCache" for cost. Multi-environment state separation (workspaces, or parallel environment directories) is straightforward to add later behind the same module set if a real second environment is ever needed — not invented speculatively now (same YAGNI stance as D14/D31/D42/D61) |
+| D64 | Remote state's S3 bucket + DynamoDB lock table live in their own `terraform/bootstrap` root module (local state, `terraform apply`-able exactly once, by hand) — `environments/dev/backend.tf` already declares the real `s3` backend pointing at them, but **M11 does not apply bootstrap**, so that backend cannot be initialized normally yet | Use a local backend for `environments/dev` too, matching what's actually applied today | Realizes the settled Technology Stack decision ("IaC \| Terraform (remote state: S3 + DynamoDB lock)") in code without violating "do not actually create AWS resources" this milestone — a well-known, genuine Terraform bootstrapping problem (the backend that stores state can't itself be created via that same backend), not a shortcut. Until bootstrap is applied by hand in a later milestone, `environments/dev` is initialized with `terraform init -backend=false`, which is enough for `fmt`/`validate` and — via a temporary, git-ignored local-backend override file — even a real `plan` against the non-AWS resources (verified working during this milestone, see the M11 changelog) |
+| D65 | One shared `ecs_tasks` security group for all 8 services, not eight per-service SGs | Give each service its own SG with exact caller-to-callee port rules | Every service currently lives on the same private subnets and calls its peers directly by container/service-discovery name, exactly like the local docker-compose network (D56-adjacent) — a single self-referencing SG (ingress scoped to the actual set of service ports in use, not a blanket all-ports rule) models that faithfully. Splitting into per-service SGs is a reasonable future tightening once M12's real task definitions pin down exactly which service calls which; inventing that precision speculatively now would be guessing |
+| D66 | The ALB and ECS cluster are provisioned as empty shells this milestone — the ALB gets a listener with a fixed-response default action (no target group), the ECS cluster gets a Cloud Map private DNS namespace but no task definitions or services | Wire up real target groups/task definitions now, since the modules already exist | Matches the roadmap's own explicit M11/M12 split precisely: M11 is "VPC, ECR, RDS, ElastiCache, Kafka, ALB, Secrets Manager, IAM, remote state," M12 is "ECS task defs + services, ALB target groups, secrets injection, CD deploy." A target group with nothing behind it, or a task definition before M12's actual deployment design exists, would be guessing at shapes a later milestone is explicitly scoped to design |
+| D67 | ElastiCache's `engine_version` is pinned to Redis OSS `7.1`, not `8.x` | Match the local compose stack's `redis:8-alpine` exactly | AWS ElastiCache's "redis" engine tops out at OSS Redis 7.1 — AWS introduced a separate "valkey" engine for anything past Redis Ltd's post-7.x license change rather than shipping a "redis" 8.x. Found by checking the real, current ElastiCache engine-version constraints while writing this module (not assumed to match the local Docker Redis image), and documented as a genuine, harmless local/prod version drift (see Known Issues) rather than silently picking a version that would fail to provision |
+| D68 | RDS master credentials, the Redis AUTH token, and identity-service's JWT signing keypair are Terraform-generated (`random_password`/`tls_private_key`) and stored into Secrets Manager directly, rather than left as empty secret containers for manual out-of-band population | Create empty `aws_secretsmanager_secret` containers only, populate values manually later | The already-settled remote-state decision (S3 + encryption + DynamoDB lock) is precisely what makes Terraform state a safe place for a generated secret to briefly exist — treating a Terraform-generated-and-stored credential as uniquely dangerous would be inconsistent with already trusting that same state for every other resource attribute. Standard, idiomatic Terraform (`random_password` -> `aws_secretsmanager_secret_version`) beats a manual step someone has to remember to do before M12's task definitions can reference a real secret |
+| D69 | A GitHub Actions OIDC deploy role (assumable only by this exact repository, scoped to ECR push actions only) is provisioned in the `iam` module | Continue using no CI-to-AWS credential path until M12 needs one | Direct continuation of M10's D59 ("design so it can later push to a registry without major restructuring") — now that a registry (ECR, this milestone) actually exists, an OIDC-federated role (no long-lived AWS access keys stored as a GitHub secret) is the natural next scaffolding piece, matching M11's own "IAM roles/policies required for later deployment" scope line. The role still isn't wired into `ci.yml` this milestone (that workflow still only builds/tags for GHCR, `push: false`, D59) — only the AWS-side role exists, ready for that connection whenever it's made |
 
 ---
 
@@ -247,6 +255,12 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - CI (M10) builds and tags all 8 Docker images (`ghcr.io/<owner>/<service>:latest`/`:<sha>`) but never pushes them anywhere (`push: false`) — there is no GHCR (or any other registry) publishing yet, and therefore nothing for a future ECS task definition (M12) to pull. This is intentional scope discipline (the user explicitly deferred both registry-push and deployment), not an oversight — enabling push needs exactly the two changes called out inline in `ci.yml`'s comments.
 - CI does not boot any service against real Postgres/Kafka/Redis in-pipeline — it builds and structurally verifies each image (non-root user, exposed port, healthcheck present) but doesn't run a containerized integration test the way the M9 manual verification did locally. Testcontainers-based tests inside `./gradlew clean build` already cover real-infra behavior per service; a full docker-compose-driven E2E smoke test *in CI* is a reasonable future addition but isn't part of this milestone's explicit scope ("build Docker images for every service," not "re-run M9's manual E2E in CI").
 - No README.md exists yet (M15's job) to actually hold the CI badge — the ready-to-paste badge markdown is recorded in this file's M10 Deployment Status section below instead of being placed into a file that doesn't exist yet.
+- `terraform/bootstrap` (the S3 state bucket + DynamoDB lock table) has not been applied — `environments/dev/backend.tf` declares the real `s3` backend it needs, but that backend cannot be initialized normally (only via `terraform init -backend=false`) until bootstrap is applied by hand, once, in a later milestone (D64). No milestone's normal workflow should ever run bootstrap's apply as a matter of course — it's a deliberate one-time manual action.
+- None of M11's Terraform code has been applied to real AWS — no VPC, ECS cluster, RDS instance, ElastiCache replication group, MSK Serverless cluster, ALB, ECR repository, or IAM role actually exists in any AWS account yet. Every module is `fmt`/`validate`-clean and the non-AWS-provider portion of the graph (`random`/`tls` resources in the `secrets` module) has a real, verified `terraform plan` output; the AWS-provider portion has not been plan-verified against a real account (no AWS credentials are configured in this environment, and M11 explicitly forbids creating real resources anyway). M12 is where this actually gets applied.
+- ElastiCache is pinned to Redis OSS 7.1 (D67), one major version behind the local compose stack's `redis:8-alpine`. Everything this platform actually uses (cache-aside, TTL, SETNX-style locks, token-bucket rate limiting) works identically on both; revisit only if a future milestone needs a Redis-8-only feature, or migrate to AWS's "valkey" engine instead.
+- The ECS task role (`modules/iam`) is provisioned with no attached permissions — correct today (no service calls an AWS API directly), but means any future in-app AWS SDK call (e.g., S3 access for a future export feature) needs its permission added there first, or it will fail with an access-denied error that has nothing to do with security groups or networking.
+- The ALB has a listener but no target group and no HTTPS support until a certificate ARN is supplied (D66) — hitting the ALB's DNS name before M12 wires up a target group returns a fixed 503 "no target group attached yet" response by design, not a misconfiguration.
+- The GitHub Actions OIDC deploy role (D69) exists in AWS-side Terraform code but is not yet referenced by `.github/workflows/ci.yml` — CI still only builds/tags images for GHCR with `push: false` (M10, D59). Connecting the two (adding `aws-actions/configure-aws-credentials` + enabling ECR push in the workflow) is deferred until a milestone actually needs images to land in ECR.
 
 ## 12. Future Improvements
 - gRPC for internal sync calls; API versioning; blue/green on ECS; OpenTelemetry collector.
@@ -276,7 +290,8 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - **All 8 services (M9 — full containerization):** every service builds into its own multi-stage Docker image (`eclipse-temurin:25-jdk-alpine` builder → `eclipse-temurin:25-jre-alpine` runtime, layered-jar extraction, non-root user, `HEALTHCHECK` against its own `/actuator/health`) and the entire platform — 4 infra containers + 8 application containers, 12 total — was brought up together via `docker compose -f docker-compose.infra.yml -f docker-compose.yml up -d`, reaching `healthy` in the correct dependency order with zero manual intervention: postgres/redis/kafka healthy → identity-service healthy → merchant-service/payment-service healthy (parallel) → gateway-service healthy → transaction/audit/notification/analytics-service healthy (parallel with identity, since they only need postgres+kafka). Every port matches the pre-M9 scheme exactly (8080–8084, 8091–8093, 55432/56379/59092/8085). A full register→login→onboard-merchant→create→authorize→capture→refund lifecycle was driven entirely through the containerized gateway over real HTTP, with every consumer verified via direct `psql` against the running containers: transaction-service posted the correct 6 balanced ledger entries; audit-service recorded all 4 lifecycle events verbatim; notification-service logged all 4 simulated emails (no webhook configured for this test merchant, so correctly zero webhook-delivery rows — not a bug, per D46); analytics-service's aggregate showed the exact expected counts/amounts. All 12 containers stopped cleanly afterward.
 - **CI pipeline (M10):** `.github/workflows/ci.yml` — validated with `actionlint` (zero warnings/errors) and a `js-yaml` parse (structurally valid) before committing. `build-and-test` job's exact command (`./gradlew clean build --no-daemon --stacktrace`) re-run locally to confirm it's still green post-M10 (no Java/Gradle files changed by this milestone — only the workflow file was added). `docker-build` job's build-arg/tag scheme reproduced locally for one service (`analytics-service`, tagged `ghcr.io/isahaameem/analytics-service:latest`/`:testsha` exactly as the workflow would) and its "Verify image" `docker inspect` assertions (non-root user `paymentflow:paymentflow`, exposed port `8093/tcp`, a present `HEALTHCHECK`) run by hand against that real image — all three passed. Not yet verified inside actual GitHub Actions infrastructure (this milestone doesn't push to GitHub — see the M10 changelog's Verification steps for exactly what "verify everything instead of assuming" meant here without a live workflow run to observe).
   - Ready-to-paste CI badge for M15's README: `[![CI](https://github.com/IsaHaameem/cloud-native-payment-processing-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/IsaHaameem/cloud-native-payment-processing-platform/actions/workflows/ci.yml)`
-- Other services: skeletons only. AWS: not yet started (Phase 4/5, M11–M12).
+- **Terraform infrastructure (M11):** code-complete, not applied — per this milestone's explicit "do not actually create AWS resources." `terraform fmt -recursive -check` clean across every file; `terraform validate` (via `terraform init -backend=false`) passes for both root configurations (`environments/dev`, `terraform/bootstrap`) with zero errors, after fixing two real issues caught by validate itself (an under-length OIDC thumbprint; AWS security-group-rule descriptions rejecting em-dashes/apostrophes/arrows — see the M11 changelog's Problems). `terraform plan` was exercised as far as genuinely possible without live AWS resources: using a temporary, git-ignored local-backend override (removed before committing), the `secrets` module's non-AWS-provider resources (`random_password` x2, `tls_private_key`) produced a real, correct plan ("3 to add"); the plan then stopped at the `aws` provider itself with "No valid credential sources found" — the correct, expected boundary given no AWS credentials are configured in this environment and none should be created this milestone. 11 modules (networking, security-groups, ecr, iam, rds, elasticache, msk-serverless, alb, ecs-cluster, cloudwatch, secrets) + 2 root configurations (environments/dev, bootstrap) — none applied to any real AWS account.
+- Other services: skeletons only. AWS: infrastructure-as-code exists (M11); no real AWS account has any of it applied yet — that's M12's job.
 
 ## 16. Lessons Learned
 - A cache-aside bug (D38) shipped in M4 and passed M4's own test suite because that suite's only two `/me` reads were separated by a cache eviction — it never exercised a genuine cache *hit* round trip. Manual, real end-to-end testing across services (not just each service's own test suite in isolation) caught what unit/integration tests scoped to a single service could not: a bug that only manifests when a second service (payment-service, via Feign) calls the first one repeatedly in the pattern real traffic actually produces. Worth remembering for M6+: a fresh service's manual E2E pass is also a regression check on everything it calls.
@@ -286,6 +301,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - A resource ceiling invisible from inside any single Dockerfile: building all 8 images via Compose's default parallelism (one BuildKit container per service, each running its own full-heap Gradle daemon) exhausted the Docker Desktop VM's allotted memory and killed the daemon's gRPC connection mid-build. The fix (build sequentially / cap `COMPOSE_PARALLEL_LIMIT`) is a local-machine-only concern — a reminder that "the build works" and "the build works at the concurrency your CI runner will actually use" are different claims, worth keeping in mind when M10 designs the GitHub Actions build matrix.
 - M10 confirmed that "verify everything instead of assuming" still applies even to CI configuration itself, which can't be run end-to-end without pushing to GitHub (explicitly not done this milestone). The honest substitute wasn't to skip verification — it was to decompose the workflow into independently-checkable pieces and verify each one for real: `actionlint` (a real static analyzer, not just eyeballing YAML) for syntax/schema correctness; re-running the exact `./gradlew clean build` command line locally; and reproducing the exact `docker build` args/tags/`docker inspect` assertions from the "Docker build" job by hand against a real image. None of that proves the workflow runs correctly *inside* GitHub's infrastructure specifically (network egress, runner image quirks, secrets context) — that residual gap is named explicitly in Deployment Status rather than glossed over, since a milestone that can't push shouldn't quietly imply full verification when it only achieved partial verification.
 - Discovered a subtle self-inflicted false alarm while stress-testing the final regression build: piping a background script's commands together (`gradlew ... ; echo ... ; grep -c "FAILED" logfile`) meant the *last* command's exit code became the whole script's reported exit code — and `grep -c` legitimately exits 1 when it finds zero matches (the desired, successful outcome here), not just when something goes wrong. The build had actually succeeded (`BUILD SUCCESSFUL`, confirmed by reading the captured `GRADLE_EXIT=0` from the real command), but the harness's completion summary reported "failed." Worth remembering generally: a composite script's exit code reflects its last command, not necessarily the thing you actually care about — check the real signal (here, the explicitly captured `GRADLE_EXIT`) before trusting a wrapper's aggregate result.
+- M11 reinforced that "verify everything instead of assuming" catches things a code review alone would not: a remembered GitHub Actions OIDC thumbprint turned out to be both the wrong length (39 hex characters, not 40) *and* for a certificate chain GitHub no longer actually uses (it migrated `token.actions.githubusercontent.com` to a Let's Encrypt/ISRG root at some point; the commonly-cited DigiCert-chain value many tutorials still show is stale). `terraform validate` caught the length problem immediately; the staleness was only caught by actually fetching the live certificate chain with `openssl s_client` and computing the real fingerprint — a genuinely different answer from what memory alone would have produced with high confidence. Neither error would have been obvious from reading the code.
+- Also found via `terraform validate`, not anticipated while writing the code: AWS's `aws_security_group_rule`/`aws_security_group` `description` fields reject a narrower character set than expected — no em-dashes, apostrophes, or `->` arrows, all of which this project's own writing style (and every other file in this repo) uses constantly. Worth remembering for any future AWS-resource free-text field: Terraform's own `description` arguments on variables/outputs are unrestricted (pure documentation, never sent to any API), but a handful of actual AWS resource *arguments* that happen to also be named `description` carry real, terser character-set restrictions enforced by the AWS API itself — the two are easy to conflate by name alone.
+- A `terraform plan` cannot get past its own backend-state reconciliation check to reach the provider layer at all once a real (non-local) backend block is declared in code but not actually initialized against it — this is a distinct, earlier blocker than "no AWS credentials," and matters when a milestone's own scope (D64) intentionally leaves a real backend un-bootstrapped. The workaround that let a genuine `plan` run anyway (a temporary, git-ignored `override.tf` swapping in a `local` backend, deleted again immediately after) is Terraform's own supported override-file mechanism, not a hack — worth remembering the next time "validate the code without touching real infrastructure" needs to go one step further than `validate` alone can prove.
 
 ---
 
@@ -1676,5 +1694,193 @@ as it was at the end of M9.
 
 **Next milestone:** M11 — Terraform Infrastructure (VPC, ECR, RDS,
 ElastiCache, Kafka, ALB, Secrets Manager, IAM, remote state).
+
+---
+
+### M11 — Terraform Infrastructure ✅ (2026-07-19)
+
+**Objectives:** Build a clean, modular Terraform project that provisions
+every piece of AWS infrastructure the existing architecture needs (VPC,
+subnets, NAT, IAM, ECR, RDS, ElastiCache, MSK, ALB, ECS cluster, CloudWatch
+Logs), fully `fmt`/`validate`-clean and plan-verified as far as possible
+without live AWS credentials — without creating a single real AWS resource.
+
+**A genuinely open decision, resolved before implementing:**
+PROJECT_CONTEXT.md's own Settled Decisions #5 had explicitly deferred "Amazon
+MSK vs self-managed Kafka on ECS" to this exact milestone, and the M11 scope
+message itself didn't mention Kafka infra at all. Asked the user directly
+(AskUserQuestion) rather than guess; **MSK Serverless** was selected (D62) —
+no per-broker minimum cost, fully managed, still a genuine "Amazon MSK"
+architecture even though provisioned MSK and self-managed-on-Fargate were
+both real, presented alternatives.
+
+**Features implemented**
+- Clean Terraform layout: `terraform/modules/*` (11 reusable modules — none
+  hardcode an environment name or account-specific value),
+  `terraform/environments/dev` (the one root module that wires every module
+  together with real variable values, D63), `terraform/bootstrap` (its own
+  tiny root module, local state, for the S3/DynamoDB remote-state backend —
+  written, not applied, D64).
+- **networking**: VPC, one public + one private subnet per AZ (2 AZs),
+  Internet Gateway, a single shared NAT Gateway by default (toggleable to
+  one-per-AZ via `single_nat_gateway = false`), and the route tables tying
+  it together — subnets/NAT/route-tables all keyed by AZ via `for_each`
+  (never a `count`-indexed list), so adding/removing an AZ later can't
+  silently reorder-and-replace unrelated resources.
+- **security-groups**: least-privilege, SG-to-SG only (no bare CIDR ingress
+  anywhere except the ALB's own internet-facing rule) — one shared
+  `ecs_tasks` SG for all 8 services (D65), an `alb` SG that can only reach
+  gateway-service's port, and dedicated `rds`/`elasticache`/`msk_serverless`
+  SGs each accepting ingress from `ecs_tasks` only.
+- **ecr**: one repository per service (8), image scanning on push, AES256
+  encryption, and a lifecycle policy expiring untagged images after 7 days
+  and keeping only the most recent 20 tagged images.
+- **iam**: an ECS task execution role (ECR pull + CloudWatch Logs + scoped
+  Secrets Manager read, via the AWS-managed
+  `AmazonECSTaskExecutionRolePolicy` plus one inline policy), an empty ECS
+  task role reserved for future in-app AWS SDK calls, and a GitHub Actions
+  OIDC deploy role (D69) scoped to ECR push actions only and assumable only
+  by this exact repository (`repo:IsaHaameem/cloud-native-payment-processing-platform:*`)
+  — the direct continuation of M10's D59 registry-push scaffolding now that
+  a real registry exists.
+- **rds**: single PostgreSQL instance (`db.t4g.micro`, gp3, encrypted,
+  single-AZ, 1-day backup retention, `deletion_protection = false` /
+  `skip_final_snapshot = true` by default — all cost/teardown-conscious
+  choices, all overridable per environment), one `paymentflow` database —
+  each service's own Flyway migration still owns and creates its schema at
+  boot, exactly like the local compose Postgres.
+- **elasticache**: single-node Redis (`aws_elasticache_replication_group`
+  with `num_cache_clusters = 1`, not the plain `aws_elasticache_cluster`
+  resource — an AUTH token requires transit encryption, which only the
+  replication-group resource supports), engine `7.1` (D67 — AWS's actual
+  ceiling for the "redis" engine, not the local stack's `redis:8-alpine`).
+- **msk-serverless**: `aws_msk_serverless_cluster`, IAM-SASL auth only, in
+  the private subnets.
+- **alb**: internet-facing ALB shell in the public subnets — an HTTP
+  listener with a default fixed-response action, an optional HTTPS listener
+  gated on a `certificate_arn` variable (`null` by default, so no HTTPS
+  listener exists until Route53/ACM issuance is in scope) — deliberately no
+  target group yet (D66, matches the roadmap's own M11/M12 split).
+- **ecs-cluster**: the Fargate cluster itself (Container Insights enabled,
+  FARGATE + FARGATE_SPOT capacity providers) plus a Cloud Map private DNS
+  namespace (`paymentflow.local`) for service-to-service discovery — the AWS
+  equivalent of docker-compose's service-name-as-DNS-name, that M12's task
+  definitions will register each service under. No task definitions or
+  services yet (D66).
+- **cloudwatch**: one log group per service (`/ecs/paymentflow-dev-<service>`,
+  30-day retention) — AWS-native container logging only, not a duplicate of
+  M13's own application-level Prometheus/Grafana/Loki stack.
+- **secrets**: RDS master credentials, the Redis AUTH token, and identity-
+  service's RS256 JWT signing keypair — all Terraform-generated
+  (`random_password`/`tls_private_key`) and stored into Secrets Manager
+  directly (D68), every value marked `sensitive` so it never appears in
+  plan/apply output.
+- Every module takes `project_name`/`environment`/`tags` and merges a common
+  tag set onto everything it creates; nothing is hardcoded that a variable
+  could express instead (region, CIDRs, instance sizes, retention days,
+  service names/ports — all variables with sensible, documented defaults).
+
+**Endpoints added:** none (infrastructure-only milestone; no application
+code changed).
+
+**Database / Kafka / Redis changes:** none to the application's own
+migrations or topics — this milestone provisions the AWS-hosted
+*infrastructure* those already-existing migrations/topics will eventually
+run against, nothing more.
+
+**Infra/Docker changes:** `terraform/` (new) — 11 modules, 1 environment
+root (`dev`), 1 bootstrap root. No changes to `Dockerfile`,
+`docker-compose.yml`, or `.github/workflows/ci.yml` (M9/M10 respectively) —
+this milestone is purely additive infrastructure-as-code.
+
+**Testing completed:** No new Java tests (no application code changed).
+`./gradlew clean build` was not re-run this milestone (nothing in the JVM
+codebase changed since M10's own clean-build confirmation) — verification
+effort went entirely into the Terraform code itself, described below.
+
+**Verification steps:**
+1. `terraform fmt -recursive -diff` run and its output applied — caught real
+   formatting drift (misaligned `=` signs) across 6 files on the first pass;
+   a second `terraform fmt -recursive -check` afterward confirmed zero
+   remaining diffs.
+2. `terraform init -backend=false` + `terraform validate` for both root
+   configurations (`environments/dev`, `bootstrap`) — caught two real,
+   previously undetected bugs (see Problems below) before passing clean.
+3. `terraform plan` attempted for real: `environments/dev`'s committed `s3`
+   backend can't be reconciled without either applying `bootstrap` first or
+   overriding it, so a temporary, git-ignored `override.tf` swapped in a
+   `local` backend for this one verification step only (removed
+   immediately after, confirmed via `git status`/directory listing showing
+   no trace left). With that override, `terraform plan` produced a real,
+   correct diff for the `secrets` module's non-AWS-provider resources
+   (`random_password` x2, `tls_private_key`: "Plan: 3 to add, 0 to change,
+   0 to destroy") before stopping at the `aws` provider itself with "No
+   valid credential sources found" — the expected, correct boundary given
+   no AWS credentials exist in this environment and none should be created
+   this milestone. `bootstrap`'s own `plan` was also attempted and failed
+   at the identical credentials boundary (it has no non-AWS resources to
+   partially prove, since every resource there is AWS-only).
+4. Re-initialized `environments/dev` with `-backend=false` afterward (no
+   lingering local-backend state file), leaving the working directory in
+   exactly the state its own `backend.tf` documents as the way to use it
+   until `bootstrap` is applied for real.
+5. `git add -n terraform/` dry-run confirmed exactly the expected files
+   would be staged (11 modules x 3 files + 2 root configs' files +
+   `.terraform.lock.hcl` in both roots, correctly committed per Terraform
+   convention) and nothing unexpected (no `.terraform/` directories, no
+   `.tfstate` files, no leftover override file).
+
+**Important design decisions:** D62–D69 (see §9).
+
+**Problems faced → solutions**
+1. **A real bug caught by `terraform validate`, not assumed correct**: the
+   GitHub Actions OIDC provider's `thumbprint_list` value (typed from
+   memory) was 39 hex characters, one short of the required 40 — `terraform
+   validate` rejected it immediately with an exact length-constraint error.
+   Rather than just padding it to the right length, fetched
+   `token.actions.githubusercontent.com`'s actual live TLS certificate chain
+   with `openssl s_client -showcerts` and computed the real root-CA SHA1
+   fingerprint directly — which turned out to be a *different* certificate
+   chain entirely (GitHub migrated this endpoint to a Let's Encrypt/ISRG
+   root at some point; the DigiCert-chain thumbprint many still-circulating
+   tutorials cite is stale). Used the freshly-verified value instead of a
+   remembered one.
+2. **A second real bug caught by `terraform validate`**: three
+   `aws_security_group`/`aws_security_group_rule` `description` fields
+   (written in this project's normal prose style, with em-dashes,
+   apostrophes, and a `->` arrow) failed AWS's actual character-restriction
+   regex for that specific argument. Reworded all three to the restricted
+   character set; separately found and fixed a fourth instance in the
+   `elasticache` module's replication-group `description` proactively via a
+   full-repo grep, rather than waiting for `apply` (which isn't happening
+   this milestone) to reveal it.
+3. A copy-paste/typing slip in the `networking` module's private route-table
+   wiring: `aws_route.private_nat`'s `nat_gateway_id` referenced
+   `aws_nat_gateway.this[each.value]` where `each.value` was the *route
+   table* resource object, not the AZ key needed to index into
+   `aws_nat_gateway.this` — caught and fixed during a self-review pass
+   before ever running `validate` (would have surfaced as a type error at
+   validate time regardless, but catching it by reading the code first is
+   the same "check twice" discipline this project already applies
+   elsewhere).
+4. `terraform plan` refused to run at all once `environments/dev`'s real
+   `s3` backend block existed in code — this happens *before* the `aws`
+   provider is ever touched (a backend-state-reconciliation check, not a
+   credentials check). This is a distinct, earlier blocker than "no AWS
+   credentials," and is an unavoidable consequence of D64's deliberate
+   choice to leave the real backend un-bootstrapped this milestone. Worked
+   around it for verification purposes only, using Terraform's own
+   supported `override.tf` mechanism (a git-ignored, temporarily-created
+   file swapping in a `local` backend), deleted immediately after use —
+   the committed `backend.tf` itself was never touched.
+5. AWS ECR's lifecycle-policy JSON schema for a `tagStatus: "tagged"` rule
+   requires either `tagPrefixList` or the newer `tagPatternList` (supporting
+   wildcards) — used `tagPatternList = ["*"]` to match every tag rather than
+   guessing at a prefix scheme this platform doesn't actually have yet
+   (M10's tags are `latest`/`<git-sha>`, no meaningful shared prefix).
+
+**Next milestone:** M12 — AWS ECS Fargate (ECS task definitions + services,
+ALB target groups, secrets injection into running tasks, CD deploy pipeline
+extending M10's CI).
 
 

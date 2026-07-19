@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars (git-ignored) and adjust as needed.
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# Every value here already has a sensible default in variables.tf — this
+# file only needs to override what's actually different for your account
+# (e.g. a different GitHub fork, a different AWS region).
+
+project_name = "paymentflow"
+environment  = "dev"
+aws_region   = "us-east-1"
+
+github_repository = "IsaHaameem/cloud-native-payment-processing-platform"
+
+# Leave null until Route53/ACM issuance is in scope — the ALB's HTTPS
+# listener is skipped entirely while this is null (see modules/alb).
+alb_certificate_arn = null
