@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M9 (Containerization) — *pending approval*
-- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅
-- **Pending milestones:** M9–M15
+- **Current milestone:** M10 (CI/CD) — *pending approval*
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅ · M9 (Containerization) ✅
+- **Pending milestones:** M10–M15
 
 ---
 
@@ -211,6 +211,10 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D50 | Exponential-backoff-with-jitter for the `merchantService` retry instance is configured via a programmatic `RetryConfigCustomizer` bean (`MerchantResilienceConfig`) reading externalized `paymentflow.resilience.merchant-service.retry-*` properties, not plain `resilience4j.retry.instances.*` YAML | find a way to express it in YAML alone | Resilience4j's YAML-bound `RetryProperties` only supports `enableExponentialBackoff` XOR `enableRandomizedWait` as mutually exclusive flags — there is no plain-YAML path to `IntervalFunction.ofExponentialRandomBackoff(...)` (both combined), which is what "exponential backoff with jitter" actually means; the `RetryConfigCustomizer` extension point is Resilience4j's own supported way to reach APIs YAML can't express, while keeping the actual numbers externalized rather than hardcoded |
 | D51 | CircuitBreaker/Retry `recordExceptions`/`retryExceptions` for `merchantService` are an explicit whitelist (`feign.RetryableException`, `feign.FeignException$FeignServerException`, `java.util.concurrent.TimeoutException`); `ignoreExceptions` explicitly lists `MerchantNotOnboardedException`, `feign.FeignException$FeignClientException`, **and** `io.github.resilience4j.bulkhead.BulkheadFullException` | leave `BulkheadFullException` off both lists, since a bulkhead rejection isn't a merchant-service health signal | Resilience4j's actual semantics (confirmed via a real bug caught while manually verifying this milestone, not a hypothetical): once `recordExceptions` is non-empty, *any* exception that matches neither list is counted as a **success**, not as "uncounted." Leaving `BulkheadFullException` off both lists would have made sustained bulkhead saturation look like a 100%-healthy merchant-service to the circuit breaker — exactly backwards. Explicitly ignoring it restores the intended "bulkhead rejections reflect this instance's own saturation, not downstream health" semantics as true neutrality, not accidental false-success |
 | D52 | `ThreadPoolBulkhead` dispatches the Feign call onto its own dedicated thread pool, not the calling Servlet thread, and `MerchantResolver` explicitly captures the caller's `RequestAttributes` before dispatch and re-binds (then clears) them on the bulkhead thread around the call | let `FeignAuthorizationForwardingConfig`'s interceptor read `RequestContextHolder` on whatever thread happens to run the call | `RequestContextHolder` is a plain (non-inheritable) `ThreadLocal` — without this, moving the call to a different thread pool (the entire point of `ThreadPoolBulkhead`, isolating a hung downstream from the app's main request threads) would silently stop forwarding the caller's JWT, breaking merchant resolution for every payment operation. Found and fixed during implementation before it ever reached a running system, the same way M6's account-save-ordering bug was — not discovered via production behavior |
+| D53 | One parameterized, shared `Dockerfile` at the repo root (`ARG SERVICE_MODULE`, `ARG SERVICE_PORT`), built once per service via `docker-compose.yml`'s per-service `build.args` | eight near-identical per-service Dockerfiles | M9's own "no duplicated code" requirement applies to Dockerfiles as much as to Java — every service in this monorepo builds and packages identically (same Gradle multi-module graph, same Spring Boot layered-jar packaging, same JRE, same non-root user, same healthcheck shape); the only real per-service inputs are which Gradle module to build and which port to expose, both cleanly expressed as build args |
+| D54 | The builder stage runs the real Gradle wrapper (`./gradlew :<module>:bootJar`) against the actual monorepo — copying in build files first (their own Docker layer) and then only the requested module's `src/` plus `common-dto`/`common-lib` — rather than building jars on the host and `COPY`-ing a prebuilt artifact into the image | build outside Docker and `COPY` a prebuilt jar in | The image is built from exactly the same Gradle/Java-25 toolchain invocation a developer runs locally (reproducible builds, requirement #3) with no separate host-side build step to keep in sync; schema-per-service's "no cross-service coupling" extends to the Docker build context too, since no sibling service's source is ever copied in to build one image |
+| D55 | Runtime images extract the Spring Boot layered jar (`java -Djarmode=tools ... extract --layers --launcher`) onto `eclipse-temurin:25-jre-alpine`, copied in as four separate `COPY --from=builder` layers (dependencies → spring-boot-loader → snapshot-dependencies → application, least- to most-often-changing) | ship the plain uber-jar (`java -jar app.jar`) in a single `COPY` | A pure application-code change only busts the final (application) layer during a later rebuild, not the three dependency layers underneath it (requirement #2's "optimize image size using layered builds"); confirmed working end-to-end with a real local extract-and-run before committing to the approach, not assumed from documentation alone |
+| D56 | `docker-compose.yml` (M9) holds only the eight application services, not a second copy of Postgres/Redis/Kafka/Kafka-UI, and is designed to always run merged with the existing `docker-compose.infra.yml` via multiple `-f` flags (`docker compose -f docker-compose.infra.yml -f docker-compose.yml up -d`) | duplicate the infra service definitions into one all-in-one compose file | Realizes the split M0 already forecast ("Application services get their own compose file in a later phase") without duplicating infra config; critically, `depends_on: condition: service_healthy` only resolves across service definitions known to the *same* Compose model, so merging via `-f` (not two independently-run projects) is what makes postgres/redis/kafka health-gating the app services actually work, not just an aesthetic file-organization choice |
 
 ---
 
@@ -233,6 +237,8 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - Concurrent duplicate webhook-delivery attempts for the same event are not possible by construction today (only the main listener's inline attempt and the dedicated retry listener ever touch a `webhook_deliveries` row, never both at once) — `WebhookDelivery`'s `@Version` is defensive only, not load-bearing yet.
 - No concrete Micrometer registry implementation (e.g. `micrometer-registry-prometheus`) is wired into any service yet — Resilience4j's meters are correctly bound to Micrometer's meter-registration SPI (proven via `MerchantResilienceIntegrationTest` reading `MeterRegistry` directly, since Spring Boot Test supplies its own `SimpleMeterRegistry`), but the real running app has no concrete registry backing it, so `/actuator/metrics/resilience4j.*` returns nothing meaningful today — every recorded metric is silently discarded by Boot's default empty `CompositeMeterRegistry`. This is exactly M13's job ("Ensure they will later integrate with Prometheus in M13"), not pulled forward.
 - TimeLimiter's `cancelRunningFuture(true)` cancels the `CompletableFuture` the caller is waiting on, but does not interrupt the underlying blocking Feign HTTP call already in flight on its `ThreadPoolBulkhead` thread — the real socket read keeps running in the background until it completes or the Feign-level `read-timeout-ms` fires on its own. The caller still gets a fail-fast response either way (that's what TimeLimiter is for); this only means "abandoned" calls linger briefly on the bulkhead's own small pool, not the application's main threads. Feign's own socket timeouts (`paymentflow.resilience.merchant-service.read-timeout-ms`) are kept comfortably under TimeLimiter's budget specifically so this window stays short.
+- Container images run on `eclipse-temurin:*-alpine` (musl libc), so Reactor Netty (gateway-service) falls back to its pure-Java NIO transport instead of the native epoll transport available on glibc hosts. Functionally identical, slightly less throughput under very high concurrency — irrelevant at this platform's local-dev/demo scale; worth a plain (non-Alpine) base image only if a future load-testing milestone (M14) shows it matters.
+- Building all 8 Docker images with Compose's default parallel-build behavior on this dev machine (16 CPUs, ~11.5GB allocated to the Docker Desktop VM) overloads the daemon — each build spins up its own single-use Gradle daemon doing a full multi-module resolve+compile, and 7 of those running concurrently exhausts the VM's memory and crashes BuildKit's gRPC connection. Building sequentially (or with `COMPOSE_PARALLEL_LIMIT` set low) works reliably; not a problem in CI (M10), which typically builds and pushes one image per job/runner rather than all 8 in one machine at once.
 
 ## 12. Future Improvements
 - gRPC for internal sync calls; API versioning; blue/green on ECS; OpenTelemetry collector.
@@ -259,12 +265,15 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - **analytics-service:** builds, all tests pass, verified running locally on port 8093 against the compose Postgres/Kafka (Flyway migrated the `analytics` schema) — the same real lifecycle produced a correct `merchant_payment_stats` row (created=1, authorized=1, captured=1 @ 15000, refunded=2 @ 15000 total across the partial+full refund), confirmed via direct `psql` query.
 - **merchant-service (M7 addition):** the new `PATCH /api/v1/merchants/me/webhook` endpoint verified live through the gateway — HTTPS-only validation correctly rejected a plain-`http://` URL (400), and a valid `https://` URL round-tripped through `GET /me` with the cache correctly busted.
 - **payment-service (M8 addition):** the Resilience4j wrapper around the merchant-service Feign call verified live — merchant-service was stopped mid-session and `POST /api/v1/payments` degraded gracefully (503, no hang); a burst of 10 requests against the real stopped service showed retries genuinely running on the first two (~800–950ms each) before the circuit opened and every subsequent request failed fast (~70–90ms, confirmed via elapsed-time logging); after restarting merchant-service and waiting past `waitDurationInOpenState`, requests began succeeding again (201) as the circuit passed through automatic HALF_OPEN recovery back to CLOSED. Timeout fail-fast and bulkhead-rejection-under-concurrency are both covered by `MerchantResolverTest`/`MerchantResilienceIntegrationTest` rather than re-demonstrated manually (reproducing precise concurrent-saturation timing against a real, unmodified merchant-service process isn't practical without code changes to that service).
-- Other services: skeletons only. AWS: not yet started.
+- **All 8 services (M9 — full containerization):** every service builds into its own multi-stage Docker image (`eclipse-temurin:25-jdk-alpine` builder → `eclipse-temurin:25-jre-alpine` runtime, layered-jar extraction, non-root user, `HEALTHCHECK` against its own `/actuator/health`) and the entire platform — 4 infra containers + 8 application containers, 12 total — was brought up together via `docker compose -f docker-compose.infra.yml -f docker-compose.yml up -d`, reaching `healthy` in the correct dependency order with zero manual intervention: postgres/redis/kafka healthy → identity-service healthy → merchant-service/payment-service healthy (parallel) → gateway-service healthy → transaction/audit/notification/analytics-service healthy (parallel with identity, since they only need postgres+kafka). Every port matches the pre-M9 scheme exactly (8080–8084, 8091–8093, 55432/56379/59092/8085). A full register→login→onboard-merchant→create→authorize→capture→refund lifecycle was driven entirely through the containerized gateway over real HTTP, with every consumer verified via direct `psql` against the running containers: transaction-service posted the correct 6 balanced ledger entries; audit-service recorded all 4 lifecycle events verbatim; notification-service logged all 4 simulated emails (no webhook configured for this test merchant, so correctly zero webhook-delivery rows — not a bug, per D46); analytics-service's aggregate showed the exact expected counts/amounts. All 12 containers stopped cleanly afterward.
+- Other services: skeletons only. AWS: not yet started (Phase 4/5, M11–M12).
 
 ## 16. Lessons Learned
 - A cache-aside bug (D38) shipped in M4 and passed M4's own test suite because that suite's only two `/me` reads were separated by a cache eviction — it never exercised a genuine cache *hit* round trip. Manual, real end-to-end testing across services (not just each service's own test suite in isolation) caught what unit/integration tests scoped to a single service could not: a bug that only manifests when a second service (payment-service, via Feign) calls the first one repeatedly in the pattern real traffic actually produces. Worth remembering for M6+: a fresh service's manual E2E pass is also a regression check on everything it calls.
 - M8 repeated the same lesson from a different angle: `resilience4jMetricsAreExposedThroughMicrometer` passed cleanly in the automated suite, yet the *real* running service had zero resilience4j meters reachable through `/actuator/metrics` — because Spring Boot Test quietly supplies its own `SimpleMeterRegistry`, a safety net the production app doesn't have without a concrete registry dependency (deferred to M13). A green automated test proved the *wiring* was correct; only running the actual jar and hitting the actual endpoint revealed the *deployment* gap. Neither kind of check substitutes for the other.
 - Introducing a dedicated thread pool for an existing synchronous call (`ThreadPoolBulkhead`, D52) silently broke JWT forwarding, because `RequestContextHolder` is thread-bound. This is a general pattern worth remembering for any future work that moves a call off the calling thread (async processing, a new executor, reactive adapters): anything reading Spring's request-scoped `ThreadLocal` context needs to be explicitly re-propagated, and it will not fail loudly — it just quietly stops working (here, every merchant resolution would have started failing as "not onboarded" for every merchant, indistinguishable from a real onboarding gap without deliberately checking the actual header the downstream service received).
+- M9 validated the Docker packaging approach empirically at every step instead of trusting documentation alone: before writing the real Dockerfile, a bootJar was extracted and run locally with `java -Djarmode=tools ... extract --layers --launcher` + `JarLauncher` to confirm the exact layer directory names and entrypoint class; before building all 8 images, one (`audit-service`) was built and run standalone against the real compose network to confirm Postgres migration, Kafka consumer-group join, and the Docker `HEALTHCHECK` itself all genuinely worked end-to-end. Both checks caught nothing wrong this time, but they converted "should work per the reference docs" into "confirmed working here," which is the standard this project holds every other milestone to as well.
+- A resource ceiling invisible from inside any single Dockerfile: building all 8 images via Compose's default parallelism (one BuildKit container per service, each running its own full-heap Gradle daemon) exhausted the Docker Desktop VM's allotted memory and killed the daemon's gRPC connection mid-build. The fix (build sequentially / cap `COMPOSE_PARALLEL_LIMIT`) is a local-machine-only concern — a reminder that "the build works" and "the build works at the concurrency your CI runner will actually use" are different claims, worth keeping in mind when M10 designs the GitHub Actions build matrix.
 
 ---
 
@@ -1389,5 +1398,147 @@ stopped cleanly and confirmed down via health-check probes.
 
 **Next milestone:** M9 — Containerization (per-service multi-stage
 Dockerfiles, healthchecks, layered jars).
+
+---
+
+### M9 — Containerization ✅ (2026-07-19)
+
+**Objectives:** Package every one of the 8 microservices into a production-grade
+Docker image and stand up the entire platform — infra + all 8 services, 12
+containers total — via Docker Compose with correct health-gated startup
+ordering, completing Phase 2 of the roadmap.
+
+**Features implemented**
+- One shared, parameterized multi-stage `Dockerfile` at the repo root (D53)
+  instead of eight near-identical copies. Build stage: `eclipse-temurin:25-jdk-alpine`
+  runs the real Gradle wrapper against the actual monorepo — build files
+  (wrapper, settings, `build-logic`, every module's `build.gradle.kts`) copied
+  in first as their own Docker layer, then only the requested module's `src/`
+  plus `common-dto`/`common-lib` (its real compile-time dependencies, D54).
+  `./gradlew :<module>:bootJar -x test` produces the jar; `java -Djarmode=tools
+  -jar app.jar extract --layers --launcher` explodes it into
+  `dependencies`/`snapshot-dependencies`/`spring-boot-loader`/`application`
+  layer directories.
+- Runtime stage: `eclipse-temurin:25-jre-alpine` (JRE only — no compiler, no
+  Gradle, nothing beyond what's needed to run the jar), the four layers
+  `COPY --from=builder` in least- to most-often-changing order (D55), a
+  dedicated non-root `paymentflow` user/group, `EXPOSE`/`HEALTHCHECK` driven by
+  build args so the same Dockerfile serves every service's own port. Entrypoint
+  is the exec-form `java org.springframework.boot.loader.launch.JarLauncher`
+  (Spring Boot 4's post-3.3 loader package) so `SIGTERM` reaches the JVM
+  directly for a clean shutdown of DB connections/Kafka consumers.
+- `HEALTHCHECK` uses BusyBox's built-in `wget` (already present on Alpine, no
+  extra package installed) against `/actuator/health`, which every one of the 8
+  services already exposes unauthenticated (identity/merchant/payment's
+  `SecurityConfig`; the four Kafka-only consumers ship no Spring Security at
+  all, D42) — one probe shape covers all 8 images.
+- `docker-compose.yml` (D56): the 8 application services only, not a second
+  copy of Postgres/Redis/Kafka/Kafka-UI — realizing the split M0's own
+  `docker-compose.infra.yml` header comment already forecast. Always run
+  merged with the infra file via multiple `-f` flags, which is what makes
+  `depends_on: condition: service_healthy` resolve across both files as one
+  Compose model: postgres/redis/kafka healthy → identity-service → merchant-
+  service/payment-service (parallel) → gateway-service; transaction/audit/
+  notification/analytics-service depend only on postgres+kafka (parallel with
+  identity-service, since none of the four call it). `payment-service`
+  deliberately does **not** `depends_on` merchant-service — M8's whole
+  Resilience4j chain exists so payment-service tolerates merchant-service
+  being down/slow at runtime, and coupling container startup order to it would
+  undercut that.
+- Every container-network-dependent Spring property is overridden purely via
+  environment variables in `docker-compose.yml` — nothing baked into any image
+  (requirement #7): `SPRING_DATASOURCE_*` → `postgres:5432`,
+  `SPRING_DATA_REDIS_*` → `redis:6379`, `SPRING_KAFKA_BOOTSTRAP_SERVERS` →
+  `kafka:19092` (the internal listener, not the host-published one),
+  `PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI`/`_BASE_URI`,
+  `PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI`, `PAYMENTFLOW_SERVICES_PAYMENT_BASE_URI`
+  → each service's container DNS name. Relies on nothing more exotic than
+  Spring Boot's standard relaxed environment-variable binding, which applies
+  uniformly to any property key, not just autoconfigured ones.
+- Every existing host port is preserved exactly (8080–8084, 8091–8093,
+  55432/56379/59092/8085) — requirement #12, zero renumbering.
+
+**Endpoints added:** none (infrastructure-only milestone).
+
+**Database / Kafka / Redis changes:** none.
+
+**Infra/Docker changes:** `Dockerfile` (new, repo root), `docker-compose.yml`
+(new, repo root — application services only). `docker-compose.infra.yml`
+untouched.
+
+**Testing completed:** `./gradlew clean build` green across all 14 modules —
+every existing test suite (all ~230+ tests across every milestone) re-executed
+from a clean state, zero failures, confirming M9 introduced no Java-source
+regressions (none were expected; M9 touches no application code). No new
+automated tests were added — this milestone's verification surface is Docker
+build/runtime behavior, not application logic, so it's covered by the manual
+verification below (mirrors the project's existing pattern of scoping
+automated tests to what unit/integration tests can actually exercise, and
+manual E2E to what genuinely requires a running system — same reasoning as
+D42's "no query API without a real consumer").
+
+**Verification steps:**
+1. Built and ran a single image (`audit-service`) standalone against the real
+   compose network before building the rest, to validate the Dockerfile design
+   end-to-end: confirmed Postgres Flyway migration ran, all 3 Kafka consumer
+   partitions were assigned, and Docker's own `HEALTHCHECK` transitioned to
+   `healthy` against the real `/actuator/health` endpoint.
+2. Built all 8 images (see Problems #1 for the concurrency issue hit and fixed
+   along the way).
+3. Brought up all 12 containers together
+   (`docker compose -f docker-compose.infra.yml -f docker-compose.yml up -d`)
+   — confirmed the exact dependency-ordered startup sequence in the Compose
+   output (postgres/kafka/redis healthy → identity-service healthy →
+   merchant-service/payment-service healthy → gateway-service healthy, with
+   transaction/audit/notification/analytics-service healthy in parallel) and
+   `docker compose ps` showing 12/12 `healthy`.
+4. Drove a full register → login → onboard-merchant → create → authorize →
+   capture → refund payment lifecycle entirely through the containerized
+   gateway (`localhost:8080`) over real HTTP.
+5. Queried each consumer's schema directly via `docker exec ... psql` against
+   the running Postgres container: transaction-service posted 6 correctly
+   balanced ledger entries (Authorized debit/credit, Captured debit/credit,
+   Refunded debit/credit, all 15000 minor units); audit-service recorded all 4
+   lifecycle events (`PaymentCreated`/`Authorized`/`Captured`/`Refunded`)
+   verbatim; notification-service logged 4 simulated emails (0 webhook-delivery
+   rows, correct since this test merchant never configured a `webhookUrl`);
+   analytics-service's `merchant_payment_stats` row showed
+   created=1/authorized=1/captured=1/refunded=1, 15000 captured, 15000 refunded.
+6. `./gradlew clean build` run again (see Testing above) to confirm the whole
+   monorepo remains green.
+7. All 12 containers stopped cleanly via
+   `docker compose -f docker-compose.infra.yml -f docker-compose.yml down`.
+
+**Important design decisions:** D53–D56 (see §9).
+
+**Problems faced → solutions**
+1. **A real, dev-machine-specific issue found during verification, not
+   assumed**: building all 8 images via Compose's default parallel build
+   behavior crashed the Docker daemon mid-build (`failed to receive status:
+   rpc error: ... EOF`) — each image build spins up its own single-use Gradle
+   daemon doing a full multi-module resolve+compile, and 7 of those running
+   concurrently exceeded the Docker Desktop VM's ~11.5GB memory allocation
+   (`gradle.properties`' `-Xmx2g` per daemon × 7 ≈ 14GB). The daemon briefly
+   became fully unresponsive (`500` on `/_ping`) and needed a short recovery
+   window. Fixed by building the remaining images one at a time instead of
+   relying on Compose/BuildKit's default bake concurrency — slower, but
+   reliable; noted as a Known Issue relevant to M10's CI build-matrix design
+   (a single CI runner building all 8 in parallel would hit the same ceiling).
+2. Confirmed the Spring Boot layered-jar extraction command and its exact
+   layer directory names (`dependencies`/`snapshot-dependencies`/
+   `spring-boot-loader`/`application`) and the post-3.3 loader entrypoint class
+   (`org.springframework.boot.loader.launch.JarLauncher`) by actually running
+   `java -Djarmode=tools -jar <existing-bootJar> help extract` and doing a real
+   local extract-and-run *before* writing the Dockerfile, rather than trusting
+   remembered documentation — this project's established `javap`-before-guessing
+   practice (D20, M8's D49/D50) applied to Docker packaging instead of Java APIs.
+3. `BusyBox` `wget`'s exit code alone doesn't distinguish "got a response" from
+   "got a 200 with `{"status":"DOWN"}`" — `HEALTHCHECK` pipes the response body
+   through `grep -q '"status":"UP"'` rather than relying on `wget`'s exit code
+   in isolation, so a degraded-but-responding app (e.g. DB connection lost)
+   correctly fails the healthcheck instead of reporting healthy.
+
+**Next milestone:** M10 — CI/CD (GitHub Actions: test + build + image; branch
+protection).
 
 

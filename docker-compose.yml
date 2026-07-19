@@ -1,0 +1,260 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Application services for the whole platform (M9).
+#
+# Mirrors docker-compose.infra.yml's own stated intent from M0 ("Application
+# services get their own compose file in a later phase; keeping infra separate
+# gives a fast inner loop") — this file adds ONLY the eight microservices, not a
+# second copy of Postgres/Redis/Kafka/Kafka-UI.
+#
+# It is NOT a standalone compose project: `depends_on` below references postgres/
+# redis/kafka by their service names from docker-compose.infra.yml, which only
+# resolves when both files are merged into one Compose model. Always run it
+# together with the infra file via multiple -f flags:
+#
+#   Build + start everything:
+#     docker compose -f docker-compose.infra.yml -f docker-compose.yml up -d --build
+#
+#   Stop everything (keeps volumes):
+#     docker compose -f docker-compose.infra.yml -f docker-compose.yml down
+#
+#   Rebuild one service after a code change:
+#     docker compose -f docker-compose.infra.yml -f docker-compose.yml up -d --build payment-service
+#
+# Configuration comes from the same local .env file as the infra stack (copy from
+# .env.example). Every Spring property that must differ inside the container
+# network (datasource/redis/kafka hosts, cross-service base URIs) is overridden
+# here via env vars — nothing is baked into the image (Spring Boot's relaxed env
+# var binding maps SPRING_DATASOURCE_URL -> spring.datasource.url,
+# PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI -> paymentflow.services.merchant.base-uri,
+# etc., the same relaxed-binding rules regardless of who defines the property).
+# ─────────────────────────────────────────────────────────────────────────
+
+services:
+  identity-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_MODULE: identity-service
+        SERVICE_PORT: "8081"
+    image: paymentflow/identity-service:0.0.1-snapshot
+    container_name: paymentflow-identity-service
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-paymentflow}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - paymentflow
+
+  merchant-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_MODULE: merchant-service
+        SERVICE_PORT: "8082"
+    image: paymentflow/merchant-service:0.0.1-snapshot
+    container_name: paymentflow-merchant-service
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-paymentflow}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-paymentflow}
+      PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI: http://identity-service:8081/oauth2/jwks
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      identity-service:
+        condition: service_healthy
+    networks:
+      - paymentflow
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_MODULE: payment-service
+        SERVICE_PORT: "8083"
+    image: paymentflow/payment-service:0.0.1-snapshot
+    container_name: paymentflow-payment-service
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-paymentflow}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-paymentflow}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI: http://identity-service:8081/oauth2/jwks
+      PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI: http://merchant-service:8082
+    ports:
+      - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      identity-service:
+        condition: service_healthy
+      # Deliberately NOT merchant-service: M8's Resilience4j chain (circuit breaker/
+      # retry/timeout/bulkhead around MerchantResolver) exists precisely so
+      # payment-service tolerates merchant-service being slow/unavailable at
+      # runtime — coupling its own container startup to merchant-service's health
+      # would undercut the thing M8 was built to demonstrate.
+    networks:
+      - paymentflow
+
+  transaction-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_MODULE: transaction-service
+        SERVICE_PORT: "8084"
+    image: paymentflow/transaction-service:0.0.1-snapshot
+    container_name: paymentflow-transaction-service
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-paymentflow}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+    ports:
+      - "8084:8084"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - paymentflow
+
+  audit-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_MODULE: audit-service
+        SERVICE_PORT: "8091"
+    image: paymentflow/audit-service:0.0.1-snapshot
+    container_name: paymentflow-audit-service
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-paymentflow}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+    ports:
+      - "8091:8091"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - paymentflow
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_MODULE: notification-service
+        SERVICE_PORT: "8092"
+    image: paymentflow/notification-service:0.0.1-snapshot
+    container_name: paymentflow-notification-service
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-paymentflow}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+    ports:
+      - "8092:8092"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - paymentflow
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_MODULE: analytics-service
+        SERVICE_PORT: "8093"
+    image: paymentflow/analytics-service:0.0.1-snapshot
+    container_name: paymentflow-analytics-service
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-paymentflow}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+    ports:
+      - "8093:8093"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - paymentflow
+
+  gateway-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_MODULE: gateway-service
+        SERVICE_PORT: "8080"
+    image: paymentflow/gateway-service:0.0.1-snapshot
+    container_name: paymentflow-gateway-service
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-paymentflow}
+      PAYMENTFLOW_SERVICES_IDENTITY_BASE_URI: http://identity-service:8081
+      PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI: http://merchant-service:8082
+      PAYMENTFLOW_SERVICES_PAYMENT_BASE_URI: http://payment-service:8083
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+      identity-service:
+        condition: service_healthy
+      merchant-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    networks:
+      - paymentflow
+
+networks:
+  paymentflow:
+    name: paymentflow-network
+    driver: bridge
