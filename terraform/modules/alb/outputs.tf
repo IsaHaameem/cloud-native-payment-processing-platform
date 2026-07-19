@@ -18,3 +18,7 @@ output "http_listener_arn" {
 output "https_listener_arn" {
   value = length(aws_lb_listener.https) > 0 ? aws_lb_listener.https[0].arn : null
 }
+
+output "gateway_target_group_arn" {
+  value = aws_lb_target_group.gateway.arn
+}

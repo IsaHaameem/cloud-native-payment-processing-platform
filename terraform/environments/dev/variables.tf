@@ -45,3 +45,9 @@ variable "alb_certificate_arn" {
   type        = string
   default     = null
 }
+
+variable "image_tag" {
+  description = "Image tag every ECS task definition references (e.g. \"latest\" or a git SHA, matching M10's CI tagging scheme). No image with this tag exists in any ECR repository yet (M10's CI still only builds/pushes to GHCR, D59) — real tasks would fail to start until a real push lands one (see Known Issues)."
+  type        = string
+  default     = "latest"
+}

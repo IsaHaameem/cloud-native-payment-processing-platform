@@ -50,6 +50,18 @@ output "ecs_task_role_arn" {
   value = module.iam.ecs_task_role_arn
 }
 
-output "github_actions_ecr_push_role_arn" {
-  value = module.iam.github_actions_ecr_push_role_arn
+output "github_actions_cicd_role_arn" {
+  value = module.iam.github_actions_cicd_role_arn
+}
+
+output "gateway_target_group_arn" {
+  value = module.alb.gateway_target_group_arn
+}
+
+output "ecs_service_names" {
+  value = { for name, svc in module.ecs_services : name => svc.service_name }
+}
+
+output "ecs_task_definition_arns" {
+  value = { for name, svc in module.ecs_services : name => svc.task_definition_arn }
 }

@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M12 (AWS ECS Fargate) — *pending approval*
-- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅ · M9 (Containerization) ✅ · M10 (CI/CD) ✅ · M11 (Terraform Infrastructure) ✅
-- **Pending milestones:** M12–M15
+- **Current milestone:** M13 (Observability) — *pending approval*
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅ · M9 (Containerization) ✅ · M10 (CI/CD) ✅ · M11 (Terraform Infrastructure) ✅ · M12 (AWS ECS Fargate) ✅
+- **Pending milestones:** M13–M15
 
 ---
 
@@ -228,6 +228,14 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D67 | ElastiCache's `engine_version` is pinned to Redis OSS `7.1`, not `8.x` | Match the local compose stack's `redis:8-alpine` exactly | AWS ElastiCache's "redis" engine tops out at OSS Redis 7.1 — AWS introduced a separate "valkey" engine for anything past Redis Ltd's post-7.x license change rather than shipping a "redis" 8.x. Found by checking the real, current ElastiCache engine-version constraints while writing this module (not assumed to match the local Docker Redis image), and documented as a genuine, harmless local/prod version drift (see Known Issues) rather than silently picking a version that would fail to provision |
 | D68 | RDS master credentials, the Redis AUTH token, and identity-service's JWT signing keypair are Terraform-generated (`random_password`/`tls_private_key`) and stored into Secrets Manager directly, rather than left as empty secret containers for manual out-of-band population | Create empty `aws_secretsmanager_secret` containers only, populate values manually later | The already-settled remote-state decision (S3 + encryption + DynamoDB lock) is precisely what makes Terraform state a safe place for a generated secret to briefly exist — treating a Terraform-generated-and-stored credential as uniquely dangerous would be inconsistent with already trusting that same state for every other resource attribute. Standard, idiomatic Terraform (`random_password` -> `aws_secretsmanager_secret_version`) beats a manual step someone has to remember to do before M12's task definitions can reference a real secret |
 | D69 | A GitHub Actions OIDC deploy role (assumable only by this exact repository, scoped to ECR push actions only) is provisioned in the `iam` module | Continue using no CI-to-AWS credential path until M12 needs one | Direct continuation of M10's D59 ("design so it can later push to a registry without major restructuring") — now that a registry (ECR, this milestone) actually exists, an OIDC-federated role (no long-lived AWS access keys stored as a GitHub secret) is the natural next scaffolding piece, matching M11's own "IAM roles/policies required for later deployment" scope line. The role still isn't wired into `ci.yml` this milestone (that workflow still only builds/tags for GHCR, `push: false`, D59) — only the AWS-side role exists, ready for that connection whenever it's made |
+| D70 | Internal service-to-service discovery uses **ECS Service Connect**, not classic Cloud Map `service_registries` | One `aws_service_discovery_service` resource per service + a `service_registries` block on each `aws_ecs_service` | Service Connect needs no separate per-service Cloud Map resource (it manages registration internally via each service's own `service_connect_configuration` block) and is AWS's current recommended approach over classic Cloud Map for ECS. Each service's `client_alias.dns_name` is set to its own service name, so `PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI=http://identity-service:8081/...` resolves inside the cluster with the exact same value the local docker-compose network already uses (M9) — no env var needed to change shape, only what resolves it |
+| D71 | One reusable `modules/ecs-service` module (parameterized: service name, port, image, environment/secrets maps, load-balancer flag), instantiated 8 times via `for_each` in `environments/dev` | Eight hand-written task-definition/service resource pairs | Direct continuation of D53's "one shared, parameterized thing instead of eight near-identical copies" philosophy, applied to ECS instead of Docker — the only genuine per-service differences (which env vars/secrets, whether the ALB fronts it) are exactly what the module's inputs already parameterize |
+| D72 | The ALB gets one target group (gateway-service only) and both listeners' `default_action` switches from M11's fixed-response to `forward` | Add a listener rule instead of changing the default action; give every service a target group | Completes M11's own D66 forecast ("M12 wires up gateway-service") rather than redesigning it — a `forward` default action is simpler than a rule when there is, and will only ever be, one target (matches the Communication Flow: Client -> ALB -> Gateway; every other service stays internal-only) |
+| D73 | Every task definition's `secrets` block resolves values from Secrets Manager via `valueFrom` strings — a plain secret ARN for the single-value Redis AUTH token, `"<arn>:<jsonKey>::"` for one field of a JSON secret (RDS credentials, the JWT signing keypair) | Fetch secrets in application startup code via the AWS SDK instead of ECS-native injection | ECS-native secret injection needs zero application code changes — every service already reads `SPRING_DATASOURCE_USERNAME`/`PASSWORD`, `SPRING_DATA_REDIS_PASSWORD`, and identity-service already reads `PAYMENTFLOW_SECURITY_JWT_PRIVATE_KEY`/`PUBLIC_KEY` (D18) as plain environment variables; ECS resolves the actual secret value before the container ever starts, so from the JVM's point of view nothing is different from a local `.env`-sourced value |
+| D74 | The ECS task role (`modules/iam`) gets a real IAM policy for the first time: `kafka-cluster:Connect`/`DescribeCluster` on the MSK cluster ARN, plus `DescribeTopic`/`CreateTopic`/`ReadData`/`WriteData`/`DescribeGroup`/`AlterGroup` wildcarded to that cluster's topics/groups | Leave the task role empty a while longer | M11 explicitly left this role empty "reserved for when a real need exists" (its own stated YAGNI deferral) — MSK Serverless authenticates over IAM SASL, not a username/password the way RDS/ElastiCache do, so the 5 Kafka-touching services cannot connect *at all* without this. M12 creating 8 real ECS services is exactly the real need that deferral was waiting for, not a new capability invented speculatively |
+| D75 | The GitHub Actions OIDC role is renamed `github_actions_ecr_push` -> `github_actions_cicd` and its policy gains `ecs:UpdateService`/`DescribeServices` (scoped to this platform's ECS services only) | Keep the M11 name/scope and add a second role for ECS deploy | M10's D59 registry-push scaffolding and M11's D69 ECR-push role were both explicitly named for their narrower moment; M12's `cd.yml` needs the same authenticated identity to also roll ECS services, so widening one role's honest name and scope beats maintaining two roles a single workflow assumes back-to-back. Renaming an unapplied Terraform resource has zero real-world cost — nothing has ever been created in any AWS account under the old name |
+| D76 | `.github/workflows/cd.yml` triggers only on `workflow_dispatch` (manual), not automatically on push to `main` | Trigger automatically on every push to `main`, matching typical CD conventions | This workflow cannot do anything real yet — M11/M12's Terraform hasn't been applied to any AWS account (explicitly not authorized this milestone), so the OIDC role/ECR repos/ECS services/cluster it needs don't exist. Auto-triggering now would just fail loudly on every future push to `main` for infrastructure that isn't real yet; switching to an automatic trigger is a one-line change once `terraform apply` has actually run |
+| D77 | ECS task definitions reference the mutable `:latest` tag (matching the ECR module's `image_tag_mutability = MUTABLE`, M11), and `cd.yml`'s deploy step is `aws ecs update-service --force-new-deployment` rather than registering a new task-definition revision per deploy | Tag images by git SHA only (immutable) and register a fresh task-definition revision referencing the new tag on every deploy | Simpler, and consistent with the tagging convention M10 already established (`:latest` + `:<sha>`, D59) — `force-new-deployment` re-pulls the current `:latest` digest without this workflow needing to describe the existing task definition, patch its container image, and re-register a new revision itself. A SHA-pinned, immutable-tag rollout strategy is a reasonable future tightening once real deployments are actually happening and rollback-by-revision matters more than it does today |
 
 ---
 
@@ -261,6 +269,11 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - The ECS task role (`modules/iam`) is provisioned with no attached permissions — correct today (no service calls an AWS API directly), but means any future in-app AWS SDK call (e.g., S3 access for a future export feature) needs its permission added there first, or it will fail with an access-denied error that has nothing to do with security groups or networking.
 - The ALB has a listener but no target group and no HTTPS support until a certificate ARN is supplied (D66) — hitting the ALB's DNS name before M12 wires up a target group returns a fixed 503 "no target group attached yet" response by design, not a misconfiguration.
 - The GitHub Actions OIDC deploy role (D69) exists in AWS-side Terraform code but is not yet referenced by `.github/workflows/ci.yml` — CI still only builds/tags images for GHCR with `push: false` (M10, D59). Connecting the two (adding `aws-actions/configure-aws-credentials` + enabling ECR push in the workflow) is deferred until a milestone actually needs images to land in ECR.
+- **A real, load-bearing gap found while wiring M12, deliberately not fixed this milestone**: none of the 5 Kafka-touching services (payment/transaction/audit/notification/analytics-service) have the `software.amazon.msk:aws-msk-iam-auth` client library or the `security.protocol=SASL_SSL`/`sasl.mechanism=AWS_MSK_IAM` Spring Kafka properties needed to actually authenticate to MSK Serverless — today they're only configured for the local PLAINTEXT KRaft broker. The Terraform side (task role IAM permissions, `SPRING_KAFKA_BOOTSTRAP_SERVERS` pointed at the real MSK IAM bootstrap string) is correct and complete; the application-code side is not. A real ECS deployment would have every service boot successfully but fail at first Kafka connection attempt. Deliberately not added this milestone because it means changing 5 already-completed services' `build.gradle.kts`/`application.yaml` outside a genuine bug — exactly the kind of change the user's own M12 instructions reserve for "unless a genuine bug is discovered." Flagged here explicitly so it isn't silently assumed to work.
+- No image has ever been pushed to any of the 8 ECR repositories — M10's CI still only builds/tags for GHCR (`push: false`, D59); M12's `cd.yml` (D76) is `workflow_dispatch`-only and hasn't been run. Every ECS task definition references a `:latest` tag that does not exist in ECR yet — a real `terraform apply` followed by a real ECS deployment would have every task fail to start with an image-pull error until `cd.yml` is actually run at least once.
+- `.github/workflows/cd.yml` cannot do anything real yet: it needs `AWS_ECR_PUSH_ROLE_ARN`/`AWS_REGION`/`ECR_REGISTRY` repository variables populated from `terraform output` after `terraform apply` has actually run against a real AWS account — none of which has happened. This is intentional (D76), not an oversight.
+- Unlike the local docker-compose stack's `depends_on: condition: service_healthy` (D56), ECS has no native equivalent — every one of the 8 ECS services starts independently, with no orchestration-level guarantee that, say, RDS is reachable before identity-service's first Flyway migration attempt. What actually handles this in practice is Spring Boot's own baseline resilience (Flyway/JDBC connection retry, Spring Kafka consumer reconnect-on-failure) plus M8's Resilience4j wrapper around the one synchronous cross-service call — not any new orchestration code, and not something this milestone added. Real dependency timing (RDS/ElastiCache/MSK Serverless can each take several minutes to actually provision) is a legitimate first-deployment concern for M12's eventual real `apply`, worth remembering rather than assuming ECS "just handles it" the way Compose's health-gated startup did locally.
+- None of M12's Terraform code has been applied to real AWS — no ECS task definition, service, target group, or IAM policy actually exists in any AWS account yet, for the same reason as M11 (explicitly not authorized, and no AWS credentials are configured in this environment regardless).
 
 ## 12. Future Improvements
 - gRPC for internal sync calls; API versioning; blue/green on ECS; OpenTelemetry collector.
@@ -291,7 +304,8 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - **CI pipeline (M10):** `.github/workflows/ci.yml` — validated with `actionlint` (zero warnings/errors) and a `js-yaml` parse (structurally valid) before committing. `build-and-test` job's exact command (`./gradlew clean build --no-daemon --stacktrace`) re-run locally to confirm it's still green post-M10 (no Java/Gradle files changed by this milestone — only the workflow file was added). `docker-build` job's build-arg/tag scheme reproduced locally for one service (`analytics-service`, tagged `ghcr.io/isahaameem/analytics-service:latest`/`:testsha` exactly as the workflow would) and its "Verify image" `docker inspect` assertions (non-root user `paymentflow:paymentflow`, exposed port `8093/tcp`, a present `HEALTHCHECK`) run by hand against that real image — all three passed. Not yet verified inside actual GitHub Actions infrastructure (this milestone doesn't push to GitHub — see the M10 changelog's Verification steps for exactly what "verify everything instead of assuming" meant here without a live workflow run to observe).
   - Ready-to-paste CI badge for M15's README: `[![CI](https://github.com/IsaHaameem/cloud-native-payment-processing-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/IsaHaameem/cloud-native-payment-processing-platform/actions/workflows/ci.yml)`
 - **Terraform infrastructure (M11):** code-complete, not applied — per this milestone's explicit "do not actually create AWS resources." `terraform fmt -recursive -check` clean across every file; `terraform validate` (via `terraform init -backend=false`) passes for both root configurations (`environments/dev`, `terraform/bootstrap`) with zero errors, after fixing two real issues caught by validate itself (an under-length OIDC thumbprint; AWS security-group-rule descriptions rejecting em-dashes/apostrophes/arrows — see the M11 changelog's Problems). `terraform plan` was exercised as far as genuinely possible without live AWS resources: using a temporary, git-ignored local-backend override (removed before committing), the `secrets` module's non-AWS-provider resources (`random_password` x2, `tls_private_key`) produced a real, correct plan ("3 to add"); the plan then stopped at the `aws` provider itself with "No valid credential sources found" — the correct, expected boundary given no AWS credentials are configured in this environment and none should be created this milestone. 11 modules (networking, security-groups, ecr, iam, rds, elasticache, msk-serverless, alb, ecs-cluster, cloudwatch, secrets) + 2 root configurations (environments/dev, bootstrap) — none applied to any real AWS account.
-- Other services: skeletons only. AWS: infrastructure-as-code exists (M11); no real AWS account has any of it applied yet — that's M12's job.
+- **AWS ECS Fargate (M12):** code-complete, not applied — same explicit "do not create AWS resources without approval" boundary as M11, and no AWS credentials are configured in this environment regardless (checked again this milestone: no `aws` CLI, no `~/.aws/` files, no `AWS_*` env vars). `terraform fmt -recursive -check` clean across every file (including the new `modules/ecs-service`); `terraform validate` passes with zero errors for both root configurations on the first attempt this milestone (no repeat of M11's OIDC-thumbprint/description-charset issues, since those lessons were already applied while writing the new code). `terraform plan` exercised the same way as M11 — a temporary, git-ignored local-backend override — and produced the identical, correct result: the `secrets` module's non-AWS resources plan cleanly ("3 to add"), then the graph stops at the `aws` provider with "No valid credential sources found." This was re-run twice: once after the initial ECS/ALB/secrets-wiring changes, and again after adding the MSK IAM task-role policy and renaming the GitHub Actions role — both runs produced the same clean, expected result with no new configuration errors introduced by either change.
+- 1 new module (`ecs-service`, reusable, instantiated 8x) + 2 modules extended (`alb` — gateway target group; `iam` — MSK task-role policy + renamed/broadened GitHub Actions role) + 1 new GitHub Actions workflow (`cd.yml`, `workflow_dispatch`-only). Other services: skeletons only. AWS: infrastructure-as-code now covers the full local architecture (VPC through running ECS services) but nothing has been applied to any real AWS account — that's still ahead, gated on explicit approval to `terraform apply`.
 
 ## 16. Lessons Learned
 - A cache-aside bug (D38) shipped in M4 and passed M4's own test suite because that suite's only two `/me` reads were separated by a cache eviction — it never exercised a genuine cache *hit* round trip. Manual, real end-to-end testing across services (not just each service's own test suite in isolation) caught what unit/integration tests scoped to a single service could not: a bug that only manifests when a second service (payment-service, via Feign) calls the first one repeatedly in the pattern real traffic actually produces. Worth remembering for M6+: a fresh service's manual E2E pass is also a regression check on everything it calls.
@@ -304,6 +318,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - M11 reinforced that "verify everything instead of assuming" catches things a code review alone would not: a remembered GitHub Actions OIDC thumbprint turned out to be both the wrong length (39 hex characters, not 40) *and* for a certificate chain GitHub no longer actually uses (it migrated `token.actions.githubusercontent.com` to a Let's Encrypt/ISRG root at some point; the commonly-cited DigiCert-chain value many tutorials still show is stale). `terraform validate` caught the length problem immediately; the staleness was only caught by actually fetching the live certificate chain with `openssl s_client` and computing the real fingerprint — a genuinely different answer from what memory alone would have produced with high confidence. Neither error would have been obvious from reading the code.
 - Also found via `terraform validate`, not anticipated while writing the code: AWS's `aws_security_group_rule`/`aws_security_group` `description` fields reject a narrower character set than expected — no em-dashes, apostrophes, or `->` arrows, all of which this project's own writing style (and every other file in this repo) uses constantly. Worth remembering for any future AWS-resource free-text field: Terraform's own `description` arguments on variables/outputs are unrestricted (pure documentation, never sent to any API), but a handful of actual AWS resource *arguments* that happen to also be named `description` carry real, terser character-set restrictions enforced by the AWS API itself — the two are easy to conflate by name alone.
 - A `terraform plan` cannot get past its own backend-state reconciliation check to reach the provider layer at all once a real (non-local) backend block is declared in code but not actually initialized against it — this is a distinct, earlier blocker than "no AWS credentials," and matters when a milestone's own scope (D64) intentionally leaves a real backend un-bootstrapped. The workaround that let a genuine `plan` run anyway (a temporary, git-ignored `override.tf` swapping in a `local` backend, deleted again immediately after) is Terraform's own supported override-file mechanism, not a hack — worth remembering the next time "validate the code without touching real infrastructure" needs to go one step further than `validate` alone can prove.
+- M12 confirmed something worth remembering about IaC that doesn't hold for application code: renaming and re-scoping an already-"shipped" resource (the GitHub Actions OIDC role, M11's D69 -> M12's D75) had zero real-world cost, because nothing had ever been applied to a real AWS account under the old name. The same rename against a genuinely running system would be a `-/+` (destroy-and-recreate) plan needing careful sequencing (or an explicit `moved` block) to avoid breaking whatever already assumes that role. Worth remembering the exact moment this stops being free: the first real `terraform apply`.
+- Deploying to AWS ECS surfaced a category of gap that only exists at the seam between infrastructure and application code: the Terraform side of MSK connectivity (task-role IAM permissions, the real bootstrap-brokers string as an env var) is entirely correct, but the actual JVM-side Kafka client has no idea how to authenticate with IAM SASL — that's a Java dependency + Spring Kafka property change, not anything `terraform apply` could ever fix. Neither this milestone's Terraform work nor a future `terraform apply` would reveal this gap by failing loudly; every ECS task would start up fine and only fail once it actually tried to talk to Kafka. Worth remembering generally: "the infrastructure is correctly provisioned" and "the application can actually use it" are separate claims that can each be true while the other is false — this project already learned a version of this lesson at the CI/deployment layer (M9/M10's "wiring proven vs. deployment proven" split) and it recurs here one layer up, at the infrastructure/application boundary.
+- Verifying an IAM policy's `resources` list built via `replace()` string manipulation (the MSK topic/group ARN patterns, D74) required actually reasoning through AWS's real ARN segment structure character-by-character (cluster ARNs are `cluster/<name>/<uuid>`, topic ARNs are `topic/<name>/<uuid>/<topic>` — the same middle segments, one more suffix) rather than assuming a string-replace "looks right." `terraform validate`/`plan` can't catch a resource-pattern that's syntactically valid but semantically wrong (matches nothing, or matches too much) — that class of bug only surfaces at real `apply` + a real permission-denied error, which is exactly why this got double-checked by hand instead of trusted on sight.
 
 ---
 
@@ -1882,5 +1899,159 @@ effort went entirely into the Terraform code itself, described below.
 **Next milestone:** M12 — AWS ECS Fargate (ECS task definitions + services,
 ALB target groups, secrets injection into running tasks, CD deploy pipeline
 extending M10's CI).
+
+---
+
+### M12 — AWS ECS Fargate ✅ (2026-07-19)
+
+**Objectives:** Stand up ECS task definitions and services for all 8
+microservices, attach gateway-service to the ALB via a real target group,
+inject every secret via ECS-native Secrets Manager resolution, and extend
+M10's CI with a CD pipeline that pushes to ECR and rolls the ECS services —
+completing the roadmap's exact M12 line ("ECS task defs + services, ALB
+target groups, secrets injection, CD deploy") without creating a single real
+AWS resource.
+
+**Features implemented**
+- **`modules/ecs-service`** (new, reusable — D71): one Fargate task
+  definition + service per service, instantiated 8 times via `for_each` in
+  `environments/dev` rather than hand-written per service. Each task's
+  single container gets a named port mapping, `environment`/`secrets`
+  blocks built from the maps `environments/dev/locals.tf` supplies, and an
+  `awslogs` log driver pointed at M11's per-service CloudWatch log group.
+  ECS Service Connect (D70) registers each service under M11's Cloud Map
+  namespace using its own service name as the discovery name/client alias
+  — `PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI=http://identity-service:8081/...`
+  resolves inside the cluster with the *exact* value the local
+  docker-compose network already uses (M9), unchanged.
+- **`modules/alb`** extended (D72): a target group (`target_type = "ip"`,
+  matching Fargate awsvpc addressing) health-checking gateway-service's
+  `/actuator/health`, and both listeners' `default_action` switched from
+  M11's fixed-response to `forward` — completing M11's own D66 forecast.
+  Every other service stays internal-only, matching the Communication Flow.
+- **Secrets injection** (D73): every task definition's `secrets` block
+  resolves RDS credentials/Redis AUTH token/JWT signing keypair straight
+  from Secrets Manager via the execution role — `valueFrom` is a plain
+  secret ARN for the single-value Redis token, `"<arn>:<jsonKey>::"` for one
+  field of a JSON secret (RDS username/password, JWT private/public key).
+  Zero application code changes: every service already reads these as
+  plain environment variables (`SPRING_DATASOURCE_USERNAME`, D18's
+  `PAYMENTFLOW_SECURITY_JWT_PRIVATE_KEY`, etc.) — ECS resolves the real
+  value before the container ever starts.
+- **`modules/iam` extended** (D74/D75): the ECS task role gets its first
+  real policy — `kafka-cluster:Connect`/`DescribeCluster` on the MSK
+  cluster ARN plus topic/group actions wildcarded to that cluster's
+  topics/groups (constructed via ARN segment-replacement, verified by hand
+  against AWS's real MSK ARN format — see Problems). The GitHub Actions
+  OIDC role is renamed `github_actions_ecr_push` -> `github_actions_cicd`
+  and its policy gains `ecs:UpdateService`/`DescribeServices`, scoped to
+  this platform's ECS services only.
+- **`.github/workflows/cd.yml`** (new): `build-and-push` matrix (8 legs,
+  `max-parallel: 4` matching D58's precedent) builds and pushes every
+  service's image to ECR via the OIDC role, tagged `:latest`/`:<sha>`; a
+  `deploy` matrix then calls `aws ecs update-service --force-new-deployment`
+  per service (D77 — the mutable `:latest` tag means this alone rolls out
+  the new image, no fresh task-definition revision needed). Deliberately
+  `workflow_dispatch`-only, not an automatic push-to-`main` trigger (D76) —
+  it cannot do anything real until M11/M12's Terraform is actually applied
+  and the `AWS_ECR_PUSH_ROLE_ARN`/`AWS_REGION`/`ECR_REGISTRY` repository
+  variables are populated from `terraform output`.
+- A genuinely open architectural question resolved before writing any
+  code: whether Kafka infrastructure (M11) counted as done, given M11's
+  own scope message hadn't named it — same reasoning path as the earlier
+  MSK-vs-self-managed question, already settled in M11/D62; this
+  milestone builds on that settled choice rather than reopening it.
+
+**Endpoints added:** none (infrastructure/deployment-only milestone; no
+application code changed).
+
+**Database / Kafka / Redis changes:** none to the application's own
+migrations or topics.
+
+**Infra/Docker changes:** `terraform/modules/ecs-service/` (new — 3 files);
+`terraform/modules/alb/`, `terraform/modules/iam/` (extended);
+`terraform/environments/dev/{locals,main,outputs,variables}.tf` (extended —
+per-service env/secrets maps, 8 `ecs_services` module instances, new
+`image_tag` variable); `terraform/modules/ecs-cluster/outputs.tf` (added
+`service_discovery_namespace_arn`, needed by Service Connect and missing
+from M11). `.github/workflows/cd.yml` (new). `Dockerfile`,
+`docker-compose.yml`, `.github/workflows/ci.yml` unchanged.
+
+**Testing completed:** No new Java tests (no application code changed).
+`./gradlew` was not re-run this milestone (nothing in the JVM codebase
+changed) — verification effort went entirely into the Terraform/workflow
+code, described below.
+
+**Verification steps:**
+1. `terraform fmt -recursive -diff` run and applied (caught real alignment
+   drift across the new/edited files); a final `-check` pass confirmed zero
+   remaining diffs.
+2. `terraform init -backend=false` + `terraform validate` for
+   `environments/dev` — passed with **zero errors on the first attempt**
+   this milestone (no repeat of M11's OIDC-thumbprint or
+   description-character-set mistakes, since both lessons were already
+   applied while writing the new resources).
+3. Checked for AWS credentials before attempting a real `plan`, per this
+   milestone's explicit instruction ("generate and verify terraform plan if
+   AWS credentials are available") — none found (no `aws` CLI installed, no
+   `~/.aws/` files, no `AWS_*` environment variables), matching M11's
+   environment exactly.
+4. `terraform plan` exercised as far as genuinely possible without live AWS
+   access, using the same temporary git-ignored `override.tf` (local
+   backend) technique as M11: the `secrets` module's non-AWS resources
+   planned correctly ("3 to add"), then the graph stopped at the `aws`
+   provider with "No valid credential sources found" — run twice (once
+   after the initial ECS/ALB wiring, again after the MSK IAM
+   policy/GitHub-role rename), both times with the identical, correct
+   result and no new errors introduced by either change.
+5. Re-initialized `environments/dev` with `-backend=false` afterward, no
+   lingering local state file or override file (confirmed via directory
+   listing).
+6. Both `.github/workflows/cd.yml` and the unchanged `ci.yml` re-validated
+   together with `actionlint` (zero warnings/errors) and a `js-yaml` parse.
+7. `git status --porcelain terraform/ .github/` reviewed before staging —
+   confirmed exactly the expected modified/new files, nothing unexpected.
+
+**Important design decisions:** D70–D77 (see §9).
+
+**Problems faced → solutions**
+1. `modules/ecs-cluster` didn't output the Cloud Map namespace's ARN (only
+   its `id`/`name`) — Service Connect's `service_connect_configuration.namespace`
+   argument needs the ARN. Added `service_discovery_namespace_arn` as a new
+   output rather than working around it with a `data` lookup in the
+   environment root.
+2. The GitHub Actions role M11 created (`github_actions_ecr_push`, scoped
+   to ECR push only) can't also call `ecs:UpdateService` for `cd.yml`'s
+   deploy step. Rather than provision a second role for the same workflow
+   to assume back-to-back, renamed and broadened the existing one
+   (`github_actions_cicd`, D75) — confirmed this is free (no `-/+` replace
+   risk) since nothing has ever been applied to a real AWS account under
+   the old name.
+3. Constructing the MSK task-role policy's topic/group resource ARNs
+   required getting AWS's actual ARN segment structure right, not just
+   assumed: an MSK cluster ARN is `cluster/<name>/<uuid>`, while a topic ARN
+   is `topic/<name>/<uuid>/<topic>` — one more segment, but the same
+   `<name>/<uuid>` in the middle. Verified `replace(cluster_arn,
+   ":cluster/", ":topic/")` preserves exactly those middle segments before
+   trusting it, rather than assuming a string-replace "looked right."
+4. A genuine, load-bearing gap found while wiring the Kafka bootstrap-servers
+   env var: none of the 5 Kafka-touching services have the
+   `aws-msk-iam-auth` client library or Spring Kafka's `SASL_SSL`/
+   `AWS_MSK_IAM` properties needed to actually authenticate to MSK
+   Serverless (they're only configured for the local PLAINTEXT broker).
+   Deliberately not fixed this milestone — it would mean changing 5
+   already-completed services' `build.gradle.kts`/`application.yaml`
+   without a genuine bug, which this milestone's own instructions reserve
+   for later. Documented explicitly in Known Issues instead of silently
+   assumed to work, or silently patched without being asked.
+5. Confirmed there is no ECS-native equivalent to docker-compose's
+   `depends_on: condition: service_healthy` (D56) before assuming ECS would
+   "just handle" service-startup ordering the way Compose does locally —
+   it doesn't; Spring Boot's own connection-retry behavior is what actually
+   covers this gap in a real deployment, not any new orchestration this
+   milestone added. Documented as a Known Issue rather than left implicit.
+
+**Next milestone:** M13 — Observability (Prometheus + Grafana + Loki,
+dashboards, alerts, distributed tracing).
 
 

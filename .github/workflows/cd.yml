@@ -1,0 +1,128 @@
+#
+# CD pipeline (M12) — push every service's image to ECR (via the M11 GitHub
+# Actions OIDC role, D69) and roll each ECS service over to it.
+#
+# Deliberately `workflow_dispatch` only, not an automatic push-to-main
+# trigger: this workflow cannot do anything real until M11's Terraform is
+# actually applied to a real AWS account (an explicitly separate, later
+# decision — "Do NOT run terraform apply... unless explicitly approved").
+# Auto-triggering on every push to main before that would just fail loudly
+# on every push for infrastructure that doesn't exist yet. Once the
+# `terraform/environments/dev` state is real, switch the trigger to
+# `push: { branches: [main] }` and this workflow needs no other change.
+#
+# Required repository variables (Settings -> Secrets and variables ->
+# Actions -> Variables), populated from `terraform output` once M11/M12's
+# Terraform has actually been applied:
+#   AWS_ECR_PUSH_ROLE_ARN  - module.iam.github_actions_ecr_push_role_arn
+#   AWS_REGION             - the environment's aws_region (default us-east-1)
+#   ECR_REGISTRY           - "<account-id>.dkr.ecr.<region>.amazonaws.com"
+#
+name: CD
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: cd-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false # never cancel a deploy already in flight
+
+permissions:
+  contents: read
+  id-token: write # required for the OIDC AssumeRoleWithWebIdentity call
+
+env:
+  PROJECT_NAME: paymentflow
+  ENVIRONMENT: dev
+
+jobs:
+  build-and-push:
+    name: Push ${{ matrix.service }} to ECR
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # Same reasoning as ci.yml's docker-build job (D58): cap concurrent
+      # image builds/pushes rather than firing all 8 at once.
+      max-parallel: 4
+      matrix:
+        include:
+          - service: gateway-service
+            port: 8080
+          - service: identity-service
+            port: 8081
+          - service: merchant-service
+            port: 8082
+          - service: payment-service
+            port: 8083
+          - service: transaction-service
+            port: 8084
+          - service: audit-service
+            port: 8091
+          - service: notification-service
+            port: 8092
+          - service: analytics-service
+            port: 8093
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          build-args: |
+            SERVICE_MODULE=${{ matrix.service }}
+            SERVICE_PORT=${{ matrix.port }}
+          tags: |
+            ${{ vars.ECR_REGISTRY }}/${{ env.PROJECT_NAME }}/${{ matrix.service }}:latest
+            ${{ vars.ECR_REGISTRY }}/${{ env.PROJECT_NAME }}/${{ matrix.service }}:${{ github.sha }}
+          push: true
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  deploy:
+    name: Roll ${{ matrix.service }} to ECS
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - gateway-service
+          - identity-service
+          - merchant-service
+          - payment-service
+          - transaction-service
+          - audit-service
+          - notification-service
+          - analytics-service
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # The task definition's container image is the mutable ":latest" tag
+      # (matching the ECR module's image_tag_mutability = MUTABLE, M11) —
+      # force-new-deployment re-pulls it without needing to register a new
+      # task definition revision from inside this workflow.
+      - name: Force new deployment
+        run: |
+          aws ecs update-service \
+            --cluster "${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-cluster" \
+            --service "${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-${{ matrix.service }}" \
+            --force-new-deployment

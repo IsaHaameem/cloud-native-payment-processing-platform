@@ -55,11 +55,13 @@ resource "aws_iam_role_policy" "ecs_task_execution_secrets" {
 
 # ── ECS task role (the running application's own AWS permissions) ──────────
 #
-# Deliberately empty today — no service currently calls an AWS API directly
-# (Postgres/Redis/Kafka access is network-level, via security groups, not
-# IAM). Exists now so M12's task definitions have a stable role ARN to
-# reference; the same YAGNI discipline as D14/D31/D42 — permissions get added
-# here only once a real need exists, not speculatively.
+# M11 shipped this deliberately empty ("reserved for when a real need
+# exists"); M12 is that real need — MSK Serverless authenticates over IAM
+# SASL, not a username/password the way RDS/ElastiCache do, so the 5
+# Kafka-touching services (payment/transaction/audit/notification/analytics)
+# cannot connect to Kafka at all without this. Postgres/Redis access stays
+# network-level (security groups) with no IAM involved, so this policy is
+# scoped to Kafka only, not broadened generally.
 
 data "aws_iam_policy_document" "ecs_task_assume_role" {
   statement {
@@ -78,7 +80,53 @@ resource "aws_iam_role" "ecs_task" {
   tags = merge(var.tags, { Name = "${local.name_prefix}-ecs-task" })
 }
 
-# ── GitHub Actions OIDC deploy role (ECR push only) ─────────────────────────
+locals {
+  # MSK topic/group ARNs are derived from the cluster ARN by swapping the
+  # resource-type segment — AWS's own documented ARN shape for MSK IAM
+  # policies, not a format this project invented.
+  msk_topic_arn_pattern = "${replace(var.msk_cluster_arn, ":cluster/", ":topic/")}/*"
+  msk_group_arn_pattern = "${replace(var.msk_cluster_arn, ":cluster/", ":group/")}/*"
+}
+
+data "aws_iam_policy_document" "ecs_task_msk" {
+  statement {
+    sid       = "MskConnect"
+    actions   = ["kafka-cluster:Connect", "kafka-cluster:DescribeCluster"]
+    resources = [var.msk_cluster_arn]
+  }
+  statement {
+    sid = "MskTopics"
+    actions = [
+      "kafka-cluster:DescribeTopic",
+      "kafka-cluster:CreateTopic",
+      "kafka-cluster:ReadData",
+      "kafka-cluster:WriteData",
+    ]
+    # payment.events / .retry / .dlq (D10) all live under this one cluster —
+    # wildcarded to every topic in it rather than enumerating each literal
+    # topic name, which would need updating here every time a service adds one.
+    resources = [local.msk_topic_arn_pattern]
+  }
+  statement {
+    sid       = "MskConsumerGroups"
+    actions   = ["kafka-cluster:DescribeGroup", "kafka-cluster:AlterGroup"]
+    resources = [local.msk_group_arn_pattern]
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_task_msk" {
+  name   = "${local.name_prefix}-ecs-task-msk"
+  role   = aws_iam_role.ecs_task.id
+  policy = data.aws_iam_policy_document.ecs_task_msk.json
+}
+
+# ── GitHub Actions OIDC CI/CD role (ECR push + ECS deploy) ──────────────────
+#
+# Named "cicd" (not "ecr_push" as in M11/D69) because M12's cd.yml now also
+# calls `aws ecs update-service` with this same role — an honest rename
+# reflecting the role's genuinely expanded scope, not a cosmetic change.
+# Harmless to rename outright (rather than keep the old name and add a
+# second role) since nothing has ever been applied to a real AWS account.
 
 resource "aws_iam_openid_connect_provider" "github" {
   count = var.create_github_oidc_provider ? 1 : 0
@@ -127,14 +175,22 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
   }
 }
 
-resource "aws_iam_role" "github_actions_ecr_push" {
-  name               = "${local.name_prefix}-github-actions-ecr-push"
+resource "aws_iam_role" "github_actions_cicd" {
+  name               = "${local.name_prefix}-github-actions-cicd"
   assume_role_policy = data.aws_iam_policy_document.github_actions_assume_role.json
 
-  tags = merge(var.tags, { Name = "${local.name_prefix}-github-actions-ecr-push" })
+  tags = merge(var.tags, { Name = "${local.name_prefix}-github-actions-cicd" })
 }
 
-data "aws_iam_policy_document" "github_actions_ecr_push" {
+locals {
+  # aws_ecs_service ARNs follow service/<cluster-name>/<service-name> — this
+  # project's ECS service names are ${name_prefix}-<service>, so wildcarding
+  # under this one cluster (not "*" globally) scopes UpdateService/
+  # DescribeServices to exactly the 8 services this platform actually has.
+  ecs_service_arn_pattern = "${replace(var.ecs_cluster_arn, ":cluster/", ":service/")}/*"
+}
+
+data "aws_iam_policy_document" "github_actions_cicd" {
   statement {
     sid       = "EcrAuth"
     actions   = ["ecr:GetAuthorizationToken"]
@@ -152,10 +208,15 @@ data "aws_iam_policy_document" "github_actions_ecr_push" {
     ]
     resources = var.ecr_repository_arns
   }
+  statement {
+    sid       = "EcsDeploy"
+    actions   = ["ecs:UpdateService", "ecs:DescribeServices"]
+    resources = [local.ecs_service_arn_pattern]
+  }
 }
 
-resource "aws_iam_role_policy" "github_actions_ecr_push" {
-  name   = "${local.name_prefix}-github-actions-ecr-push"
-  role   = aws_iam_role.github_actions_ecr_push.id
-  policy = data.aws_iam_policy_document.github_actions_ecr_push.json
+resource "aws_iam_role_policy" "github_actions_cicd" {
+  name   = "${local.name_prefix}-github-actions-cicd"
+  role   = aws_iam_role.github_actions_cicd.id
+  policy = data.aws_iam_policy_document.github_actions_cicd.json
 }

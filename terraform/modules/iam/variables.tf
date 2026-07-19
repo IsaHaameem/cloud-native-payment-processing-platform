@@ -17,7 +17,17 @@ variable "secret_arns" {
 }
 
 variable "github_repository" {
-  description = "GitHub \"owner/repo\" slug allowed to assume the CI deploy role via OIDC (e.g. \"IsaHaameem/cloud-native-payment-processing-platform\")."
+  description = "GitHub \"owner/repo\" slug allowed to assume the CI/CD role via OIDC (e.g. \"IsaHaameem/cloud-native-payment-processing-platform\")."
+  type        = string
+}
+
+variable "ecs_cluster_arn" {
+  description = "Scopes the GitHub Actions role's ecs:UpdateService/DescribeServices permissions to this cluster's services only (M12's CD workflow calls `aws ecs update-service --force-new-deployment` per service)."
+  type        = string
+}
+
+variable "msk_cluster_arn" {
+  description = "Scopes the ECS task role's kafka-cluster:* IAM-auth permissions to this one MSK Serverless cluster (M12 — the 5 Kafka-touching services' task role needs this to connect at all, since MSK Serverless uses IAM SASL, not a username/password)."
   type        = string
 }
 

@@ -1,13 +1,15 @@
 #
-# The Application Load Balancer shell only — internet-facing, public
-# subnets, a default fixed-response action on every listener. No target
-# group and no forwarding rule exists yet: M12's explicit job is "ECS task
-# defs + services, ALB target groups" (per the roadmap), which will replace
-# each listener's default_action with a real forward-to-target-group rule
-# once gateway-service actually has a running ECS service to point at.
-# Matches the Communication Flow (Client -> ALB -> Gateway): only
-# gateway-service will ever get a target group here — every other service
-# stays internal-only.
+# The Application Load Balancer, plus its one real target: gateway-service
+# (D66/M12 — every other service stays internal-only, matching the
+# Communication Flow: Client -> ALB -> Gateway). M11 shipped this module with
+# only a fixed-response default action and no target group, deliberately
+# deferred to M12's explicit roadmap scope ("ECS task defs + services, ALB
+# target groups") — this is that deferred work being completed, not a
+# redesign of M11's decision.
+#
+# target_type = "ip" (not "instance") because Fargate awsvpc-mode tasks are
+# addressed by ENI IP, not EC2 instance ID — there is no EC2 instance to
+# register.
 #
 
 locals {
@@ -24,18 +26,34 @@ resource "aws_lb" "this" {
   tags = merge(var.tags, { Name = "${local.name_prefix}-alb" })
 }
 
+resource "aws_lb_target_group" "gateway" {
+  name        = "${local.name_prefix}-gateway-tg"
+  port        = var.gateway_container_port
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+  target_type = "ip"
+
+  health_check {
+    path                = var.gateway_health_check_path
+    protocol            = "HTTP"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    interval            = 15
+    timeout             = 5
+    matcher             = "200"
+  }
+
+  tags = merge(var.tags, { Name = "${local.name_prefix}-gateway-tg" })
+}
+
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
-    type = "fixed-response"
-    fixed_response {
-      content_type = "text/plain"
-      message_body = "paymentflow: no target group attached yet (M12 wires up gateway-service)."
-      status_code  = "503"
-    }
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.gateway.arn
   }
 }
 
@@ -49,11 +67,7 @@ resource "aws_lb_listener" "https" {
   certificate_arn   = var.certificate_arn
 
   default_action {
-    type = "fixed-response"
-    fixed_response {
-      content_type = "text/plain"
-      message_body = "paymentflow: no target group attached yet (M12 wires up gateway-service)."
-      status_code  = "503"
-    }
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.gateway.arn
   }
 }
