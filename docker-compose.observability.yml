@@ -110,6 +110,47 @@ services:
     networks:
       - paymentflow
 
+  # ── Infra-metric exporters (M14) ─────────────────────────────────────────
+  # Micrometer/HikariCP only instrument the *client* side (connection pool
+  # stats, command latency) — real server-side infra metrics (Redis's own
+  # ops/sec and memory, Postgres's own transaction/cache-hit stats, Kafka's
+  # own broker-level throughput and consumer-group lag) need a dedicated
+  # exporter scraping each tool's own native stats interface. Standard,
+  # widely-used single-purpose sidecars, not custom-built.
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.67.0
+    container_name: paymentflow-redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-paymentflow}
+    ports:
+      - "${REDIS_EXPORTER_PORT:-9121}:9121"
+    networks:
+      - paymentflow
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: paymentflow-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-paymentflow}:${POSTGRES_PASSWORD:-paymentflow}@postgres:5432/${POSTGRES_DB:-paymentflow}?sslmode=disable
+    ports:
+      - "${POSTGRES_EXPORTER_PORT:-9187}:9187"
+    networks:
+      - paymentflow
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    container_name: paymentflow-kafka-exporter
+    restart: unless-stopped
+    command:
+      - --kafka.server=kafka:19092
+    ports:
+      - "${KAFKA_EXPORTER_PORT:-9308}:9308"
+    networks:
+      - paymentflow
+
   grafana:
     image: grafana/grafana:11.4.0
     container_name: paymentflow-grafana

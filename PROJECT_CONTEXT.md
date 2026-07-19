@@ -139,9 +139,9 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 
 ## 7. Status
 
-- **Current milestone:** M14 (Performance) — *pending approval to start*. M13 (Observability) is complete: every service instrumented with Micrometer (Prometheus registry + OTel tracing), meaningful business metrics, and a full local Prometheus/Grafana/Loki/Tempo/Alertmanager stack, all verified against a real running platform (not just config review).
-- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅ · M9 (Containerization) ✅ · M10 (CI/CD) ✅ · M11 (Terraform Infrastructure) ✅ · M12 (AWS ECS Fargate) ✅ · M13 (Observability) ✅
-- **Pending milestones:** M14–M15
+- **Current milestone:** M14 (Performance) — **complete**, pending user approval to proceed to M15. A real Gatling load-testing suite (7 simulations) was built and executed against the full local docker-compose stack, with Prometheus/Grafana observing throughout. No genuine platform performance bottleneck was found at any tested load level; two real concurrency bugs were found and fixed in the load-test harness itself (not the platform). See §14 and the M14 changelog entry below for full detail.
+- **Completed milestones:** M0 (repo bootstrap) ✅ · M1 (shared modules) ✅ · M2 (Identity Service) ✅ · M3 (Gateway Service) ✅ · M4 (Merchant Service) ✅ · M5 (Payment Service) ✅ · M6 (Transaction Service) ✅ · M7 (Audit + Notification + Analytics) ✅ · M8 (Resilience4j) ✅ · M9 (Containerization) ✅ · M10 (CI/CD) ✅ · M11 (Terraform Infrastructure) ✅ · M12 (AWS ECS Fargate) ✅ · M13 (Observability) ✅ · M14 (Performance) ✅
+- **Pending milestones:** M15
 - **Out-of-band work:** Infrastructure Recovery — **complete**: partial-apply root-caused and fixed (RDS engine version, MSK Serverless → self-managed Kafka), applied for real (28 added/0 changed/3 destroyed), and verified end-to-end (all 9 ECS services healthy, RDS/Redis/Kafka connectivity confirmed, ALB target healthy, a full register→login→onboard→create→authorize→capture→refund lifecycle passed over real HTTP through the public ALB). Two real application-level bugs found and fixed along the way (Redis TLS, JWT PKCS8 encoding — D82/D83). All infrastructure is now live and billing continuously.
 
 ---
@@ -251,6 +251,11 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 | D89 | `management.otlp.metrics.export.enabled: false` set explicitly on every service | Leave it at its default (enabled) | A real bug found during local verification, not assumed away: `spring-boot-starter-opentelemetry` also auto-configures an OTLP *metrics* push exporter (separate from tracing), which has no configured receiver (Tempo only ingests traces; this platform's metrics backend is Prometheus's pull-based scrape) — every service was silently retrying a doomed push to `localhost:4318/v1/metrics` on a timer and logging a connection-refused stack trace each time. Disabling just the metrics half of OTLP export (tracing export stays on) removed the noise with no loss of capability, since Prometheus already has every metric via scraping |
 | D90 | Promtail ships container logs to Loki via Docker service discovery (`docker_sd_configs` against the mounted Docker socket), not the Loki Docker logging-driver plugin | `docker plugin install grafana/loki-docker-driver` + switch each service's `logging.driver` | The service-discovery approach needs zero host-level Docker plugin installation and zero changes to any of the 9 services' own `docker-compose.yml` entries (they keep logging to plain stdout, exactly as before M13) — more portable across dev machines, and consistent with this project's general preference for config-only changes over environment-specific host setup steps |
 | D91 | Local observability stack uses ports 9091 (Prometheus) and 3002 (Grafana), not each tool's own documented default (9090/3000) | Keep the defaults | A real, encountered-in-practice collision found during verification: this dev machine already had an unrelated project's own `caching-prometheus`/`caching-grafana` containers bound to 9090/3000, and a second unrelated project's Grafana on 3001 — confirmed via `docker ps`/`netstat` before picking replacement ports, not guessed. Exactly the kind of coexistence problem D9's dedicated-port-range convention already exists to avoid; documented here since observability tooling's defaults are common enough to collide with other local work regularly |
+| D92 | M14 load tests target local docker-compose only (`http://localhost:8080`), never the real AWS deployment | Load-test the live ECS environment | Confirmed with the user first (AskUserQuestion). Real AWS testing would be consequential and not easily reversible: every ECS service runs as a single unscaled task with no autoscaling configured (M12), so a real load test would either bottleneck immediately on task count (not representative of anything) or require provisioning changes mid-test; it would also cost real money per request against RDS/ElastiCache/the self-managed Kafka broker. Local docker-compose gives $0 cost, full repeatability, and safety to deliberately push traffic to failure limits (the Concurrent Contention and Failure Scenarios simulations both do exactly that) without any blast radius beyond one dev machine |
+| D93 | A dedicated `SeedMerchantsSimulation` registers/logs in/onboards a pool of merchants once and writes (token, merchantId) pairs to a CSV that every subsequent simulation feeds from, instead of registering a fresh user per iteration | Register inline within every simulation | Keeps "registration/onboarding overhead" and "payment hot-path throughput" as separate, individually-meaningful measurements — registration is a one-time cost per merchant in reality, and burying it inside every iteration of a sustained/burst throughput test would understate the platform's actual steady-state payment throughput. Matches real payment-processor traffic shape, where the overwhelming majority of calls come from already-onboarded merchants |
+| D94 | ECS/AWS resource metrics (Container Insights, ECS task CPU/memory) are explicitly out of scope for M14's "measure ECS resource utilization" objective | Deploy load generation against AWS ECS | Direct consequence of D92 — there is no load hitting AWS during this milestone, so there is nothing meaningful for ECS Container Insights to show. Docker container stats from the local stack (JVM heap via Micrometer, container CPU via `process_cpu_usage`, HikariCP pool stats) substitute for the equivalent signal locally; a real ECS capacity/utilization measurement is deferred until a milestone actually authorizes traffic against the live AWS deployment |
+| D95 | Custom Gatling feeders (`Feeders.emailFeeder()`/`idempotencyKeyFeeder()`, `MerchantFeeder.hotPool()`) wrap their generator in an explicitly `synchronized` `Iterator`, not a raw `Stream.generate(...).iterator()` | Leave the plain Stream-backed iterator | A real bug found via load testing, not assumed away: Gatling pulls from a shared feeder concurrently from every virtual user an `atOnceUsers`/`rampUsers` injection starts in parallel, and `Stream.generate(...).iterator()` is explicitly not thread-safe for concurrent `next()` calls. `atOnceUsers(10)` hitting the unsynchronized `idempotencyKeyFeeder()` corrupted which value each of the 10 concurrent virtual users actually received, producing spurious idempotency-replay-mismatch failures with a 100% reproduction rate — root-caused by isolating the exact same chain with a single user (passed) versus 10 concurrent users (failed identically every time), and confirmed fixed by re-running 10 concurrent users after wrapping the iterator (0 failures across two subsequent clean runs) |
+| D96 | `FailureChains.IDEMPOTENCY_KEY_REPLAY`'s correctness check compares session variables via an explicit `exec(session -> ...)` lambda (`saveAs` both response ids, compare manually, `session.markAsFailed()` on mismatch) instead of `.check(jsonPath("$.id").is("#{originalPaymentId}"))` | Keep the EL-string `.is("#{var}")` check form | A second real bug found via load testing: the EL-string check form, compiled once into a single `Expression` object on a `static final` `ChainBuilder` shared by every concurrent virtual user in the scenario, produced false-negative mismatches for 10/10 users under `atOnceUsers(10)` even though the platform's actual behavior was independently verified correct three separate ways — a manual curl reproduction outside Gatling entirely, a single-user Gatling run, and a 10-concurrent-user run using the manual-lambda-comparison form (which matched 10/10). The manual-comparison form is the one proven to hold up under real concurrency; root-caused as a Gatling DSL/harness issue, not a `payment-service` defect, and does not touch any code outside `load-tests` |
 
 ---
 
@@ -299,6 +304,8 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - notification-service's "email" channel is simulated/logged only (D45, unchanged) — email-related business metrics (`email_logged_total`, M13) therefore only ever prove "a simulated send was logged," not real delivery, matching the existing simulation's own honest scope.
 - Prometheus, Loki, and Tempo all use single-node/local-filesystem storage with no retention policy tuned against a real load profile (Loki's `limits_config`, Tempo's `compaction.block_retention: 48h`, Prometheus's own default retention) — appropriate for a portfolio/demo deployment restarted frequently, not a sizing decision that would survive real production traffic. Revisit only if a future milestone needs to demonstrate real capacity planning.
 - Alertmanager has no real notification channel wired up (no Slack/PagerDuty/email integration) — alerts fire, group, and are visible in Alertmanager's own UI and via Grafana, but nothing pages anyone. Same honest-stand-in stance as D45's simulated email: no real on-call destination exists for this portfolio deployment to point at.
+- **Correction to a prior claim**: M13's changelog states `/actuator/prometheus` returns real Resilience4j meters (`resilience4j.circuitbreaker.*` etc.) — re-checked directly during M14 (`curl http://localhost:8083/actuator/prometheus | grep resilience4j`) and found **zero** matching lines on payment-service today, despite `resilience4j-micrometer` being a declared dependency (`payment-service/build.gradle.kts`) and the decorator chain itself functioning correctly (confirmed behaviorally — see the next bullet). Root cause not chased further this milestone (an observability gap, not a performance bug, so out of M14's charter to fix per the user's explicit "do not modify previous milestones unless a genuine performance bug is discovered"); flagged here as a real, currently-reproducible gap for whichever future milestone next touches Resilience4j or Micrometer wiring. Practical consequence: M14's "verify circuit breakers/bulkheads behave correctly under load" objective could only be confirmed via logs and request outcomes, not via a Prometheus/Grafana view of breaker state transitions.
+- A real resilience event was observed and behaved correctly during M14 load testing: under `FailureScenariosSimulation`'s simultaneous 43-virtual-user burst (4 concurrent populations injected via `atOnceUsers`, including a 300-request rapid-fire GET burst), payment-service's `MerchantResolver` (M8's Retry → CircuitBreaker → TimeLimiter → ThreadPoolBulkhead chain around the one synchronous cross-service call) shed exactly one request with a clean `503 MerchantServiceUnavailableException` rather than hanging or cascading — merchant-service itself stayed healthy throughout (no errors in its own logs), consistent with the dedicated bulkhead pool briefly saturating under the simultaneous spike and the resilience chain doing exactly its designed job. Re-running the identical scenario immediately after showed 0/370 failures, confirming this was a genuine, load-dependent (not systemic) event, not a regression.
 
 ## 12. Future Improvements
 - gRPC for internal sync calls; API versioning; blue/green on ECS; OpenTelemetry collector.
@@ -311,7 +318,44 @@ Phases must not be skipped. Each milestone is a confirm-gate.
 - Cache-aside + distributed lock (cache stampede prevention).
 
 ## 14. Performance Benchmarks
-- TBD (M14).
+
+All numbers below are real Gatling output against the full local docker-compose
+stack (all 8 services + gateway + Postgres/Redis/Kafka + the M13 observability
+stack, all running on one dev machine), never against AWS (D92). Every full
+payment lifecycle = register → login → onboard merchant → create → authorize
+→ capture → refund (7 HTTP calls; steady-state simulations reuse a pre-seeded
+merchant pool instead of registering per iteration, D93, so these numbers
+measure the payment hot path, not auth/onboarding overhead).
+
+| Simulation | Load profile | Requests | Success | Mean | p50 | p95 | p99 | Max | Throughput |
+|---|---|---|---|---|---|---|---|---|---|
+| Smoke | 1 user, full lifecycle | 7 | 100% | — | — | — | — | — | — |
+| Sustained | 5 users/sec constant × 120s | 2,400 | 100% | 28ms | 20ms | 75ms | 119ms | 373ms | 20 rps |
+| Burst | 2→60→2 users/sec over ~70s | 7,520 | 100% | 17ms | 14ms | 38ms | 69ms | 399ms | 107.4 rps mean (higher at peak) |
+| Concurrent contention | 80 users onto 3 merchants in 5s | 320 | 100% | 25ms | 12ms | 68ms | 393ms | 512ms | 64 rps |
+| Failure scenarios | mixed (see below) | 370 | 100%* | — | — | — | — | — | — |
+
+\* *Failure scenarios* intentionally exercises non-2xx paths (401/409/429);
+"100%" means every request got the *expected* status, not that every request
+returned 2xx — see the milestone changelog for the exact breakdown.
+
+**Resource utilization under peak load (Burst simulation, 60 users/sec, from Prometheus):**
+- Peak JVM heap: payment-service 142MB, notification-service 97MB, identity-service 93MB, merchant-service 90MB, gateway-service 90MB, audit-service 89MB, analytics/transaction-service ~85MB each — all comfortably inside default container memory, no GC-pressure symptoms observed.
+- Peak HikariCP active connections: 0–3 per service (default pool size 10) — never close to exhaustion.
+- Peak CPU: payment-service briefly touched 100% of its allotted share during the burst hold (expected — it's the busiest service, on the critical path for every request); every other service stayed under 30%.
+
+**Correctness under concurrency (Concurrent Contention simulation):**
+- 575 optimistic-lock retries fired on the shared ledger rows (`ledger_posting_retries_total`) — real contention, not a no-op test.
+- Zero failed requests despite the retries (the retry loop absorbed all contention as designed).
+- The 3 hot-pool merchants' `MERCHANT_PENDING`/`MERCHANT_SETTLED` ledger accounts net to exactly **0** after full refund — ledger consistency verified under genuine concurrent load, reproducing M6's original manual check with real traffic instead of a single manual transaction.
+
+**Rate limiting under load (Failure Scenarios simulation):**
+- A single session firing 100 unpaced GETs measurably tripped the gateway's Redis-backed rate limiter — 132 real `429`s observed via Prometheus (D24: replenishRate=20/s, burstCapacity=40 per identity) — confirming the limiter engages under real abuse, not just per its own unit tests.
+- The Burst simulation's 60 users/sec spike produced **zero** 429s — expected, since that load is spread across 100 distinct pooled merchant identities, none of which individually exceeds the per-identity budget. Confirms the limiter is correctly scoped per-identity, not a blunt global throttle.
+
+**No genuine platform bottleneck was found** at any tested load level (up to 60 injected users/sec, ~240 req/sec theoretical peak). The platform has substantial local headroom above what any of these tests pushed. See the M14 changelog for the two real bugs found (both in the Gatling test harness, not the platform) and one legitimate resilience finding (a single request correctly shed under simultaneous 43-user contention by the existing M8 bulkhead/timeout chain).
+
+**Capacity estimate (local docker-compose, single instance per service, informal):** sustained throughput in the 100–150 rps range for the full payment hot path (create/authorize/capture/refund) appears safely achievable with p99 latency staying under 100ms, based on the Burst run's 107 rps mean throughput with p99=69ms and no resource exhaustion signal from any service. This is **not** a production capacity number — it reflects one unscaled container per service on shared dev-machine hardware, with no AWS ECS Container Insights data available (D94, out of scope this milestone). Horizontal scaling (more ECS tasks behind the existing ALB target group, M12) is the expected next lever if real traffic ever approached these numbers, not vertical/code changes — nothing observed here suggests a code-level bottleneck to fix first.
 
 ## 15. Deployment Status
 - Local infra (Postgres/Redis/Kafka/Kafka-UI): **runs, 4/4 healthy** via `docker-compose.infra.yml`.
@@ -2636,5 +2680,188 @@ pipeline remains unexercised (unrelated to this milestone).
 **Next milestone:** M14 — Performance (Gatling load tests; record
 P95/P99/throughput/error-rate) — and now has real dashboards to read the
 results from instead of raw Gatling reports alone.
+
+---
+
+### M14 — Performance ✅ (2026-07-19)
+
+**Objectives:** Build a real Gatling load-testing suite covering registration,
+auth, onboarding, and the full payment lifecycle under sustained/burst/
+concurrent-contention/failure-path load; measure throughput and latency
+percentiles plus JVM/DB-pool/Redis/Kafka resource signals via the M13
+Prometheus/Grafana stack; verify circuit breakers, rate limiting, idempotency,
+the transactional outbox, and ledger consistency all hold up under real
+concurrent load; diagnose and fix any genuine bottleneck found, with
+before/after measurements; write up a full performance report with capacity
+estimates. Every number in this entry and in §14 is real Gatling/Prometheus/
+psql output from this session, not an estimate.
+
+**Scope decision confirmed before implementing:** local docker-compose vs.
+real AWS as the load-test target (AskUserQuestion) — the user chose local-only
+(D92), since every ECS service runs as a single unscaled task with no
+autoscaling, making real AWS load testing both non-representative and a real,
+consequential cost. ECS/Container Insights metrics are explicitly out of
+scope this milestone as a direct consequence (D94); local Docker/JVM/Micrometer
+stats substitute.
+
+**Features implemented**
+- **New `load-tests` Gradle module** (`settings.gradle.kts`, `load-tests/build.gradle.kts`):
+  Gatling 3.15.1.1 via the `io.gatling.gradle` plugin, deliberately *not*
+  depending on `common-dto`/`common-lib` or any `paymentflow.*` convention
+  plugin — a black-box HTTP client hitting the gateway exactly as a real
+  client would, with its own Java 25 toolchain.
+- **Support classes** (`load-tests/src/gatling/java/simulations/support/`):
+  `Protocol` (shared `HttpProtocolBuilder` against `http://localhost:8080`,
+  overridable via `-DbaseUrl=`); `Feeders` (infinite unique-email and
+  Idempotency-Key generators, D95); `AuthChains`/`MerchantChains`/`PaymentChains`
+  (reusable register→login→onboard→create→authorize→capture→refund chain
+  fragments); `MerchantPool`/`MerchantFeeder` (the seed-once-feed-many pattern,
+  D93, plus a deliberately-narrow `hotPool(n)` feeder for forcing contention);
+  `FailureChains` (idempotency-key-reuse-conflict, idempotency-key-replay,
+  D96).
+- **7 simulations**: `SmokeSimulation` (1 user, sanity check), `SeedMerchantsSimulation`
+  (seeds the merchant pool CSV), `SustainedLoadSimulation` (constant rate,
+  overridable via `-DusersPerSec=`/`-DdurationSeconds=`), `BurstLoadSimulation`
+  (baseline→spike→baseline ramp profile), `ConcurrentContentionSimulation`
+  (many concurrent users onto a 3-merchant hot pool, deliberately manufacturing
+  ledger/idempotency contention), `FailureScenariosSimulation` (4 concurrent
+  populations: bad credentials, idempotency conflict, idempotency replay,
+  rate-limit burst).
+- **3 new Prometheus exporters** (`docker-compose.observability.yml`,
+  `observability/prometheus/prometheus.yml`): `redis_exporter`,
+  `postgres_exporter`, `kafka_exporter` — server-side infra metrics
+  complementing the client-side-only Micrometer meters (HikariCP, Lettuce,
+  Kafka-client) M13 already exposed. `.env`/`.env.example` gained 3 new port
+  variables (`REDIS_EXPORTER_PORT` moved to 9122 after a real port collision
+  with an unrelated local project, same pattern as D91).
+- **New Grafana dashboard**: `infrastructure-deep-dive.json` (uid
+  `paymentflow-infra-deep-dive`) — 9 panels covering Redis ops/sec, memory,
+  hit ratio, connected clients; PostgreSQL transactions/sec, buffer cache hit
+  ratio, active connections; Kafka broker-side messages/sec by topic and
+  consumer group lag.
+
+**Real benchmark results:** see §14 (Performance Benchmarks) for the full
+table — Smoke/Sustained/Burst/Concurrent-Contention/Failure-Scenarios, real
+throughput/latency-percentile numbers, resource-utilization figures pulled
+from Prometheus during each run, and the ledger-consistency and
+rate-limiting-under-load verification results.
+
+**Testing completed:** No changes to any service's own test suite this
+milestone (load-tests is a new, independent Gradle module with no unit
+tests of its own — its "tests" are the simulations themselves, executed for
+real). `./gradlew :load-tests:gatlingRun` for each of the 7 simulations,
+multiple times each for the two that needed re-runs after a harness fix
+(D95/D96) — final clean state confirmed for every one.
+
+**Verification steps (against a real running platform, not just review):**
+1. Full local stack up (20 containers: 4 infra + 8 app services + 3 M14
+   exporters + the M13 observability stack) — confirmed healthy before,
+   throughout (checked mid-run via `docker ... ps`), and after every load run.
+2. Every simulation's real Gatling HTML report generated and its summary
+   table read directly (not assumed from exit code) — numbers recorded in §14
+   are transcribed from actual Gatling output.
+3. Cross-referenced Burst simulation results against Prometheus
+   (`max_over_time(...)` queries for JVM heap, HikariCP active connections,
+   CPU) to confirm no resource exhaustion during the peak window, not just
+   that requests returned 200.
+4. Directly queried Postgres (`transaction.accounts`) after the Concurrent
+   Contention run to verify the 3 hot-pool merchants' ledger accounts net to
+   exactly 0 after full refund under real concurrent load — a genuine
+   correctness check, not inferred from Gatling's own success/failure count.
+5. Directly queried Prometheus for real `429` counts during the Failure
+   Scenarios run to confirm the rate limiter actually engaged (132 real
+   429s), and confirmed the Burst run produced zero 429s despite higher
+   aggregate throughput (expected — spread across 100 distinct identities,
+   D93's pooling design paying off as a correctness benefit, not just a
+   throughput-measurement one).
+6. When the Failure Scenarios replay check failed unexpectedly (see
+   Problems), reproduced the exact same request sequence manually via curl
+   outside Gatling entirely to determine whether the defect was in
+   payment-service or the test harness *before* changing any code — confirmed
+   the platform's behavior was already correct, narrowing the investigation
+   to Gatling-specific mechanics.
+7. Directly queried `payment.idempotency_keys` and `payment.payments` to
+   independently verify the number of rows created matched expectations,
+   rather than trusting Gatling's check-pass/fail report alone.
+8. Re-ran `FailureScenariosSimulation` twice more after each of the two
+   harness fixes (D95, then D96) with a freshly reseeded merchant pool each
+   time (stale-JWT sensitivity, see Problems), reaching a fully clean 370/370
+   run with the second fix.
+9. Confirmed all 11 core containers (`docker ... ps`) stayed `healthy`
+   throughout the ~55-minute total test session, including immediately after
+   the one genuine resilience event (see §11).
+
+**Important design decisions:** D92–D96 (see §9).
+
+**Problems faced → solutions**
+1. **Gatling Gradle plugin needed an explicit language plugin**: `io.gatling.gradle`
+   failed to apply with "You must configure the plugin for your language of
+   choice: java, scala or kotlin" — undocumented for this plugin version in
+   the version actually resolved; fixed by applying `java` alongside it in
+   `load-tests/build.gradle.kts`, found by trial against the real build, not
+   assumed from docs.
+2. **`status()` import came from the wrong DSL class**: `cannot find symbol`
+   compile errors across 3 support classes from `import static
+   io.gatling.javaapi.core.CoreDsl.status;` — `status()` actually lives in
+   `io.gatling.javaapi.http.HttpDsl`, fixed across all 3 files.
+3. **Two real concurrency bugs in the load-test harness itself** (D95, D96) —
+   full root-cause detail in §9's design-decision entries. Summary: a shared,
+   unsynchronized `Stream`-backed `Iterator` corrupted which idempotency key
+   each of 10 concurrent virtual users received (D95, fixed by wrapping every
+   custom feeder iterator in explicit `synchronized` methods), and a
+   `static final` `ChainBuilder`'s EL-string `.is("#{sessionVar}")` check
+   produced false-negative mismatches under the same 10-concurrent-user load
+   despite the platform's actual behavior being independently confirmed
+   correct three separate ways — manual curl, single-user Gatling run, and a
+   10-concurrent-user run using an explicit session-lambda comparison instead
+   (D96, which became the fix). Neither bug touched any service's source code
+   — both were purely in `load-tests`, M14's own new code, consistent with
+   "do not modify previous milestones unless a genuine performance bug is
+   discovered": neither was a platform bug.
+4. **Stale JWTs in the seeded merchant pool caused a false-alarm wave of
+   401s**: the first `FailureScenariosSimulation` run, executed ~40 minutes
+   after the merchant pool was originally seeded (consumed by the Sustained,
+   Burst, and Concurrent Contention runs in between), got 401 on every
+   request needing a pooled token — root-caused to the JWTs' 15-minute
+   expiry (a real, correct platform behavior, not a bug) simply having
+   elapsed. Fixed procedurally, not by changing any expiry setting:
+   `SeedMerchantsSimulation` is now re-run immediately before any simulation
+   that depends on the merchant pool if enough wall-clock time may have
+   passed.
+5. **A legitimate, load-dependent resilience event, not a bug**: one request
+   got a `503 MerchantServiceUnavailableException` during the highest-
+   concurrency moment of the Failure Scenarios run (43 simultaneous virtual
+   users across 4 populations). Investigated fully before concluding it was
+   correct behavior: merchant-service's own logs showed no errors and it
+   stayed `healthy` throughout; the resolver's M8-era Retry→CircuitBreaker→
+   TimeLimiter→ThreadPoolBulkhead chain is exactly the mechanism designed to
+   shed load like this rather than let it cascade; and an immediate re-run of
+   the identical scenario produced 0 failures out of 370 requests, confirming
+   it was a genuine one-off contention event, not a reproducible defect. No
+   code change made — this is the resilience chain working as intended.
+   Recorded in §11, not fixed, per the same "genuine performance bug" bar.
+6. **A stale claim in M13's own changelog corrected**: while investigating
+   Problem #5, checked `/actuator/prometheus` directly for the Resilience4j
+   meters M13 claimed were there — found none. `resilience4j-micrometer` is
+   still a declared dependency and the resilience chain functions correctly
+   (Problem #5 proves this behaviorally), so this is a metrics-exposure gap,
+   not a functional one; not investigated further or fixed (an observability
+   gap predating M14, out of this milestone's charter), but corrected in §11
+   rather than left silently wrong.
+
+**Explicitly not done this milestone (deliberate):** No load testing against
+the real AWS deployment (D92) — ECS/Container Insights metrics stay unmeasured
+(D94) as a direct, accepted consequence. No code-level performance
+optimization was made anywhere in the platform, because no genuine
+platform-level bottleneck was found to justify one — every real defect found
+and fixed this milestone was in the load-test harness itself (D95, D96), and
+the one real platform-observable event (the single 503, see Problems #5) was
+correct designed behavior, not something to fix. The Resilience4j
+Prometheus-metrics gap found in Problem #6 is deliberately left unfixed,
+flagged in §11 for a future milestone instead.
+
+**Next milestone:** M15 — Next.js merchant console, OpenAPI polish, README,
+diagrams, interview notes (final milestone). Not started — awaiting explicit
+user approval per this milestone's own instructions.
 
 

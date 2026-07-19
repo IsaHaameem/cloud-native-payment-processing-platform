@@ -46,3 +46,17 @@ scrape_configs:
         labels: { service: notification-service }
       - targets: ["analytics-service:8093"]
         labels: { service: analytics-service }
+
+  # M14: server-side infra metrics (client-side is already covered above via
+  # HikariCP/Lettuce/Kafka-client Micrometer meters on each service itself).
+  - job_name: redis-exporter
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  - job_name: postgres-exporter
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: kafka-exporter
+    static_configs:
+      - targets: ["kafka-exporter:9308"]

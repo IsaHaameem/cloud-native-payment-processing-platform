@@ -63,3 +63,8 @@ yarn-error.log*
 !*.tfvars.example
 *.tfplan
 override.tf
+
+# ── Load testing (M14) ──────────────────────────────────────────────────
+# Generated per-run by SeedMerchantsSimulation (throwaway JWTs against
+# whatever local stack happens to be running) — not source, never committed.
+load-tests/src/gatling/resources/data/
