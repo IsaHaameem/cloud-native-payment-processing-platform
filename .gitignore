@@ -56,3 +56,5 @@ yarn-error.log*
 .terraform/
 *.tfvars
 !*.tfvars.example
+*.tfplan
+override.tf

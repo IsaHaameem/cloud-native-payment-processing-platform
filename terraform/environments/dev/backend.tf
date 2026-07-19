@@ -1,19 +1,16 @@
 #
 # Remote state (S3 + DynamoDB lock) — the settled Technology Stack decision
 # (PROJECT_CONTEXT.md §2: "IaC | Terraform (remote state: S3 + DynamoDB
-# lock)"). This backend targets the bucket/table terraform/bootstrap defines
-# — but M11 deliberately does NOT apply bootstrap (see its own header
-# comment and D62), so this bucket/table do not exist yet.
+# lock)"). This backend targets the bucket/table terraform/bootstrap defines.
 #
-# Until bootstrap is applied in a later milestone, initialize this
-# environment with the backend disabled entirely (state stays local, never
-# touches AWS):
+# `terraform/bootstrap` has now been applied by hand (bucket + lock table
+# confirmed live in us-east-1) — this environment initializes normally:
 #
-#   terraform init -backend=false
+#   terraform init
 #
-# Once bootstrap has been applied for real, drop -backend=false and run a
-# normal `terraform init` (Terraform will offer to migrate local state into
-# S3 automatically).
+# Prior to bootstrap being applied, this environment was initialized with
+# `terraform init -backend=false` (state local-only, never touching AWS);
+# that mode remains available if the backend ever needs to be bypassed again.
 #
 terraform {
   backend "s3" {
