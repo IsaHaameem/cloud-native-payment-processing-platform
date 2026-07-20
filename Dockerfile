@@ -49,6 +49,11 @@ COPY transaction-service/build.gradle.kts transaction-service/build.gradle.kts
 COPY audit-service/build.gradle.kts audit-service/build.gradle.kts
 COPY notification-service/build.gradle.kts notification-service/build.gradle.kts
 COPY analytics-service/build.gradle.kts analytics-service/build.gradle.kts
+# load-tests (M14) is declared in settings.gradle.kts, so Gradle configures it
+# on every invocation regardless of which module is actually being built —
+# its build.gradle.kts must exist even though its src (excluded from this
+# build context by .dockerignore) is never needed here.
+COPY load-tests/build.gradle.kts load-tests/build.gradle.kts
 
 RUN chmod +x gradlew
 

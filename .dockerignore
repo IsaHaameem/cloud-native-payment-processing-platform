@@ -17,4 +17,5 @@ node_modules/
 **/data/
 docs/
 load-tests/
+!load-tests/build.gradle.kts
 README*.md
