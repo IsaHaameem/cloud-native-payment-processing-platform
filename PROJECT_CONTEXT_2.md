@@ -6,7 +6,8 @@
 > decision, schema change, API addition, trade-off, and known issue is recorded *here*.
 >
 > **Status:** M15 (API Key Authentication & Machine-to-Machine Access) — **complete**
-> (2026-07-21), pending user approval to proceed to M16.
+> (2026-07-21). Post-M15 repository stabilization phase (8 fixes, §17) — **complete**
+> (2026-07-22). Pending user approval to proceed to M16.
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
 > **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D124**.
 
@@ -2875,6 +2876,63 @@ home** — every image re-downloaded the entire dependency graph cold, 8× redun
 no tolerance for a transient registry hiccup. Added
 `RUN --mount=type=cache,target=/root/.gradle …`; the per-service dependency+build step
 dropped from ~242 s cold to ~21 s warm with zero re-downloads across services.
+
+**Repository stabilization phase (2026-07-22, between M15 and M16).** The docker-build
+cache mount above (Fix #1) was the first of an 8-item plan approved in full and
+implemented incrementally, each fix in its own commit, verified before the next began.
+
+1. **Docker BuildKit Gradle cache** — see "Build determinism" above.
+2. **Deterministic resilience timing** (`MerchantResilienceIntegrationTest`,
+   `MerchantResolverTest`) — replaced absolute wall-clock latency ceilings with a
+   `CountDownLatch` gate the test drains explicitly, so a loaded CI box can't push a
+   legitimate fail-fast past a too-tight fixed timeout.
+3. **Testcontainers image pre-pull in CI** (`ci.yml`) — `postgres:17-alpine`,
+   `redis:8-alpine`, `confluentinc/cp-kafka:7.7.1` pulled as a discrete, retriable step
+   before the Gradle run, so a transient Docker Hub hiccup surfaces there instead of as a
+   flaky mid-suite `ContainerFetchException`.
+4. **Awaitility migration** — four Kafka-consumer integration tests
+   (transaction/audit/notification/analytics-service) each carried an identical,
+   hand-copied `awaitTrue(BooleanSupplier, Duration)` poll loop. Replaced all four with
+   `org.awaitility:awaitility` and deleted the duplicated helpers.
+5. **Deterministic redelivery-noop assertions** — the same four services' "redelivering
+   the same event is a no-op" tests slept a blind fixed duration and hoped the duplicate
+   had been evaluated by then. Since every producer keys its message by `paymentId`, a
+   follow-up real domain event sharing that key is guaranteed (same Kafka partition, same
+   consumer, in-order) to be processed *after* the duplicate — awaiting the follow-up's
+   own effect is therefore deterministic proof the duplicate was already handled.
+6. **Deterministic bulkhead drain** — folded into #2's `CountDownLatch` gate, which also
+   replaced a blind `Thread.sleep` used to drain an in-flight call off the bulkhead's sole
+   thread between tests.
+7. **Awaitility for circuit-breaker state transitions** — two tests
+   (`MerchantResolverTest`, `MerchantResilienceIntegrationTest`) slept a fixed margin past
+   `waitDurationInOpenState`, betting Resilience4j's own internal scheduler had already
+   flipped `OPEN→HALF_OPEN`. Replaced with `await().until(() -> circuitBreaker.getState()
+   == HALF_OPEN)` — polling the real state machine instead of guessing elapsed time.
+8. **Disabled Foojay JDK auto-download inside Docker builds** — the builder stage's own
+   base image already is the exact toolchain JDK every module requires, so the
+   project-wide Foojay resolver is never actually needed there; scoped
+   `-Porg.gradle.java.installations.auto-download=false` to just the Dockerfile's
+   `./gradlew … bootJar` invocation (not `gradle.properties`), so local developers without
+   JDK 25 installed and CI's non-Docker build-and-test job (which pre-installs JDK 25 via
+   `actions/setup-java` and never touches this code path) are both unaffected.
+
+**Root-cause pattern across the whole phase:** every one of the 8 fixes replaced either a
+blind fixed-duration wait/sleep with a poll on the actual condition being waited for, or a
+reachable-but-unnecessary external network dependency with a structural guarantee it can't
+be reached — the same discipline, applied repeatedly, rather than eight unrelated patches.
+
+**Residual, out-of-scope observation:** a `ContainerFetchException`
+("Can't get Docker image: postgres:17-alpine") was reproduced twice locally during Fix #4
+verification when four Testcontainers-backed suites built concurrently — confirmed
+transient (immediate re-run green) and already mitigated in CI by Fix #3's pre-pull step,
+which local `./gradlew` runs don't get. Not part of the approved 8-item plan; noted for a
+future fix if it recurs.
+
+Full verification after every fix: affected test(s) re-run individually (several fixes
+re-run multiple times to confirm no residual flakiness), the owning module's full suite,
+and a full `./gradlew clean build` — all green throughout. Fix #8 additionally rebuilt all
+8 Docker images from scratch (`--no-cache`) and confirmed zero Foojay/toolchain-download
+activity in any build log.
 
 ---
 
