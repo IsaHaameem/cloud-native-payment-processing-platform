@@ -7,8 +7,9 @@
 >
 > **Status:** M15 (API Key Authentication & Machine-to-Machine Access) — **complete**
 > (2026-07-21). Post-M15 repository stabilization phase (8 fixes, §17) — **complete**
-> (2026-07-22). **M16 (Test/Live Mode Isolation) — in progress**, decomposed into
-> sub-milestones M16.1–M16.7; **M16.1–M16.6 complete** (2026-07-22).
+> (2026-07-22). **M16 (Test/Live Mode Isolation) — complete** (2026-07-22): all
+> sub-milestones M16.1–M16.7 implemented, verified, committed, and E2E-validated on the
+> running docker-compose stack. Pending user approval of the M16 completion report to proceed to M17.
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
 > **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D126**.
 
@@ -3203,6 +3204,51 @@ delivery/retry/redelivery/malformed invariants); full `./gradlew clean build` gr
 **Remaining M16 work.** M16.7 — consolidated docs + full docker-compose end-to-end validation and
 milestone closure. All five data-plane/consumer sub-milestones (M16.1–M16.6) are now complete; every
 service is mode-aware in the manner appropriate to its role.
+
+#### M16.7 — Milestone closure: full docker-compose E2E validation ✅ (2026-07-22)
+
+**Objective.** Prove test/live mode isolation holds end-to-end against the *running* platform (the
+M15 discipline: a manual E2E is the regression gate that unit/integration tests can't replace), then
+close M16.
+
+**Setup.** Rebuilt all 8 images with the M16 code (`common-dto` changed, so every service) and brought
+up the full stack (`docker-compose.infra.yml` + `docker-compose.yml`, 12 containers, all healthy).
+Drove real HTTP through the gateway (`:8080`) and inspected every consumer's Postgres schema; note the
+Postgres volume persisted **pre-M16 rows** from earlier sessions, which doubled as a live
+backward-compatibility fixture.
+
+**Verified (all green):**
+- **API-key mode enforcement** — `sk_test_` payment persisted `mode=test`; `sk_live_` → `mode=live`.
+- **Cross-mode read isolation** — `sk_live_` GET of a test payment → **404**; `sk_test_` GET of its own → 200.
+- **Idempotency isolation** — the same `Idempotency-Key` under `sk_test_` vs `sk_live_` produced **two
+  distinct payments**; a third `sk_test_` call replayed the first (idempotent within (merchant, mode)).
+- **JWT mode selection** — `/api/v1/payments` with no `X-PF-Mode` defaulted to `test`; `X-PF-Mode: test`
+  → test; `X-PF-Mode: live` → live.
+- **`EventEnvelope.mode` propagation + payment-service isolation** — `payment.payments` stamped per row.
+- **Ledger isolation (transaction)** — **two separate `PLATFORM_CLEARING` accounts** for USD (test=5000,
+  live=5000) plus separate per-mode merchant settled accounts; pending nets to 0 in each mode.
+- **Analytics isolation** — separate `merchant_payment_stats` rows per (currency, mode).
+- **Audit recording semantics (D126)** — new events recorded `test`/`live`; **10,515 pre-M16 rows stayed
+  `NULL`** (migration did no backfill/coercion).
+- **Notification recording semantics (D126)** — `email_log` and `webhook_deliveries` stamped `test`/`live`
+  for new events, `NULL` for legacy; webhook deliveries created (attempted against a dummy HTTPS URL).
+- **Backward compatibility** — a **freshly published mode-less** `payment.events` message (no `mode`
+  field, exactly a pre-M16 producer's output) was handled correctly by every consumer: partitioners
+  (ledger, analytics) posted it to the **live** partition; recorders (audit, notification) recorded it
+  with **NULL** mode.
+
+**Closure verification.** Full `./gradlew clean build` green.
+
+**Files.** `PROJECT_CONTEXT_2.md` only (this entry + §17 M16 rollup below; status line updated). No code
+change in M16.7. The E2E scripts live in the session scratchpad (not committed — throwaway validation
+harness).
+
+**M16 — Test/Live Mode Isolation: COMPLETE (2026-07-22).** All seven sub-milestones (M16.1–M16.7)
+implemented, verified, and committed. Mode is now a *structural* property (§4.4): API-key mode is
+key-bound and non-forgeable; JWT/dashboard mode is a caller-owned `X-PF-Mode` selector; every
+merchant-scoped payment/ledger/analytics row is partitioned by mode; audit and notification record it
+verbatim (D126); and legacy mode-less events remain correct. **Ready for M17 (sandbox-service) pending
+user approval of the M16 completion report.**
 
 ---
 
