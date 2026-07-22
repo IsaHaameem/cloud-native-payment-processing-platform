@@ -64,7 +64,17 @@ COPY common-dto/src common-dto/src
 COPY common-lib/src common-lib/src
 COPY ${SERVICE_MODULE}/src ${SERVICE_MODULE}/src
 
-RUN ./gradlew ":${SERVICE_MODULE}:bootJar" --no-daemon -x test \
+# BuildKit cache mount for the Gradle user home (~/.gradle): the resolved
+# dependency graph and wrapper distribution persist across builds and are shared
+# by all eight service builds (the mount id derives from the target path, so every
+# `docker build`/`docker compose build` leg reuses the same cache). Without it,
+# every image build re-downloaded the entire dependency graph from scratch, 8×
+# redundantly and with zero tolerance for a transient registry/network hiccup —
+# the root cause of the repeated build failures during M15 E2E validation. Default
+# sharing=shared is safe: Gradle coordinates concurrent access with its own
+# cross-process cache locks. Requires BuildKit (Buildx in CI, Compose v2 locally).
+RUN --mount=type=cache,target=/root/.gradle \
+    ./gradlew ":${SERVICE_MODULE}:bootJar" --no-daemon -x test \
     && mkdir -p /workspace/staging \
     && cp $(find "${SERVICE_MODULE}/build/libs" -maxdepth 1 -name '*.jar' ! -name '*-plain.jar') \
         /workspace/staging/app.jar \

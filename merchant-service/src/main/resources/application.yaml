@@ -33,6 +33,14 @@ spring:
     redis:
       time-to-live: 10m
       cache-null-values: false
+  kafka:
+    # Local default points at the compose Kafka's host-published listener. Mirrors
+    # payment-service's M5 KafkaProducerConfig exactly (M15: merchant-service becomes
+    # a Kafka producer for the first time, publishing merchant.events via the same
+    # transactional-outbox shape).
+    bootstrap-servers: localhost:59092
+    producer:
+      acks: all
 
 server:
   port: 8082
@@ -42,6 +50,20 @@ paymentflow:
     identity:
       jwks-uri: http://localhost:8081/oauth2/jwks
       issuer: https://identity.paymentflow.local
+  merchant:
+    api-key:
+      # Old key keeps authenticating for this long after a rotate-with-grace call —
+      # long enough to roll a deployed secret without a dropped-request window.
+      rotation-grace-period: 24h
+      # last_used_at is written at most once per key per this window (M15 task 2's
+      # explicit "never one UPDATE per request" constraint), via a short-TTL Redis marker.
+      last-used-throttle: 60s
+  internal-context:
+    # The HMAC secret every service uses to verify a gateway-asserted merchant context
+    # (M15, D100/D118) — one shared secret, sourced from Secrets Manager in AWS,
+    # env var locally. This is a local-dev-only default; never used as-is in AWS.
+    secret: ${PAYMENTFLOW_INTERNAL_CONTEXT_SECRET:dev-only-insecure-shared-secret-change-me}
+    max-clock-skew-seconds: 30
 
 management:
   endpoints:

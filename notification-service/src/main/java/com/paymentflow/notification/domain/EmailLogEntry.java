@@ -13,9 +13,9 @@ import java.util.UUID;
 
 /**
  * A simulated email send — no real SMTP/SES integration exists in this milestone (D45);
- * this row is the durable, queryable record of what would have been sent, always written
- * (every merchant has a {@code contactEmail}) regardless of whether a webhook is also
- * configured.
+ * this row is the durable, queryable record of what would have been sent. Payment-
+ * lifecycle emails always carry a {@code merchantId}; identity-driven emails
+ * (verification, password reset — M15) have none, so the column is nullable.
  */
 @Entity
 @Table(name = "email_log")
@@ -29,7 +29,7 @@ public class EmailLogEntry {
     @Column(name = "event_id", nullable = false, updatable = false, unique = true)
     private UUID eventId;
 
-    @Column(name = "merchant_id", nullable = false, updatable = false)
+    @Column(name = "merchant_id", updatable = false)
     private UUID merchantId;
 
     @Column(name = "recipient_email", nullable = false, updatable = false)

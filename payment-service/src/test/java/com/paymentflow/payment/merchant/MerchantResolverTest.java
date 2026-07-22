@@ -1,5 +1,7 @@
 package com.paymentflow.payment.merchant;
 
+import com.paymentflow.common.security.MerchantContext;
+import com.paymentflow.common.security.MerchantContextHolder;
 import com.paymentflow.payment.exception.MerchantNotOnboardedException;
 import com.paymentflow.payment.exception.MerchantServiceUnavailableException;
 import feign.FeignException;
@@ -32,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -103,6 +106,26 @@ class MerchantResolverTest {
 
     private static MerchantSummary summary() {
         return new MerchantSummary(UUID.randomUUID(), "billing@acme.test", null);
+    }
+
+    @Test
+    void whenAnInternalMerchantContextIsPresentTheFeignClientIsNeverInvoked() {
+        MerchantClient client = mock(MerchantClient.class);
+        MerchantResolver resolver = resolver(client, defaultCbConfig(), defaultRetryConfig(3),
+                defaultBulkheadConfig(), defaultTimeLimiterConfig());
+        UUID merchantId = UUID.randomUUID();
+        MerchantContext context = new MerchantContext(merchantId, "test", UUID.randomUUID(),
+                java.util.Set.of("payments:write"), "billing@acme.test", "https://acme.test/hooks");
+
+        try {
+            MerchantContextHolder.set(context);
+            MerchantSummary result = resolver.resolveCallerMerchant();
+
+            assertThat(result).isEqualTo(new MerchantSummary(merchantId, "billing@acme.test", "https://acme.test/hooks"));
+            verifyNoInteractions(client);
+        } finally {
+            MerchantContextHolder.clear();
+        }
     }
 
     @Test
@@ -255,7 +278,10 @@ class MerchantResolverTest {
     void timeLimiterFailsFastWhenTheDownstreamIsSlow() {
         MerchantClient client = mock(MerchantClient.class);
         when(client.getMine()).thenAnswer(inv -> {
-            Thread.sleep(2000);
+            // Far longer than the 300ms TimeLimiter budget, so "returned before the
+            // downstream would have" is unambiguous with a wide margin — the assertion
+            // below can't be flaked by scheduling jitter the way a near-budget sleep could.
+            Thread.sleep(5000);
             return summary();
         });
         MerchantResolver resolver = resolver(client, defaultCbConfig(), defaultRetryConfig(1), defaultBulkheadConfig(),
@@ -265,6 +291,8 @@ class MerchantResolverTest {
         assertThatThrownBy(resolver::resolveCallerMerchant).isInstanceOf(MerchantServiceUnavailableException.class);
         long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
 
+        // Fails fast at ~300ms (single attempt); asserting < 1500ms is ~5x headroom over
+        // the budget yet a full 3.5s below the 5s mock, so only a broken TimeLimiter fails.
         assertThat(elapsedMs).isLessThan(1500);
     }
 

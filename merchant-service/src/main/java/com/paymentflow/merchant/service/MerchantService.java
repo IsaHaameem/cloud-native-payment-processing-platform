@@ -3,13 +3,14 @@ package com.paymentflow.merchant.service;
 import com.paymentflow.common.dto.page.PageResponse;
 import com.paymentflow.common.exception.ResourceNotFoundException;
 import com.paymentflow.merchant.domain.Merchant;
-import com.paymentflow.merchant.dto.ApiKeyIssuedResponse;
 import com.paymentflow.merchant.dto.MerchantOnboardResponse;
 import com.paymentflow.merchant.dto.MerchantResponse;
 import com.paymentflow.merchant.dto.OnboardMerchantRequest;
 import com.paymentflow.merchant.dto.UpdateMerchantRequest;
 import com.paymentflow.merchant.dto.UpdateWebhookRequest;
+import com.paymentflow.merchant.event.MerchantEventPublisher;
 import com.paymentflow.merchant.exception.MerchantAlreadyExistsException;
+import com.paymentflow.merchant.mapper.ApiKeyMapper;
 import com.paymentflow.merchant.mapper.MerchantMapper;
 import com.paymentflow.merchant.repository.MerchantRepository;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -20,7 +21,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.util.UUID;
 
 @Service
@@ -29,14 +29,19 @@ public class MerchantService {
 
     private final MerchantRepository merchantRepository;
     private final ApiKeyService apiKeyService;
+    private final ApiKeyMapper apiKeyMapper;
     private final MerchantMapper merchantMapper;
+    private final MerchantEventPublisher eventPublisher;
     private final MeterRegistry meterRegistry;
 
     public MerchantService(MerchantRepository merchantRepository, ApiKeyService apiKeyService,
-                           MerchantMapper merchantMapper, MeterRegistry meterRegistry) {
+                           ApiKeyMapper apiKeyMapper, MerchantMapper merchantMapper,
+                           MerchantEventPublisher eventPublisher, MeterRegistry meterRegistry) {
         this.merchantRepository = merchantRepository;
         this.apiKeyService = apiKeyService;
+        this.apiKeyMapper = apiKeyMapper;
         this.merchantMapper = merchantMapper;
+        this.eventPublisher = eventPublisher;
         this.meterRegistry = meterRegistry;
     }
 
@@ -47,9 +52,13 @@ public class MerchantService {
         }
         Merchant merchant = merchantRepository.save(
                 Merchant.onboard(ownerUserId, request.businessName(), request.contactEmail()));
-        ApiKeyService.IssuedApiKey issued = apiKeyService.issue(merchant.getId());
+        eventPublisher.publishMerchantOnboarded(merchant);
+
+        var issuedKeys = apiKeyService.issueDefaultSet(merchant.getId()).stream()
+                .map(apiKeyMapper::toIssuedResponse)
+                .toList();
         meterRegistry.counter("merchant_onboarded_total").increment();
-        return new MerchantOnboardResponse(merchantMapper.toResponse(merchant), toIssuedResponse(issued));
+        return new MerchantOnboardResponse(merchantMapper.toResponse(merchant), issuedKeys);
     }
 
     @Cacheable(cacheNames = "merchants", key = "#ownerUserId")
@@ -77,19 +86,11 @@ public class MerchantService {
         return merchantMapper.toResponse(merchant);
     }
 
-    @Transactional
-    public ApiKeyIssuedResponse rotateMyApiKey(UUID ownerUserId) {
-        Merchant merchant = merchantRepository.findByOwnerUserId(ownerUserId)
-                .orElseThrow(() -> ResourceNotFoundException.of("Merchant", ownerUserId));
-        return toIssuedResponse(apiKeyService.rotate(merchant.getId()));
-    }
+    // Single-key rotation (rotateMyApiKey) is superseded by ApiKeyController's
+    // multi-key rotate-with-grace endpoint (M15, D99).
 
     public PageResponse<MerchantResponse> list(Pageable pageable) {
         Page<MerchantResponse> page = merchantRepository.findAll(pageable).map(merchantMapper::toResponse);
         return PageResponse.of(page.getContent(), page.getNumber(), page.getSize(), page.getTotalElements());
-    }
-
-    private static ApiKeyIssuedResponse toIssuedResponse(ApiKeyService.IssuedApiKey issued) {
-        return new ApiKeyIssuedResponse(issued.rawValue(), issued.prefix(), Instant.now());
     }
 }

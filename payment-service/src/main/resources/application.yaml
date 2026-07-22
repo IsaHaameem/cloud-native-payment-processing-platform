@@ -51,6 +51,13 @@ paymentflow:
       base-uri: http://localhost:8082
   outbox:
     relay-interval-ms: 2000
+  internal-context:
+    # The HMAC secret every service uses to verify a gateway-asserted merchant context
+    # (M15, D100/D118) — payment-service is the first consumer of it (MerchantResolver
+    # skips the merchant-service Feign call entirely when this filter already
+    # populated a MerchantContext, D118).
+    secret: ${PAYMENTFLOW_INTERNAL_CONTEXT_SECRET:dev-only-insecure-shared-secret-change-me}
+    max-clock-skew-seconds: 30
   resilience:
     merchant-service:
       # Hard Feign socket timeouts (FeignClientConfig) — deliberately under

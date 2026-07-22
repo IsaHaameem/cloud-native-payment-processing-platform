@@ -41,6 +41,8 @@ class AuthServiceTest {
     private JwtService jwtService;
     @Mock
     private RefreshTokenService refreshTokenService;
+    @Mock
+    private EmailVerificationService emailVerificationService;
     @Spy
     private UserMapper userMapper = new UserMapper();
     @Spy
@@ -83,6 +85,8 @@ class AuthServiceTest {
         assertThat(saved.getRoles()).containsExactly(Role.USER);
         assertThat(saved.getPasswordHash()).isNotEqualTo("password123");
         assertThat(passwordEncoder.matches("password123", saved.getPasswordHash())).isTrue();
+        // M15 task 11: registration issues a verification email asynchronously.
+        verify(emailVerificationService).requestVerification(saved);
     }
 
     @Test

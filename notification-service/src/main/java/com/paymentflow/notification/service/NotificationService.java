@@ -1,49 +1,46 @@
 package com.paymentflow.notification.service;
 
 import com.paymentflow.common.dto.event.EventEnvelope;
-import com.paymentflow.notification.domain.EmailLogEntry;
 import com.paymentflow.notification.domain.ProcessedEvent;
 import com.paymentflow.notification.domain.WebhookDelivery;
+import com.paymentflow.notification.email.EmailMessage;
+import com.paymentflow.notification.email.EmailSender;
 import com.paymentflow.notification.event.PaymentNotificationEventPayload;
-import com.paymentflow.notification.repository.EmailLogEntryRepository;
 import com.paymentflow.notification.repository.ProcessedEventRepository;
 import com.paymentflow.notification.repository.WebhookDeliveryRepository;
-import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Handles one payment lifecycle event: records a simulated email send (always, D45)
- * and, if the merchant has a webhook configured, durably records delivery intent before
- * attempting the first (synchronous) delivery. Row writes happen in a short transaction
- * with no network I/O inside it; the first delivery attempt happens only after that
- * transaction commits (D46) — an external HTTP call has no place inside a DB transaction.
+ * Handles one payment lifecycle event: sends a simulated email (always, D45) via the
+ * {@link EmailSender} seam and, if the merchant has a webhook configured, durably
+ * records delivery intent before attempting the first (synchronous) delivery. Row
+ * writes happen in a short transaction with no network I/O inside it; the first
+ * delivery attempt happens only after that transaction commits (D46) — an external
+ * HTTP call has no place inside a DB transaction.
  */
 @Service
 public class NotificationService {
 
     private final ProcessedEventRepository processedEventRepository;
-    private final EmailLogEntryRepository emailLogEntryRepository;
+    private final EmailSender emailSender;
     private final WebhookDeliveryRepository webhookDeliveryRepository;
     private final WebhookDeliveryService webhookDeliveryService;
     private final TransactionTemplate transactionTemplate;
     private final ObjectMapper objectMapper;
-    private final MeterRegistry meterRegistry;
 
     public NotificationService(ProcessedEventRepository processedEventRepository,
-                               EmailLogEntryRepository emailLogEntryRepository,
+                               EmailSender emailSender,
                                WebhookDeliveryRepository webhookDeliveryRepository,
                                WebhookDeliveryService webhookDeliveryService,
-                               TransactionTemplate transactionTemplate, ObjectMapper objectMapper,
-                               MeterRegistry meterRegistry) {
+                               TransactionTemplate transactionTemplate, ObjectMapper objectMapper) {
         this.processedEventRepository = processedEventRepository;
-        this.emailLogEntryRepository = emailLogEntryRepository;
+        this.emailSender = emailSender;
         this.webhookDeliveryRepository = webhookDeliveryRepository;
         this.webhookDeliveryService = webhookDeliveryService;
         this.transactionTemplate = transactionTemplate;
         this.objectMapper = objectMapper;
-        this.meterRegistry = meterRegistry;
     }
 
     public void handleEvent(EventEnvelope<PaymentNotificationEventPayload> envelope) {
@@ -53,10 +50,8 @@ public class NotificationService {
             }
 
             PaymentNotificationEventPayload payload = envelope.payload();
-            emailLogEntryRepository.save(EmailLogEntry.of(
-                    envelope.eventId(), payload.merchantId(), payload.merchantContactEmail(),
-                    subjectFor(envelope.eventType()), bodyFor(envelope.eventType(), payload)));
-            meterRegistry.counter("email_logged_total", "eventType", envelope.eventType()).increment();
+            emailSender.send(new EmailMessage(envelope.eventId(), payload.merchantId(), payload.merchantContactEmail(),
+                    subjectFor(envelope.eventType()), bodyFor(envelope.eventType(), payload), envelope.eventType()));
 
             WebhookDelivery delivery = null;
             String webhookUrl = payload.merchantWebhookUrl();

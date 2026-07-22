@@ -21,6 +21,13 @@ spring:
     schemas: identity
     default-schema: identity
     locations: classpath:db/migration
+  kafka:
+    # Local default points at the compose Kafka's host-published listener. Mirrors
+    # payment-service's M5 KafkaProducerConfig exactly (M15: identity-service becomes
+    # a Kafka producer for the first time).
+    bootstrap-servers: localhost:59092
+    producer:
+      acks: all
 
 server:
   port: 8081
@@ -66,6 +73,25 @@ paymentflow:
       refresh-token-ttl: 7d
       # private-key / public-key intentionally unset for local dev: an ephemeral RSA
       # keypair is generated at startup. In production these come from Secrets Manager.
+  outbox:
+    relay-interval-ms: 2000
+  identity:
+    action-link:
+      # No frontend exists yet (the developer portal is M23+) — points at where one
+      # eventually will, so the link shape and this property never have to change.
+      base-url: http://localhost:3000
+    tokens:
+      email-verification-ttl: 24h
+      password-reset-ttl: 1h
+  internal-context:
+    # The HMAC secret every service uses to verify a gateway-asserted merchant context
+    # (M15, D100/D118). identity-service hosts the same InternalContextFilter as every
+    # other servlet service (common-lib's SERVLET-conditional autoconfig) even though
+    # nothing routes /v1/** to it yet — harmless: the filter no-ops on any request
+    # carrying no X-PF-Internal-* headers, exactly like every request identity-service
+    # receives today.
+    secret: ${PAYMENTFLOW_INTERNAL_CONTEXT_SECRET:dev-only-insecure-shared-secret-change-me}
+    max-clock-skew-seconds: 30
 
 # Correlation/request ids (common-lib's filter) and trace/span ids (Micrometer
 # Tracing, M13) surface on every log line — the trace/span pair is what actually

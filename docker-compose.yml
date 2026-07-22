@@ -49,11 +49,15 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-paymentflow}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8081:8081"
     depends_on:
       postgres:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     networks:
       - paymentflow
@@ -75,7 +79,9 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-paymentflow}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI: http://identity-service:8081/oauth2/jwks
+      PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8082:8082"
@@ -83,6 +89,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
       identity-service:
         condition: service_healthy
@@ -109,6 +117,7 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI: http://identity-service:8081/oauth2/jwks
       PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI: http://merchant-service:8082
+      PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8083:8083"
@@ -144,6 +153,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8084:8084"
@@ -170,6 +180,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8091:8091"
@@ -196,6 +207,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8092:8092"
@@ -222,6 +234,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8093:8093"
@@ -251,6 +264,7 @@ services:
       PAYMENTFLOW_SERVICES_IDENTITY_BASE_URI: http://identity-service:8081
       PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI: http://merchant-service:8082
       PAYMENTFLOW_SERVICES_PAYMENT_BASE_URI: http://payment-service:8083
+      PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8080:8080"

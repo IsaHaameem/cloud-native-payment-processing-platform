@@ -10,5 +10,6 @@ public record UserResponse(
         String fullName,
         Set<String> roles,
         boolean enabled,
+        boolean emailVerified,
         Instant createdAt) {
 }

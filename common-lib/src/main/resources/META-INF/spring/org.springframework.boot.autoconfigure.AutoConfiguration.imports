@@ -1,3 +1,4 @@
 com.paymentflow.common.autoconfigure.CorrelationIdAutoConfiguration
 com.paymentflow.common.autoconfigure.GlobalExceptionHandlerAutoConfiguration
+com.paymentflow.common.autoconfigure.InternalContextAutoConfiguration
 com.paymentflow.common.autoconfigure.ObservabilityAutoConfiguration

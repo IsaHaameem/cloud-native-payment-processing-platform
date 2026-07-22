@@ -43,6 +43,9 @@ public class User {
     @Column(nullable = false)
     private boolean enabled = true;
 
+    @Column(name = "email_verified_at")
+    private Instant emailVerifiedAt;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "role", nullable = false)
@@ -81,6 +84,21 @@ public class User {
         this.roles.add(role);
     }
 
+    public boolean isEmailVerified() {
+        return emailVerifiedAt != null;
+    }
+
+    /** Idempotent: verifying an already-verified account leaves the original timestamp alone. */
+    public void markEmailVerified() {
+        if (emailVerifiedAt == null) {
+            this.emailVerifiedAt = Instant.now();
+        }
+    }
+
+    public void changePasswordHash(String newPasswordHash) {
+        this.passwordHash = newPasswordHash;
+    }
+
     public UUID getId() {
         return id;
     }
@@ -99,6 +117,10 @@ public class User {
 
     public boolean isEnabled() {
         return enabled;
+    }
+
+    public Instant getEmailVerifiedAt() {
+        return emailVerifiedAt;
     }
 
     public void setEnabled(boolean enabled) {

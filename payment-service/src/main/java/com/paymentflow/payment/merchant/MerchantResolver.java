@@ -1,5 +1,7 @@
 package com.paymentflow.payment.merchant;
 
+import com.paymentflow.common.security.MerchantContext;
+import com.paymentflow.common.security.MerchantContextHolder;
 import com.paymentflow.payment.exception.MerchantNotOnboardedException;
 import com.paymentflow.payment.exception.MerchantServiceUnavailableException;
 import feign.FeignException;
@@ -15,6 +17,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -70,7 +73,21 @@ public class MerchantResolver {
         this.scheduledExecutorService = scheduledExecutorService;
     }
 
+    /**
+     * On the API-key path (M15), the gateway has already resolved and signed the
+     * caller's merchant context — {@code common-lib}'s {@code InternalContextFilter}
+     * populated {@link MerchantContextHolder} before this method could ever run, so
+     * the resilience-wrapped Feign call to merchant-service is skipped entirely (a
+     * real latency win on every API-key request, and one fewer thing that can fail).
+     * The existing JWT path below is completely unchanged for every other request.
+     */
     public MerchantSummary resolveCallerMerchant() {
+        Optional<MerchantContext> internalContext = MerchantContextHolder.get();
+        if (internalContext.isPresent()) {
+            MerchantContext context = internalContext.get();
+            return new MerchantSummary(context.merchantId(), context.contactEmail(), context.webhookUrl());
+        }
+
         RequestAttributes callerAttributes = RequestContextHolder.getRequestAttributes();
 
         Supplier<CompletionStage<MerchantSummary>> bulkheadProtected =
