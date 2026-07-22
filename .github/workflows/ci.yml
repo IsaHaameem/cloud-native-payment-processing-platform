@@ -65,6 +65,17 @@ jobs:
       - name: Set up Gradle (with dependency/build cache)
         uses: gradle/actions/setup-gradle@v4
 
+      # Pull the images the Testcontainers integration suites use *before* the build,
+      # so a transient Docker Hub hiccup or rate-limit surfaces here as a discrete,
+      # retriable step rather than as a flaky mid-suite ContainerFetchException that
+      # reds the whole run. Versions are kept in lockstep with the tags the tests
+      # request (postgres/redis/kafka) — update both together.
+      - name: Pre-pull Testcontainers images
+        run: |
+          docker pull postgres:17-alpine
+          docker pull redis:8-alpine
+          docker pull confluentinc/cp-kafka:7.7.1
+
       - name: ./gradlew clean build
         run: ./gradlew clean build --no-daemon --stacktrace
 
