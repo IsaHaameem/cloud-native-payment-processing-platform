@@ -50,11 +50,16 @@ public class AuditService {
         JsonNode correlationIdNode = envelope.get("correlationId");
         String correlationId = (correlationIdNode == null || correlationIdNode.isNull())
                 ? null : correlationIdNode.asString();
+        // Recorded verbatim (M16): absent on merchant.events and pre-M16 payment events
+        // (the envelope omits a null mode), a concrete test/live on post-M16 payment events.
+        // Audit never coerces null->live — it records what the event declared (D126).
+        JsonNode modeNode = envelope.get("mode");
+        String mode = (modeNode == null || modeNode.isNull()) ? null : modeNode.asString();
         String payload = envelope.get("payload").toString();
 
         try {
             auditLogEntryRepository.save(
-                    AuditLogEntry.of(eventId, eventType, aggregateId, occurredAt, correlationId, payload));
+                    AuditLogEntry.of(eventId, eventType, aggregateId, occurredAt, correlationId, mode, payload));
             meterRegistry.counter("audit_events_total", "outcome", "recorded", "eventType", eventType).increment();
         } catch (DataIntegrityViolationException e) {
             log.debug("Event {} was recorded by a concurrent redelivery, ignoring", eventId);

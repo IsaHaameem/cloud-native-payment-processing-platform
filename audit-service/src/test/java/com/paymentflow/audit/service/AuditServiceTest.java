@@ -63,7 +63,33 @@ class AuditServiceTest {
         assertThat(saved.getEventId()).isEqualTo(eventId);
         assertThat(saved.getEventType()).isEqualTo("PaymentAuthorized");
         assertThat(saved.getCorrelationId()).isEqualTo("corr-1");
+        // This envelope declares no mode (like a merchant.event or a pre-M16 payment event),
+        // so it is recorded verbatim as null — audit never coerces null->live (D126).
+        assertThat(saved.getMode()).isNull();
         assertThat(objectMapper.readTree(saved.getPayload()).get("status").asString()).isEqualTo("AUTHORIZED");
+    }
+
+    @Test
+    void anEventDeclaringAModeIsRecordedWithThatMode() {
+        UUID eventId = UUID.randomUUID();
+        String json = """
+                {
+                  "eventId": "%s",
+                  "eventType": "PaymentCaptured",
+                  "aggregateId": "%s",
+                  "occurredAt": "2026-07-18T10:15:30Z",
+                  "correlationId": "corr-1",
+                  "mode": "test",
+                  "payload": {"paymentId": "%s", "status": "CAPTURED"}
+                }
+                """.formatted(eventId, UUID.randomUUID(), UUID.randomUUID());
+        when(auditLogEntryRepository.existsByEventId(eventId)).thenReturn(false);
+
+        auditService.recordEvent(objectMapper.readTree(json));
+
+        ArgumentCaptor<AuditLogEntry> captor = ArgumentCaptor.forClass(AuditLogEntry.class);
+        verify(auditLogEntryRepository).save(captor.capture());
+        assertThat(captor.getValue().getMode()).isEqualTo("test");
     }
 
     @Test

@@ -44,6 +44,13 @@ public class AuditLogEntry {
     @Column(name = "correlation_id", updatable = false, length = 100)
     private String correlationId;
 
+    // The test/live partition the event declared (M16), recorded verbatim — nullable
+    // because audit is a faithful, schema-agnostic recorder (D44) across multiple streams:
+    // payment.events carry a mode, but merchant.events (key/merchant lifecycle) are
+    // mode-less, and coercing those to 'live' would be a lie in an immutable trail (D126).
+    @Column(updatable = false, length = 4)
+    private String mode;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload", nullable = false, updatable = false, columnDefinition = "jsonb")
     private String payload;
@@ -57,18 +64,19 @@ public class AuditLogEntry {
     }
 
     private AuditLogEntry(UUID eventId, String eventType, String aggregateId, Instant occurredAt,
-                          String correlationId, String payload) {
+                          String correlationId, String mode, String payload) {
         this.eventId = eventId;
         this.eventType = eventType;
         this.aggregateId = aggregateId;
         this.occurredAt = occurredAt;
         this.correlationId = correlationId;
+        this.mode = mode;
         this.payload = payload;
     }
 
     public static AuditLogEntry of(UUID eventId, String eventType, String aggregateId, Instant occurredAt,
-                                   String correlationId, String payload) {
-        return new AuditLogEntry(eventId, eventType, aggregateId, occurredAt, correlationId, payload);
+                                   String correlationId, String mode, String payload) {
+        return new AuditLogEntry(eventId, eventType, aggregateId, occurredAt, correlationId, mode, payload);
     }
 
     public UUID getId() {
@@ -93,6 +101,10 @@ public class AuditLogEntry {
 
     public String getCorrelationId() {
         return correlationId;
+    }
+
+    public String getMode() {
+        return mode;
     }
 
     public String getPayload() {

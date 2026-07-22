@@ -149,4 +149,46 @@ class AuditIntegrationTest {
         String json = objectMapper.writeValueAsString(envelope);
         producer.send(new ProducerRecord<>(TOPIC, paymentId.toString(), json)).get(5, TimeUnit.SECONDS);
     }
+
+    /** Publishes an event whose envelope carries an explicit {@code mode} (M16); pass null for a mode-less event. */
+    private void publishWithMode(String mode, UUID eventId, String eventType, UUID paymentId, TestPayload payload)
+            throws Exception {
+        EventEnvelope<TestPayload> envelope = new EventEnvelope<>(
+                eventId, eventType, paymentId.toString(), Instant.now(), "test-correlation", mode, payload);
+        producer.send(new ProducerRecord<>(TOPIC, paymentId.toString(),
+                objectMapper.writeValueAsString(envelope))).get(5, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void theDeclaredModeIsRecordedVerbatimIncludingItsAbsence() throws Exception {
+        // A test-mode event records mode "test".
+        UUID testEventId = UUID.randomUUID();
+        UUID testPaymentId = UUID.randomUUID();
+        publishWithMode("test", testEventId, "PaymentCreated", testPaymentId, new TestPayload(testPaymentId, "CREATED"));
+
+        // A live-mode event records mode "live".
+        UUID liveEventId = UUID.randomUUID();
+        UUID livePaymentId = UUID.randomUUID();
+        publishWithMode("live", liveEventId, "PaymentCreated", livePaymentId, new TestPayload(livePaymentId, "CREATED"));
+
+        // A mode-less event (as merchant.events are) records mode null — no coercion to live.
+        UUID modelessEventId = UUID.randomUUID();
+        UUID modelessPaymentId = UUID.randomUUID();
+        publishWithMode(null, modelessEventId, "PaymentCreated", modelessPaymentId,
+                new TestPayload(modelessPaymentId, "CREATED"));
+
+        await().atMost(Duration.ofSeconds(15)).until(() ->
+                auditLogEntryRepository.existsByEventId(testEventId)
+                        && auditLogEntryRepository.existsByEventId(liveEventId)
+                        && auditLogEntryRepository.existsByEventId(modelessEventId));
+
+        assertThat(modeOf(testEventId)).isEqualTo("test");
+        assertThat(modeOf(liveEventId)).isEqualTo("live");
+        assertThat(modeOf(modelessEventId)).isNull();
+    }
+
+    private String modeOf(UUID eventId) {
+        return auditLogEntryRepository.findAll().stream()
+                .filter(e -> e.getEventId().equals(eventId)).findFirst().orElseThrow().getMode();
+    }
 }

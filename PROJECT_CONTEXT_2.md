@@ -8,9 +8,9 @@
 > **Status:** M15 (API Key Authentication & Machine-to-Machine Access) — **complete**
 > (2026-07-21). Post-M15 repository stabilization phase (8 fixes, §17) — **complete**
 > (2026-07-22). **M16 (Test/Live Mode Isolation) — in progress**, decomposed into
-> sub-milestones M16.1–M16.7; **M16.1–M16.4 complete** (2026-07-22).
+> sub-milestones M16.1–M16.7; **M16.1–M16.5 complete** (2026-07-22).
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D125**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D126**.
 
 ---
 
@@ -2571,6 +2571,7 @@ decisions are appended as milestones are implemented.
 | D121 | `last_used_at` is updated via a short-TTL Redis `SETNX`-style marker (`apikey:lastused:<keyId>`, throttled to once per `lastUsedThrottle` window) plus a fire-and-forget `CompletableFuture` write, not a synchronous update on every verify | Update the column inline on every successful `verify()` call | Task 2's explicit constraint ("never one UPDATE per request") — a cache-hit-heavy key would otherwise turn every downstream request into a database write. A missed or delayed timestamp update is never worth blocking, or even slowing down, the request that triggered it |
 | D122 | merchant-service's `ApiKeyService.revoke()` deletes the gateway's `apikey:v1:<sha256>` Redis entry directly (same Redis instance, shared key-namespace convention documented in both services) rather than merchant-service calling the gateway, or the gateway polling | Leave revocation to the cache's own TTL; or add a synchronous revoke-notification call from merchant-service to the gateway | M15's own risk table calls for "short TTL plus explicit Redis eviction on revoke" — a revoked key must stop authenticating immediately, not just after its TTL lapses (verified by the manual E2E's revoke-then-immediately-call check). Direct Redis deletion needs no new network call or service dependency between merchant-service and the gateway, since both already share the same Redis instance |
 | D123 | On the API-key path the gateway **removes the client's `Authorization` header** before proxying downstream; the signed internal-context headers become the request's sole downstream credential | Forward the API key downstream unchanged alongside the internal context | Found during post-M15 E2E validation: a downstream service's OAuth2 resource server parses *any* forwarded `Authorization: Bearer …` value as a JWT and rejects the request 401 ("Malformed token") before the internal context is consulted — the same "parses any Bearer unconditionally" behaviour D119 handled at the gateway, which also applies to whatever the gateway *forwards*. The API key must not leak past the edge anyway (defence in depth); stripping it is both the fix and the correct security posture |
+| D126 | audit-service records `mode` as a **nullable** column, verbatim from the envelope (null when absent), with **no backfill** and **no null→live coercion** — deliberately unlike the NOT-NULL + backfill-live pattern M16.2–16.4 use | Make `audit_log.mode` NOT NULL and backfill existing rows to `'live'`, matching every other M16 table for consistency | Audit is a faithful, schema-agnostic recorder (D44) consuming *two* streams through one method: `payment.events` (which carry a mode) and `merchant.events` (key/merchant lifecycle, mode-less). A mode-less event — e.g. a **test**-key `ApiKeyIssued` — coerced to `'live'` would be a factual lie in an immutable audit trail. Audit partitions nothing (it appends one row per event; it never resolves a per-mode row/account), so it has no reason to apply the null→live interpretation that is a *consumer's* choice for its *own* partitioning. Existing rows genuinely predate mode or came from a mode-less stream, so null ("declared no mode") is the truthful value. The check still rejects any non-test/live string; a CHECK passes on NULL, so null stays valid. The M19 Events API filters payment events by concrete test/live; mode-less events correctly don't match |
 | D125 | `EventEnvelope` gains `mode` as a **nullable, `NON_NULL`-omitted** field with a backward-compatible mode-less constructor + factory retained alongside the new mode-carrying ones; a `null` mode is read as `"live"` by every consumer; `schemaVersion` is **deferred to M21** | Add `mode` as a required (non-null) field and update every producer/consumer/test in one commit; also add `schemaVersion` now per §4.7 | M16.1 must be shippable as common-dto-only and leave the wire form byte-identical until a producer opts in — a required field would break every existing 4-arg `of(...)`/6-arg constructor caller (all in already-built consumer tests) and change the serialized JSON immediately, forcing a giant cross-service commit. Nullable+`NON_NULL` makes the producer (M16.2) and each consumer (M16.3–6) independently committable, with `null→live` matching the row-backfill semantics. `schemaVersion` is a genuine placeholder until M21's versioning gives it a consumer, so it is deferred rather than shipped unused |
 | D124 | Downstream, `InternalContextFilter` is registered **inside** each servlet service's Spring Security chain (`http.addFilterBefore(internalContextFilter, AuthorizationFilter.class)`), not as a standalone servlet filter ahead of the chain; `common-lib` provides it as a bean with automatic servlet registration disabled | Keep the original design: a globally auto-registered `FilterRegistrationBean` ordered ahead of `FilterChainProxy`, so no service's `SecurityConfig` need change | The original design (as `MerchantContextAuthenticationToken`'s own javadoc aspired to) was structurally impossible: a filter ahead of the chain sets an `Authentication` that `SecurityContextHolderFilter` replaces at the start of the chain, so the request reaches `AuthorizationFilter` unauthenticated. An authentication filter must run *within* the chain. Wired in payment-service (M15's only internal-context consumer); other servlet services wire it when they gain `/v1` routes. Guarded by a new `payment-service` regression test against the real chain — the original miss existed because the gateway integration test stubbed payment-service |
 
@@ -3130,6 +3131,34 @@ invariants, now in the live partition unchanged); full `./gradlew clean build` g
 
 **Remaining M16 work.** M16.5 audit → M16.6 notification → M16.7 consolidated docs + manual E2E.
 audit/notification remain mode-unaware until their own sub-milestone.
+
+#### M16.5 — Audit-service records the declared mode ✅ (2026-07-22)
+
+**Summary.** audit-service now records each event's `mode` on its immutable `audit_log` row, feeding
+the M19 Events API's mode filter. Unlike the ledger/analytics consumers, audit **records `mode`
+verbatim as a nullable column and never coerces null→live** (D126) — because it is a faithful,
+schema-agnostic recorder (D44) that consumes two streams through one method (`payment.events`, which
+carry a mode, and `merchant.events`, which are mode-less), and coercing a mode-less event to `'live'`
+in an immutable trail would be a factual lie. Audit partitions nothing, so it has no reason to apply
+the consumer-side null→live interpretation.
+
+**Files modified (production, 3).** `domain/AuditLogEntry.java` (+nullable `mode`, non-updatable;
+`of(…, mode, …)`; `getMode()`); `service/AuditService.java` (read `mode` from the envelope JSON like
+`correlationId` — the `NON_NULL`-omitted field is simply absent for mode-less events → null); **DB:**
+`audit/V2__mode_isolation.sql` — add **nullable** `mode` (+check allowing null/test/live); **no
+backfill, no NOT NULL** (deliberate, D126). Both listeners already funnel through `recordEvent`, so
+payment and merchant streams are both handled with no listener change. **Kafka/Redis/API:** unchanged.
+
+**Tests.** `AuditServiceTest` (mode-less envelope → null; new: an envelope declaring `"mode":"test"` →
+`"test"`). `AuditIntegrationTest` — mode-carrying publish helper + `theDeclaredModeIsRecordedVerbatim
+IncludingItsAbsence` (a test event → `"test"`, a live event → `"live"`, a mode-less event → null).
+
+**Verification.** `:audit-service` unit tests green (AuditService 5); integration tests green (4, incl.
+the mode-recording test + existing verbatim/redelivery/malformed invariants); full `./gradlew clean
+build` green; no F6 flake. **Decision:** D126.
+
+**Remaining M16 work.** M16.6 notification → M16.7 consolidated docs + full docker-compose E2E.
+notification-service remains mode-unaware until M16.6.
 
 ---
 
