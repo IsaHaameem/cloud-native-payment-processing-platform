@@ -32,6 +32,12 @@ public class EmailLogEntry {
     @Column(name = "merchant_id", updatable = false)
     private UUID merchantId;
 
+    // The test/live partition the source event declared (M16), recorded verbatim —
+    // nullable because identity-driven emails (verification/reset) have no mode at all,
+    // and audit-style recorders never coerce null->live (D126).
+    @Column(updatable = false, length = 4)
+    private String mode;
+
     @Column(name = "recipient_email", nullable = false, updatable = false)
     private String recipientEmail;
 
@@ -49,16 +55,19 @@ public class EmailLogEntry {
         // Required by JPA.
     }
 
-    private EmailLogEntry(UUID eventId, UUID merchantId, String recipientEmail, String subject, String body) {
+    private EmailLogEntry(UUID eventId, UUID merchantId, String mode, String recipientEmail, String subject,
+                          String body) {
         this.eventId = eventId;
         this.merchantId = merchantId;
+        this.mode = mode;
         this.recipientEmail = recipientEmail;
         this.subject = subject;
         this.body = body;
     }
 
-    public static EmailLogEntry of(UUID eventId, UUID merchantId, String recipientEmail, String subject, String body) {
-        return new EmailLogEntry(eventId, merchantId, recipientEmail, subject, body);
+    public static EmailLogEntry of(UUID eventId, UUID merchantId, String mode, String recipientEmail, String subject,
+                                   String body) {
+        return new EmailLogEntry(eventId, merchantId, mode, recipientEmail, subject, body);
     }
 
     public UUID getId() {
@@ -71,6 +80,10 @@ public class EmailLogEntry {
 
     public UUID getMerchantId() {
         return merchantId;
+    }
+
+    public String getMode() {
+        return mode;
     }
 
     public String getRecipientEmail() {

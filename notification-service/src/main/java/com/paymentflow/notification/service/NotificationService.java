@@ -50,15 +50,16 @@ public class NotificationService {
             }
 
             PaymentNotificationEventPayload payload = envelope.payload();
-            emailSender.send(new EmailMessage(envelope.eventId(), payload.merchantId(), payload.merchantContactEmail(),
-                    subjectFor(envelope.eventType()), bodyFor(envelope.eventType(), payload), envelope.eventType()));
+            emailSender.send(new EmailMessage(envelope.eventId(), payload.merchantId(), envelope.mode(),
+                    payload.merchantContactEmail(), subjectFor(envelope.eventType()),
+                    bodyFor(envelope.eventType(), payload), envelope.eventType()));
 
             WebhookDelivery delivery = null;
             String webhookUrl = payload.merchantWebhookUrl();
             if (webhookUrl != null && !webhookUrl.isBlank()) {
                 String deliveryPayload = objectMapper.writeValueAsString(envelope);
-                delivery = webhookDeliveryRepository.save(
-                        WebhookDelivery.pending(envelope.eventId(), payload.merchantId(), webhookUrl, deliveryPayload));
+                delivery = webhookDeliveryRepository.save(WebhookDelivery.pending(
+                        envelope.eventId(), payload.merchantId(), envelope.mode(), webhookUrl, deliveryPayload));
             }
 
             processedEventRepository.save(ProcessedEvent.of(envelope.eventId(), envelope.eventType()));

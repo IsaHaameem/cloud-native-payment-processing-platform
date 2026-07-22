@@ -215,12 +215,45 @@ class NotificationIntegrationTest {
 
     private void publish(UUID eventId, String eventType, UUID paymentId, String status, String previousStatus,
                          String webhookUrl) throws Exception {
+        publish(eventId, eventType, paymentId, status, previousStatus, webhookUrl, null);
+    }
+
+    private void publish(UUID eventId, String eventType, UUID paymentId, String status, String previousStatus,
+                         String webhookUrl, String mode) throws Exception {
         PaymentNotificationEventPayload payload = new PaymentNotificationEventPayload(
                 paymentId, UUID.randomUUID(), 5000, "USD", status, previousStatus, 5000,
                 "billing@acme.test", webhookUrl);
         EventEnvelope<PaymentNotificationEventPayload> envelope = new EventEnvelope<>(
-                eventId, eventType, paymentId.toString(), Instant.now(), "test-correlation", payload);
-        String json = objectMapper.writeValueAsString(envelope);
-        producer.send(new ProducerRecord<>(TOPIC, paymentId.toString(), json)).get(5, TimeUnit.SECONDS);
+                eventId, eventType, paymentId.toString(), Instant.now(), "test-correlation", mode, payload);
+        producer.send(new ProducerRecord<>(TOPIC, paymentId.toString(),
+                objectMapper.writeValueAsString(envelope))).get(5, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void thePaymentEventsModeIsRecordedOnBothTheEmailAndTheWebhookDelivery() throws Exception {
+        // A test-mode event: both the email row and the webhook delivery record "test".
+        UUID testEventId = UUID.randomUUID();
+        UUID testPaymentId = UUID.randomUUID();
+        publish(testEventId, "PaymentAuthorized", testPaymentId, "AUTHORIZED", "CREATED", webhookUrl(), "test");
+        await().atMost(Duration.ofSeconds(15)).until(() -> webhookDeliveryRepository.findByEventId(testEventId)
+                .map(d -> d.getStatus() == DeliveryStatus.DELIVERED).orElse(false));
+
+        assertThat(webhookDeliveryRepository.findByEventId(testEventId).orElseThrow().getMode()).isEqualTo("test");
+        assertThat(emailModeOf(testEventId)).isEqualTo("test");
+
+        // A live-mode event records "live".
+        UUID liveEventId = UUID.randomUUID();
+        UUID livePaymentId = UUID.randomUUID();
+        publish(liveEventId, "PaymentAuthorized", livePaymentId, "AUTHORIZED", "CREATED", webhookUrl(), "live");
+        await().atMost(Duration.ofSeconds(15)).until(() -> webhookDeliveryRepository.findByEventId(liveEventId)
+                .map(d -> d.getStatus() == DeliveryStatus.DELIVERED).orElse(false));
+
+        assertThat(webhookDeliveryRepository.findByEventId(liveEventId).orElseThrow().getMode()).isEqualTo("live");
+        assertThat(emailModeOf(liveEventId)).isEqualTo("live");
+    }
+
+    private String emailModeOf(UUID eventId) {
+        return emailLogEntryRepository.findAll().stream()
+                .filter(e -> e.getEventId().equals(eventId)).findFirst().orElseThrow().getMode();
     }
 }

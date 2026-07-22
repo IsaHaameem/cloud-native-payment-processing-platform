@@ -39,6 +39,14 @@ public class WebhookDelivery {
     @Column(name = "merchant_id", nullable = false, updatable = false)
     private UUID merchantId;
 
+    // The test/live partition the source event declared (M16), recorded verbatim.
+    // Nullable for consistency with email_log and legacy rows, though in practice always
+    // set: deliveries are created only from (mode-bearing) payment events. Audit-style
+    // recorder semantics — never coerced to live (D126). Mode-scoped webhook endpoints
+    // are M18's concern (§4.5), which rebuilds this subsystem.
+    @Column(updatable = false, length = 4)
+    private String mode;
+
     @Column(name = "webhook_url", nullable = false, updatable = false, length = 2048)
     private String webhookUrl;
 
@@ -71,17 +79,18 @@ public class WebhookDelivery {
         // Required by JPA.
     }
 
-    private WebhookDelivery(UUID eventId, UUID merchantId, String webhookUrl, String payload) {
+    private WebhookDelivery(UUID eventId, UUID merchantId, String mode, String webhookUrl, String payload) {
         this.eventId = eventId;
         this.merchantId = merchantId;
+        this.mode = mode;
         this.webhookUrl = webhookUrl;
         this.payload = payload;
         this.status = DeliveryStatus.PENDING;
         this.attemptCount = 0;
     }
 
-    public static WebhookDelivery pending(UUID eventId, UUID merchantId, String webhookUrl, String payload) {
-        return new WebhookDelivery(eventId, merchantId, webhookUrl, payload);
+    public static WebhookDelivery pending(UUID eventId, UUID merchantId, String mode, String webhookUrl, String payload) {
+        return new WebhookDelivery(eventId, merchantId, mode, webhookUrl, payload);
     }
 
     public void markDelivered() {
@@ -108,6 +117,10 @@ public class WebhookDelivery {
 
     public UUID getMerchantId() {
         return merchantId;
+    }
+
+    public String getMode() {
+        return mode;
     }
 
     public String getWebhookUrl() {

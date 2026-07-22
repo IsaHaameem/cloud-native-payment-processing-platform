@@ -66,7 +66,7 @@ class WebhookDeliveryServiceTest {
     }
 
     private WebhookDelivery pendingDelivery(String url) {
-        return WebhookDelivery.pending(UUID.randomUUID(), UUID.randomUUID(), url, "{\"a\":1}");
+        return WebhookDelivery.pending(UUID.randomUUID(), UUID.randomUUID(), "test", url, "{\"a\":1}");
     }
 
     @Test

@@ -24,8 +24,8 @@ public class SimulatedEmailSender implements EmailSender {
 
     @Override
     public void send(EmailMessage message) {
-        emailLogEntryRepository.save(EmailLogEntry.of(
-                message.eventId(), message.merchantId(), message.recipientEmail(), message.subject(), message.body()));
+        emailLogEntryRepository.save(EmailLogEntry.of(message.eventId(), message.merchantId(), message.mode(),
+                message.recipientEmail(), message.subject(), message.body()));
         meterRegistry.counter("email_logged_total", "eventType", message.eventType()).increment();
     }
 }

@@ -8,7 +8,7 @@
 > **Status:** M15 (API Key Authentication & Machine-to-Machine Access) — **complete**
 > (2026-07-21). Post-M15 repository stabilization phase (8 fixes, §17) — **complete**
 > (2026-07-22). **M16 (Test/Live Mode Isolation) — in progress**, decomposed into
-> sub-milestones M16.1–M16.7; **M16.1–M16.5 complete** (2026-07-22).
+> sub-milestones M16.1–M16.7; **M16.1–M16.6 complete** (2026-07-22).
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
 > **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D126**.
 
@@ -3159,6 +3159,50 @@ build` green; no F6 flake. **Decision:** D126.
 
 **Remaining M16 work.** M16.6 notification → M16.7 consolidated docs + full docker-compose E2E.
 notification-service remains mode-unaware until M16.6.
+
+#### M16.6 — Notification-service records the declared mode ✅ (2026-07-22)
+
+**Summary.** notification-service now records each event's `mode` on its per-event record rows —
+`email_log` and `webhook_deliveries`. Like audit (and unlike the ledger/analytics partitioners), it
+**follows D126's recorder semantics — nullable, verbatim, no coercion, no backfill** — because it
+consumes a **mode-less** stream too: `identity.events` (verification/password-reset emails have no
+mode). Coercing an identity email to `'live'` would be a lie. `email_log` carries both payment
+(mode-bearing) and identity (mode-less) emails, so its mode is `test`/`live` or `null`;
+`webhook_deliveries` is payment-only so its mode is set in practice, but stays nullable for
+consistency (and because M18 rebuilds the webhook subsystem, §4.5).
+
+**Why notification ≠ transaction/analytics (the design question):** transaction/analytics consume
+only `payment.events` (all mode-bearing) and **partition** their data by mode → NOT NULL + null→live
++ backfill. audit/notification consume **multiple streams incl. a mode-less one** and **record**
+per-event → nullable + verbatim. `mode` is a structural partition key for the former, a recorded
+attribute for the latter.
+
+**Files modified (production, 6).** `email/EmailMessage.java` (+`mode`); `service/NotificationService.java`
+(read `envelope.mode()`, pass to `EmailMessage` + `WebhookDelivery.pending`);
+`listener/IdentityEventListener.java` (pass `envelope.mode()` — null for identity);
+`email/SimulatedEmailSender.java` (thread `mode` into `EmailLogEntry.of`); `domain/EmailLogEntry.java`
++ `domain/WebhookDelivery.java` (+nullable `mode`; mode-carrying factory; `getMode()`). **DB:**
+`notification/V3__mode_isolation.sql` — `email_log` + `webhook_deliveries` each add a **nullable**
+`mode` (+check allowing null/test/live); **no backfill, no NOT NULL**. `mode` is set once at row
+creation; the retry path (`WebhookRetryListener`/`WebhookDeliveryService`) re-attempts existing rows
+and preserves the non-updatable `mode` untouched — no retry-path change. **Repositories/Kafka/Redis/
+API:** unchanged.
+
+**Tests.** `WebhookRetryListenerTest` (3×) + `WebhookDeliveryServiceTest` (1×): `pending(…, mode, …)`
+signature. `NotificationServiceTest`: new `thePaymentEventsModeIsStampedOnBothTheEmailAndTheWebhook
+Delivery` (mode-carrying envelope → `EmailMessage.mode()` and `WebhookDelivery.getMode()` are `"test"`).
+`NotificationIntegrationTest`: mode-carrying publish helper + `thePaymentEventsModeIsRecordedOnBoth
+TheEmailAndTheWebhookDelivery` (a test event → `"test"` on both `email_log` and `webhook_deliveries`;
+a live event → `"live"`).
+
+**Verification.** `:notification-service` unit tests green (NotificationService 6, WebhookDelivery 3,
+WebhookRetryListener 5); integration tests green (6, incl. the mode-recording test + existing
+delivery/retry/redelivery/malformed invariants); full `./gradlew clean build` green; no F6 flake.
+**Decision:** D126 (extended to notification).
+
+**Remaining M16 work.** M16.7 — consolidated docs + full docker-compose end-to-end validation and
+milestone closure. All five data-plane/consumer sub-milestones (M16.1–M16.6) are now complete; every
+service is mode-aware in the manner appropriate to its role.
 
 ---
 

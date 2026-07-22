@@ -45,7 +45,9 @@ public class IdentityEventListener {
         }
 
         IdentityNotificationEventPayload payload = envelope.payload();
-        emailSender.send(new EmailMessage(envelope.eventId(), null, payload.recipientEmail(),
+        // Identity events carry no mode (envelope.mode() is null) — recorded verbatim as
+        // null, never coerced to live (D126). No merchant context either.
+        emailSender.send(new EmailMessage(envelope.eventId(), null, envelope.mode(), payload.recipientEmail(),
                 subjectFor(envelope.eventType()), bodyFor(envelope.eventType(), payload), envelope.eventType()));
     }
 

@@ -63,7 +63,7 @@ class WebhookRetryListenerTest {
     @Test
     void alreadyResolvedDeliveryIsANoOp() {
         UUID eventId = UUID.randomUUID();
-        WebhookDelivery delivered = WebhookDelivery.pending(eventId, UUID.randomUUID(), "https://acme.test/hooks", "{}");
+        WebhookDelivery delivered = WebhookDelivery.pending(eventId, UUID.randomUUID(), "test", "https://acme.test/hooks", "{}");
         delivered.markDelivered();
         when(webhookDeliveryRepository.findByEventId(eventId)).thenReturn(Optional.of(delivered));
 
@@ -75,7 +75,7 @@ class WebhookRetryListenerTest {
     @Test
     void exhaustedAttemptsAreDeadLetteredInsteadOfRetried() {
         UUID eventId = UUID.randomUUID();
-        WebhookDelivery delivery = WebhookDelivery.pending(eventId, UUID.randomUUID(), "https://acme.test/hooks", "{}");
+        WebhookDelivery delivery = WebhookDelivery.pending(eventId, UUID.randomUUID(), "test", "https://acme.test/hooks", "{}");
         for (int i = 0; i < 5; i++) {
             delivery.recordFailedAttempt();
         }
@@ -91,7 +91,7 @@ class WebhookRetryListenerTest {
     @Test
     void anAttemptBelowTheLimitIsRetried() {
         UUID eventId = UUID.randomUUID();
-        WebhookDelivery delivery = WebhookDelivery.pending(eventId, UUID.randomUUID(), "https://acme.test/hooks", "{}");
+        WebhookDelivery delivery = WebhookDelivery.pending(eventId, UUID.randomUUID(), "test", "https://acme.test/hooks", "{}");
         when(webhookDeliveryRepository.findByEventId(eventId)).thenReturn(Optional.of(delivery));
 
         listener.onMessage(eventId.toString());

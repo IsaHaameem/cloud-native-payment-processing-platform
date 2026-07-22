@@ -60,10 +60,14 @@ class NotificationServiceTest {
     }
 
     private EventEnvelope<PaymentNotificationEventPayload> envelope(String webhookUrl) {
+        return envelope(webhookUrl, null);
+    }
+
+    private EventEnvelope<PaymentNotificationEventPayload> envelope(String webhookUrl, String mode) {
         PaymentNotificationEventPayload payload = new PaymentNotificationEventPayload(
                 paymentId, merchantId, 5000, "USD", "AUTHORIZED", "CREATED", 5000,
                 "billing@acme.test", webhookUrl);
-        return EventEnvelope.of("PaymentAuthorized", paymentId.toString(), "corr-1", payload);
+        return EventEnvelope.of("PaymentAuthorized", paymentId.toString(), "corr-1", mode, payload);
     }
 
     @Test
@@ -129,5 +133,21 @@ class NotificationServiceTest {
         assertThat(saved.getEventId()).isEqualTo(env.eventId());
         verify(webhookDeliveryService).attemptDelivery(saved);
         verify(processedEventRepository).save(any());
+    }
+
+    @Test
+    void thePaymentEventsModeIsStampedOnBothTheEmailAndTheWebhookDelivery() {
+        var env = envelope("https://acme.test/hooks", "test");
+        when(processedEventRepository.existsByEventId(env.eventId())).thenReturn(false);
+
+        notificationService.handleEvent(env);
+
+        ArgumentCaptor<EmailMessage> emailCaptor = ArgumentCaptor.forClass(EmailMessage.class);
+        verify(emailSender).send(emailCaptor.capture());
+        assertThat(emailCaptor.getValue().mode()).isEqualTo("test");
+
+        ArgumentCaptor<WebhookDelivery> deliveryCaptor = ArgumentCaptor.forClass(WebhookDelivery.class);
+        verify(webhookDeliveryRepository).save(deliveryCaptor.capture());
+        assertThat(deliveryCaptor.getValue().getMode()).isEqualTo("test");
     }
 }
