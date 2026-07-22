@@ -20,11 +20,16 @@ springCloud = "2025.1.0"
 # timeout around its one synchronous cross-service call to merchant-service).
 resilience4j = "2.3.0"
 
+# Awaitility — deterministic polling for async test assertions (Kafka-consumer-backed
+# integration tests), replacing hand-rolled awaitTrue()/Thread.sleep poll loops.
+awaitility = "4.3.0"
+
 [libraries]
 # Imported as platforms (BOMs) by platform-bom — these align all transitive versions.
 spring-boot-bom = { group = "org.springframework.boot", name = "spring-boot-dependencies", version.ref = "springBoot" }
 spring-cloud-bom = { group = "org.springframework.cloud", name = "spring-cloud-dependencies", version.ref = "springCloud" }
 resilience4j-bom = { group = "io.github.resilience4j", name = "resilience4j-bom", version.ref = "resilience4j" }
+awaitility = { group = "org.awaitility", name = "awaitility", version.ref = "awaitility" }
 
 [plugins]
 # Applied by service modules starting in later milestones (not in M0).

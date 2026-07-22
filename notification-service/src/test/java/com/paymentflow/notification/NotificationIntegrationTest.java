@@ -38,9 +38,9 @@ import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * Verifies the Kafka -> notification pipeline end-to-end against a real broker and
@@ -139,8 +139,8 @@ class NotificationIntegrationTest {
         UUID paymentId = UUID.randomUUID();
         publish(eventId, "PaymentCreated", paymentId, "CREATED", null, null);
 
-        awaitTrue(() -> emailLogEntryRepository.findAll().stream()
-                .anyMatch(e -> e.getEventId().equals(eventId)), Duration.ofSeconds(15));
+        await().atMost(Duration.ofSeconds(15)).until(() -> emailLogEntryRepository.findAll().stream()
+                .anyMatch(e -> e.getEventId().equals(eventId)));
 
         assertThat(webhookDeliveryRepository.findByEventId(eventId)).isEmpty();
     }
@@ -151,8 +151,8 @@ class NotificationIntegrationTest {
         UUID paymentId = UUID.randomUUID();
         publish(eventId, "PaymentAuthorized", paymentId, "AUTHORIZED", "CREATED", webhookUrl());
 
-        awaitTrue(() -> webhookDeliveryRepository.findByEventId(eventId)
-                .map(d -> d.getStatus() == DeliveryStatus.DELIVERED).orElse(false), Duration.ofSeconds(15));
+        await().atMost(Duration.ofSeconds(15)).until(() -> webhookDeliveryRepository.findByEventId(eventId)
+                .map(d -> d.getStatus() == DeliveryStatus.DELIVERED).orElse(false));
 
         assertThat(webhookCallCount.get()).isEqualTo(1);
         assertThat(emailLogEntryRepository.findAll()).anyMatch(e -> e.getEventId().equals(eventId));
@@ -164,8 +164,8 @@ class NotificationIntegrationTest {
         UUID paymentId = UUID.randomUUID();
         publish(eventId, "PaymentCaptured", paymentId, "CAPTURED", "AUTHORIZED", webhookUrl());
 
-        awaitTrue(() -> webhookDeliveryRepository.findByEventId(eventId)
-                .map(d -> d.getStatus() == DeliveryStatus.DELIVERED).orElse(false), Duration.ofSeconds(15));
+        await().atMost(Duration.ofSeconds(15)).until(() -> webhookDeliveryRepository.findByEventId(eventId)
+                .map(d -> d.getStatus() == DeliveryStatus.DELIVERED).orElse(false));
         int callsAfterFirst = webhookCallCount.get();
 
         publish(eventId, "PaymentCaptured", paymentId, "CAPTURED", "AUTHORIZED", webhookUrl());
@@ -184,13 +184,13 @@ class NotificationIntegrationTest {
         publish(eventId, "PaymentVoided", paymentId, "VOIDED", "AUTHORIZED", webhookUrl());
 
         // First (inline) attempt fails and lands on the retry topic.
-        awaitTrue(() -> webhookDeliveryRepository.findByEventId(eventId)
-                .map(d -> d.getAttemptCount() >= 1).orElse(false), Duration.ofSeconds(15));
+        await().atMost(Duration.ofSeconds(15)).until(() -> webhookDeliveryRepository.findByEventId(eventId)
+                .map(d -> d.getAttemptCount() >= 1).orElse(false));
 
         // Once the sink starts accepting requests, a subsequent retry succeeds.
         webhookResponseStatus = 200;
-        awaitTrue(() -> webhookDeliveryRepository.findByEventId(eventId)
-                .map(d -> d.getStatus() == DeliveryStatus.DELIVERED).orElse(false), Duration.ofSeconds(30));
+        await().atMost(Duration.ofSeconds(30)).until(() -> webhookDeliveryRepository.findByEventId(eventId)
+                .map(d -> d.getStatus() == DeliveryStatus.DELIVERED).orElse(false));
     }
 
     @Test
@@ -201,8 +201,8 @@ class NotificationIntegrationTest {
         UUID paymentId = UUID.randomUUID();
         publish(eventId, "PaymentRefunded", paymentId, "REFUNDED", "CAPTURED", null);
 
-        awaitTrue(() -> emailLogEntryRepository.findAll().stream()
-                .anyMatch(e -> e.getEventId().equals(eventId)), Duration.ofSeconds(15));
+        await().atMost(Duration.ofSeconds(15)).until(() -> emailLogEntryRepository.findAll().stream()
+                .anyMatch(e -> e.getEventId().equals(eventId)));
     }
 
     private void publish(UUID eventId, String eventType, UUID paymentId, String status, String previousStatus,
@@ -214,21 +214,5 @@ class NotificationIntegrationTest {
                 eventId, eventType, paymentId.toString(), Instant.now(), "test-correlation", payload);
         String json = objectMapper.writeValueAsString(envelope);
         producer.send(new ProducerRecord<>(TOPIC, paymentId.toString(), json)).get(5, TimeUnit.SECONDS);
-    }
-
-    private static void awaitTrue(BooleanSupplier condition, Duration timeout) {
-        long deadline = System.currentTimeMillis() + timeout.toMillis();
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return;
-            }
-            try {
-                Thread.sleep(200);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new AssertionError("Interrupted while waiting for condition", e);
-            }
-        }
-        throw new AssertionError("Condition not met within " + timeout);
     }
 }

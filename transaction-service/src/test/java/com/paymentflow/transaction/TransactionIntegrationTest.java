@@ -40,9 +40,9 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * Verifies the Kafka → ledger pipeline end-to-end against a real broker and Postgres:
@@ -129,7 +129,7 @@ class TransactionIntegrationTest {
         publish(UUID.randomUUID(), "PaymentPartiallyRefunded", paymentId, merchantId, "PARTIALLY_REFUNDED", "CAPTURED", 4_000);
         publish(UUID.randomUUID(), "PaymentRefunded", paymentId, merchantId, "REFUNDED", "PARTIALLY_REFUNDED", 6_000);
 
-        awaitTrue(() -> ledgerEntryCountFor(paymentId) == 8, Duration.ofSeconds(15)); // 4 events x 2 legs
+        await().atMost(Duration.ofSeconds(15)).until(() -> ledgerEntryCountFor(paymentId) == 8); // 4 events x 2 legs
 
         assertThat(clearingBalance("USD")).isZero();
         assertThat(merchantBalance(AccountType.MERCHANT_PENDING, merchantId, "USD")).isZero();
@@ -143,7 +143,7 @@ class TransactionIntegrationTest {
         UUID eventId = UUID.randomUUID();
 
         publish(eventId, "PaymentAuthorized", paymentId, merchantId, "AUTHORIZED", "CREATED", 5_000);
-        awaitTrue(() -> ledgerEntryCountFor(paymentId) == 2, Duration.ofSeconds(15));
+        await().atMost(Duration.ofSeconds(15)).until(() -> ledgerEntryCountFor(paymentId) == 2);
 
         publish(eventId, "PaymentAuthorized", paymentId, merchantId, "AUTHORIZED", "CREATED", 5_000);
         // Give the redelivery a moment to reach the consumer; it must not add more entries.
@@ -159,10 +159,10 @@ class TransactionIntegrationTest {
         UUID merchantId = UUID.randomUUID();
 
         publish(UUID.randomUUID(), "PaymentAuthorized", paymentId, merchantId, "AUTHORIZED", "CREATED", 7_500);
-        awaitTrue(() -> ledgerEntryCountFor(paymentId) == 2, Duration.ofSeconds(15));
+        await().atMost(Duration.ofSeconds(15)).until(() -> ledgerEntryCountFor(paymentId) == 2);
 
         publish(UUID.randomUUID(), "PaymentVoided", paymentId, merchantId, "VOIDED", "AUTHORIZED", 7_500);
-        awaitTrue(() -> ledgerEntryCountFor(paymentId) == 4, Duration.ofSeconds(15));
+        await().atMost(Duration.ofSeconds(15)).until(() -> ledgerEntryCountFor(paymentId) == 4);
 
         assertThat(clearingBalance("USD")).isZero();
         assertThat(merchantBalance(AccountType.MERCHANT_PENDING, merchantId, "USD")).isZero();
@@ -237,21 +237,5 @@ class TransactionIntegrationTest {
         String json = objectMapper.writeValueAsString(
                 envelope(eventId, eventType, paymentId, merchantId, status, previousStatus, eventAmountMinor));
         producer.send(new ProducerRecord<>(TOPIC, paymentId.toString(), json)).get(5, TimeUnit.SECONDS);
-    }
-
-    private static void awaitTrue(BooleanSupplier condition, Duration timeout) {
-        long deadline = System.currentTimeMillis() + timeout.toMillis();
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return;
-            }
-            try {
-                Thread.sleep(200);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new AssertionError("Interrupted while waiting for condition", e);
-            }
-        }
-        throw new AssertionError("Condition not met within " + timeout);
     }
 }

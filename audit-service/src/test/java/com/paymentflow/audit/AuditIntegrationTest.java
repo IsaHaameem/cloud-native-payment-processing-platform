@@ -31,9 +31,9 @@ import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * Verifies the Kafka → audit-log pipeline end-to-end against a real broker and
@@ -98,7 +98,7 @@ class AuditIntegrationTest {
         UUID paymentId = UUID.randomUUID();
         publish(eventId, "PaymentAuthorized", paymentId, new TestPayload(paymentId, "AUTHORIZED"));
 
-        awaitTrue(() -> auditLogEntryRepository.existsByEventId(eventId), Duration.ofSeconds(15));
+        await().atMost(Duration.ofSeconds(15)).until(() -> auditLogEntryRepository.existsByEventId(eventId));
 
         var entry = auditLogEntryRepository.findAll().stream()
                 .filter(e -> e.getEventId().equals(eventId)).findFirst().orElseThrow();
@@ -113,7 +113,7 @@ class AuditIntegrationTest {
         UUID eventId = UUID.randomUUID();
         UUID paymentId = UUID.randomUUID();
         publish(eventId, "PaymentCaptured", paymentId, new TestPayload(paymentId, "CAPTURED"));
-        awaitTrue(() -> auditLogEntryRepository.existsByEventId(eventId), Duration.ofSeconds(15));
+        await().atMost(Duration.ofSeconds(15)).until(() -> auditLogEntryRepository.existsByEventId(eventId));
 
         publish(eventId, "PaymentCaptured", paymentId, new TestPayload(paymentId, "CAPTURED"));
         Thread.sleep(2000);
@@ -133,7 +133,7 @@ class AuditIntegrationTest {
         UUID paymentId = UUID.randomUUID();
         publish(eventId, "PaymentVoided", paymentId, new TestPayload(paymentId, "VOIDED"));
 
-        awaitTrue(() -> auditLogEntryRepository.existsByEventId(eventId), Duration.ofSeconds(15));
+        await().atMost(Duration.ofSeconds(15)).until(() -> auditLogEntryRepository.existsByEventId(eventId));
     }
 
     private void publish(UUID eventId, String eventType, UUID paymentId, TestPayload payload) throws Exception {
@@ -141,21 +141,5 @@ class AuditIntegrationTest {
                 eventId, eventType, paymentId.toString(), Instant.now(), "test-correlation", payload);
         String json = objectMapper.writeValueAsString(envelope);
         producer.send(new ProducerRecord<>(TOPIC, paymentId.toString(), json)).get(5, TimeUnit.SECONDS);
-    }
-
-    private static void awaitTrue(BooleanSupplier condition, Duration timeout) {
-        long deadline = System.currentTimeMillis() + timeout.toMillis();
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return;
-            }
-            try {
-                Thread.sleep(200);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new AssertionError("Interrupted while waiting for condition", e);
-            }
-        }
-        throw new AssertionError("Condition not met within " + timeout);
     }
 }
