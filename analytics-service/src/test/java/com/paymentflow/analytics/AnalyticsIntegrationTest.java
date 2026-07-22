@@ -135,7 +135,14 @@ class AnalyticsIntegrationTest {
                 .until(() -> statsFor(merchantId, "USD").map(s -> s.getCreatedCount() == 1).orElse(false));
 
         publish(eventId, "PaymentCreated", paymentId, merchantId, "CREATED", null, 5_000, "USD");
-        Thread.sleep(2000);
+
+        // Both publishes share paymentId as the Kafka message key, so the consumer
+        // evaluates them strictly in send order (same partition). Awaiting this
+        // follow-up transition's own effect on the aggregate is therefore proof the
+        // duplicate above was already handled — deterministic, unlike a blind sleep.
+        publish(UUID.randomUUID(), "PaymentAuthorized", paymentId, merchantId, "AUTHORIZED", "CREATED", 5_000, "USD");
+        await().atMost(Duration.ofSeconds(15))
+                .until(() -> statsFor(merchantId, "USD").map(s -> s.getAuthorizedCount() == 1).orElse(false));
 
         assertThat(statsFor(merchantId, "USD").orElseThrow().getCreatedCount()).isEqualTo(1);
         assertThat(processedEventRepository.existsByEventId(eventId)).isTrue();

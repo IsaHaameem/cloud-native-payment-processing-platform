@@ -169,9 +169,17 @@ class NotificationIntegrationTest {
         int callsAfterFirst = webhookCallCount.get();
 
         publish(eventId, "PaymentCaptured", paymentId, "CAPTURED", "AUTHORIZED", webhookUrl());
-        Thread.sleep(2000);
 
-        assertThat(webhookCallCount.get()).isEqualTo(callsAfterFirst);
+        // Both publishes share paymentId as the Kafka message key, so the consumer
+        // evaluates them strictly in send order (same partition). Awaiting this
+        // follow-up event's own delivery is therefore proof the duplicate above was
+        // already handled — deterministic, unlike a blind sleep-and-hope.
+        UUID followUpEventId = UUID.randomUUID();
+        publish(followUpEventId, "PaymentRefunded", paymentId, "REFUNDED", "CAPTURED", webhookUrl());
+        await().atMost(Duration.ofSeconds(15)).until(() -> webhookDeliveryRepository.findByEventId(followUpEventId)
+                .map(d -> d.getStatus() == DeliveryStatus.DELIVERED).orElse(false));
+
+        assertThat(webhookCallCount.get()).isEqualTo(callsAfterFirst + 1); // +1 for the follow-up only
         assertThat(emailLogEntryRepository.findAll().stream().filter(e -> e.getEventId().equals(eventId)).count())
                 .isEqualTo(1);
     }

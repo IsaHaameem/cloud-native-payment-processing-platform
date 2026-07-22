@@ -116,7 +116,14 @@ class AuditIntegrationTest {
         await().atMost(Duration.ofSeconds(15)).until(() -> auditLogEntryRepository.existsByEventId(eventId));
 
         publish(eventId, "PaymentCaptured", paymentId, new TestPayload(paymentId, "CAPTURED"));
-        Thread.sleep(2000);
+
+        // Both publishes share paymentId as the Kafka message key, so the consumer
+        // evaluates them strictly in send order (same partition). Awaiting this
+        // follow-up event's own row is therefore proof the duplicate above was already
+        // handled — deterministic, unlike a blind sleep-and-hope.
+        UUID followUpEventId = UUID.randomUUID();
+        publish(followUpEventId, "PaymentRefunded", paymentId, new TestPayload(paymentId, "REFUNDED"));
+        await().atMost(Duration.ofSeconds(15)).until(() -> auditLogEntryRepository.existsByEventId(followUpEventId));
 
         long count = auditLogEntryRepository.findAll().stream()
                 .filter(e -> e.getEventId().equals(eventId)).count();

@@ -146,10 +146,15 @@ class TransactionIntegrationTest {
         await().atMost(Duration.ofSeconds(15)).until(() -> ledgerEntryCountFor(paymentId) == 2);
 
         publish(eventId, "PaymentAuthorized", paymentId, merchantId, "AUTHORIZED", "CREATED", 5_000);
-        // Give the redelivery a moment to reach the consumer; it must not add more entries.
-        Thread.sleep(2000);
 
-        assertThat(ledgerEntryCountFor(paymentId)).isEqualTo(2);
+        // Both publishes share paymentId as the Kafka message key, so the consumer
+        // evaluates them strictly in send order (same partition). Awaiting this
+        // follow-up transition's own entries is therefore proof the duplicate above was
+        // already handled — deterministic, unlike a blind sleep-and-hope.
+        publish(UUID.randomUUID(), "PaymentCaptured", paymentId, merchantId, "CAPTURED", "AUTHORIZED", 5_000);
+        await().atMost(Duration.ofSeconds(15)).until(() -> ledgerEntryCountFor(paymentId) == 4);
+
+        assertThat(ledgerEntryCountFor(paymentId)).isEqualTo(4); // 2 (authorized) + 2 (captured); the duplicate added none
         assertThat(processedEventRepository.existsByEventId(eventId)).isTrue();
     }
 
