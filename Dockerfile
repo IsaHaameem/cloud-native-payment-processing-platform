@@ -73,8 +73,15 @@ COPY ${SERVICE_MODULE}/src ${SERVICE_MODULE}/src
 # the root cause of the repeated build failures during M15 E2E validation. Default
 # sharing=shared is safe: Gradle coordinates concurrent access with its own
 # cross-process cache locks. Requires BuildKit (Buildx in CI, Compose v2 locally).
+# auto-download=false is scoped to this one invocation only (not gradle.properties,
+# which stays Foojay-enabled for local dev/CI): this builder stage's own JDK already
+# is the exact toolchain version required (ARG JAVA_VERSION, matching the hardcoded
+# toolchain in paymentflow.java-conventions.gradle.kts), so Foojay is never actually
+# needed here — disabling it turns "shouldn't reach the network" into "structurally
+# can't," the same determinism goal as the cache mount above.
 RUN --mount=type=cache,target=/root/.gradle \
     ./gradlew ":${SERVICE_MODULE}:bootJar" --no-daemon -x test \
+    -Porg.gradle.java.installations.auto-download=false \
     && mkdir -p /workspace/staging \
     && cp $(find "${SERVICE_MODULE}/build/libs" -maxdepth 1 -name '*.jar' ! -name '*-plain.jar') \
         /workspace/staging/app.jar \
