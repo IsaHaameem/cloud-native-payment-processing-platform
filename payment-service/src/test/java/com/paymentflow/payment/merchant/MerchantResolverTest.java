@@ -278,7 +278,10 @@ class MerchantResolverTest {
     void timeLimiterFailsFastWhenTheDownstreamIsSlow() {
         MerchantClient client = mock(MerchantClient.class);
         when(client.getMine()).thenAnswer(inv -> {
-            Thread.sleep(2000);
+            // Far longer than the 300ms TimeLimiter budget, so "returned before the
+            // downstream would have" is unambiguous with a wide margin — the assertion
+            // below can't be flaked by scheduling jitter the way a near-budget sleep could.
+            Thread.sleep(5000);
             return summary();
         });
         MerchantResolver resolver = resolver(client, defaultCbConfig(), defaultRetryConfig(1), defaultBulkheadConfig(),
@@ -288,6 +291,8 @@ class MerchantResolverTest {
         assertThatThrownBy(resolver::resolveCallerMerchant).isInstanceOf(MerchantServiceUnavailableException.class);
         long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
 
+        // Fails fast at ~300ms (single attempt); asserting < 1500ms is ~5x headroom over
+        // the budget yet a full 3.5s below the 5s mock, so only a broken TimeLimiter fails.
         assertThat(elapsedMs).isLessThan(1500);
     }
 

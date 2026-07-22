@@ -41,6 +41,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -97,6 +98,11 @@ class MerchantResilienceIntegrationTest {
     private static final AtomicInteger callCount = new AtomicInteger();
     private static final AtomicInteger flakyRemainingFailures = new AtomicInteger();
     private static volatile String lastAuthorizationHeaderSeen;
+    // "SLOW" mode blocks the stub on this gate rather than sleeping a fixed duration:
+    // the downstream is then effectively unbounded-slow (so a fail-fast assertion has a
+    // huge margin and can't flake on a loaded machine), and a test drains any in-flight
+    // call deterministically by counting the gate down — no blind Thread.sleep guesswork.
+    private static volatile CountDownLatch slowGate;
 
     @Autowired
     private MockMvc mockMvc;
@@ -139,7 +145,7 @@ class MerchantResilienceIntegrationTest {
                         exchange.close();
                         return;
                     }
-                    case "SLOW" -> Thread.sleep(2000);
+                    case "SLOW" -> slowGate.await(10, TimeUnit.SECONDS);
                     case "FLAKY" -> {
                         if (flakyRemainingFailures.getAndUpdate(n -> Math.max(0, n - 1)) > 0) {
                             exchange.close();
@@ -181,6 +187,7 @@ class MerchantResilienceIntegrationTest {
         mode.set("NORMAL");
         callCount.set(0);
         flakyRemainingFailures.set(0);
+        slowGate = new CountDownLatch(1);
         // The CircuitBreaker instance is a singleton shared across every test method in
         // this class (same Spring context) — without resetting it, one test's OPEN
         // circuit leaks into the next test's assertions.
@@ -279,18 +286,22 @@ class MerchantResilienceIntegrationTest {
         long elapsedMs = java.time.Duration.ofNanos(System.nanoTime() - start).toMillis();
 
         assertThat(status).isEqualTo(503);
-        // The stub sleeps 2000ms; the TimeLimiter budget is 500ms. A generous margin
-        // (retries add a little more) still proves it did not wait out the full sleep.
-        assertThat(elapsedMs).isLessThan(1800);
+        // The stub blocks on slowGate (up to a 10s safety ceiling); the TimeLimiter budget
+        // is 500ms and Retry adds at most 3 attempts (~1.5s total). Asserting comfortably
+        // under the 10s ceiling proves the request failed fast rather than waiting the
+        // downstream out — with a margin wide enough that a GC pause or a loaded CI box
+        // can't push it over (the old `< 1800ms` sat only ~260ms above the real ~1540ms
+        // retry budget, which is exactly what made it flake).
+        assertThat(elapsedMs).isLessThan(5000);
 
         // Cancelling a CompletableFuture (what TimeLimiter does on timeout) does not
-        // interrupt the in-flight blocking Feign call — a real characteristic found
-        // during this milestone (see the M8 changelog), not a test artifact. The stub
-        // call keeps running in the background and would otherwise still be occupying
-        // this test class's single-slot bulkhead thread when the next test starts,
-        // making that test see a false BulkheadFullException instead of its own
-        // intended scenario. Draining it here keeps tests independent of each other.
-        Thread.sleep(2200);
+        // interrupt the in-flight blocking Feign call — a real characteristic found during
+        // this milestone (see the M8 changelog), not a test artifact. Those background stub
+        // calls would otherwise keep occupying this class's single-slot bulkhead thread into
+        // the next test, making it see a false BulkheadFullException. Releasing the gate
+        // lets them all return immediately — a deterministic drain, not a blind timed guess
+        // at how much of a fixed sleep is still left to run.
+        slowGate.countDown();
     }
 
     @Test
@@ -365,6 +376,10 @@ class MerchantResilienceIntegrationTest {
             // launched together against a slow stub, at least one must be bulkhead-rejected.
             assertThat(statuses).contains(503);
         } finally {
+            // Release any stub call still blocked on the gate so it doesn't hold the sole
+            // bulkhead thread into the next test — deterministic, same reasoning as the
+            // fail-fast test above.
+            slowGate.countDown();
             callers.shutdownNow();
         }
     }
