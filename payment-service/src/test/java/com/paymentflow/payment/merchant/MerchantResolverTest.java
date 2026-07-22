@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -234,8 +235,11 @@ class MerchantResolverTest {
         CircuitBreaker circuitBreaker = cbRegistry.circuitBreaker("merchantService");
         assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
 
-        // waitDurationInOpenState is 200ms; give it a comfortable margin.
-        Thread.sleep(300);
+        // automaticTransitionFromOpenToHalfOpenEnabled flips the state on Resilience4j's
+        // own internal scheduler once waitDurationInOpenState (200ms) elapses — that
+        // scheduler firing isn't guaranteed at exactly 200ms, so poll the real state
+        // instead of sleeping past a guessed margin.
+        await().atMost(Duration.ofSeconds(2)).until(() -> circuitBreaker.getState() == CircuitBreaker.State.HALF_OPEN);
 
         // permittedNumberOfCallsInHalfOpenState=2: two successful trial calls close it.
         assertThat(resolver.resolveCallerMerchant()).isEqualTo(summary);

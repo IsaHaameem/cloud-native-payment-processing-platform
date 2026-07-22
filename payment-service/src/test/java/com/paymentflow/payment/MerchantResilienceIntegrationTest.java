@@ -50,6 +50,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -341,9 +342,13 @@ class MerchantResilienceIntegrationTest {
         // Fails fast: the circuit itself rejected the call, the stub was never hit again.
         assertThat(callCount.get()).isEqualTo(callsBeforeFailFastAttempt);
 
-        // waitDurationInOpenState is 1s in this test's config.
-        Thread.sleep(1200);
+        // automaticTransitionFromOpenToHalfOpenEnabled flips the state on Resilience4j's
+        // own internal scheduler once waitDurationInOpenState (1s in this test's config)
+        // elapses — that scheduler firing isn't guaranteed at exactly 1s, so poll the
+        // real state instead of sleeping past a guessed margin.
         mode.set("NORMAL");
+        await().atMost(java.time.Duration.ofSeconds(5))
+                .until(() -> circuitBreaker.getState() == CircuitBreaker.State.HALF_OPEN);
 
         // permittedNumberOfCallsInHalfOpenState=2: two successful trial calls close it.
         String recover1 = signedJwt(UUID.randomUUID().toString());
