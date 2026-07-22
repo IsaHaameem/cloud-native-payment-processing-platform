@@ -59,6 +59,10 @@ public class LedgerService {
     // immediately colliding again.
     private static final int MAX_ATTEMPTS = 10;
     private static final long BACKOFF_BASE_MILLIS = 20;
+    // A null envelope mode (an in-flight pre-M16 message, or any not-yet-migrated producer)
+    // is read as live — the same backfill semantics every merchant-scoped table applies to
+    // its pre-M16 rows (M16.1's EventEnvelope contract).
+    private static final String DEFAULT_MODE = "live";
 
     private final ProcessedEventRepository processedEventRepository;
     private final AccountRepository accountRepository;
@@ -112,51 +116,55 @@ public class LedgerService {
         }
 
         PaymentLedgerEventPayload payload = envelope.payload();
+        String mode = envelope.mode() == null ? DEFAULT_MODE : envelope.mode();
         switch (payload.status()) {
-            case "AUTHORIZED" -> postAuthorized(envelope, payload);
-            case "CAPTURED" -> postCaptured(envelope, payload);
-            case "REFUNDED", "PARTIALLY_REFUNDED" -> postRefund(envelope, payload);
-            case "VOIDED", "FAILED" -> postReversalIfPreviouslyAuthorized(envelope, payload);
+            case "AUTHORIZED" -> postAuthorized(envelope, payload, mode);
+            case "CAPTURED" -> postCaptured(envelope, payload, mode);
+            case "REFUNDED", "PARTIALLY_REFUNDED" -> postRefund(envelope, payload, mode);
+            case "VOIDED", "FAILED" -> postReversalIfPreviouslyAuthorized(envelope, payload, mode);
             default -> log.debug("No ledger impact for status {} (event {})", payload.status(), envelope.eventId());
         }
 
         processedEventRepository.save(ProcessedEvent.of(envelope.eventId(), envelope.eventType()));
     }
 
-    private void postAuthorized(EventEnvelope<PaymentLedgerEventPayload> envelope, PaymentLedgerEventPayload payload) {
-        Account clearing = getOrCreateAccount(AccountType.PLATFORM_CLEARING, null, payload.currency());
-        Account pending = getOrCreateAccount(AccountType.MERCHANT_PENDING, payload.merchantId(), payload.currency());
-        post(envelope, payload, "Payment authorized — pending obligation recognized", clearing, pending);
+    private void postAuthorized(EventEnvelope<PaymentLedgerEventPayload> envelope, PaymentLedgerEventPayload payload,
+                                String mode) {
+        Account clearing = getOrCreateAccount(AccountType.PLATFORM_CLEARING, null, payload.currency(), mode);
+        Account pending = getOrCreateAccount(AccountType.MERCHANT_PENDING, payload.merchantId(), payload.currency(), mode);
+        post(envelope, payload, mode, "Payment authorized — pending obligation recognized", clearing, pending);
     }
 
-    private void postCaptured(EventEnvelope<PaymentLedgerEventPayload> envelope, PaymentLedgerEventPayload payload) {
-        Account pending = getOrCreateAccount(AccountType.MERCHANT_PENDING, payload.merchantId(), payload.currency());
-        Account settled = getOrCreateAccount(AccountType.MERCHANT_SETTLED, payload.merchantId(), payload.currency());
-        post(envelope, payload, "Payment captured — pending obligation settled", pending, settled);
+    private void postCaptured(EventEnvelope<PaymentLedgerEventPayload> envelope, PaymentLedgerEventPayload payload,
+                              String mode) {
+        Account pending = getOrCreateAccount(AccountType.MERCHANT_PENDING, payload.merchantId(), payload.currency(), mode);
+        Account settled = getOrCreateAccount(AccountType.MERCHANT_SETTLED, payload.merchantId(), payload.currency(), mode);
+        post(envelope, payload, mode, "Payment captured — pending obligation settled", pending, settled);
     }
 
-    private void postRefund(EventEnvelope<PaymentLedgerEventPayload> envelope, PaymentLedgerEventPayload payload) {
-        Account settled = getOrCreateAccount(AccountType.MERCHANT_SETTLED, payload.merchantId(), payload.currency());
-        Account clearing = getOrCreateAccount(AccountType.PLATFORM_CLEARING, null, payload.currency());
-        post(envelope, payload, "Payment refund", settled, clearing);
+    private void postRefund(EventEnvelope<PaymentLedgerEventPayload> envelope, PaymentLedgerEventPayload payload,
+                            String mode) {
+        Account settled = getOrCreateAccount(AccountType.MERCHANT_SETTLED, payload.merchantId(), payload.currency(), mode);
+        Account clearing = getOrCreateAccount(AccountType.PLATFORM_CLEARING, null, payload.currency(), mode);
+        post(envelope, payload, mode, "Payment refund", settled, clearing);
     }
 
     private void postReversalIfPreviouslyAuthorized(EventEnvelope<PaymentLedgerEventPayload> envelope,
-                                                     PaymentLedgerEventPayload payload) {
+                                                     PaymentLedgerEventPayload payload, String mode) {
         if (!"AUTHORIZED".equals(payload.previousStatus())) {
             log.debug("Payment {} moved to {} from {} — nothing was posted yet, nothing to reverse",
                     payload.paymentId(), payload.status(), payload.previousStatus());
             return;
         }
-        Account pending = getOrCreateAccount(AccountType.MERCHANT_PENDING, payload.merchantId(), payload.currency());
-        Account clearing = getOrCreateAccount(AccountType.PLATFORM_CLEARING, null, payload.currency());
-        post(envelope, payload, "Payment " + payload.status().toLowerCase() + " after authorization — reversal",
+        Account pending = getOrCreateAccount(AccountType.MERCHANT_PENDING, payload.merchantId(), payload.currency(), mode);
+        Account clearing = getOrCreateAccount(AccountType.PLATFORM_CLEARING, null, payload.currency(), mode);
+        post(envelope, payload, mode, "Payment " + payload.status().toLowerCase() + " after authorization — reversal",
                 pending, clearing);
     }
 
     /** Writes one balanced journal entry (debit == credit) and updates both accounts' running balances. */
     private void post(EventEnvelope<PaymentLedgerEventPayload> envelope, PaymentLedgerEventPayload payload,
-                      String description, Account debitAccount, Account creditAccount) {
+                      String mode, String description, Account debitAccount, Account creditAccount) {
         long amountMinor = payload.eventAmountMinor();
 
         // Accounts must be saved (assigning an id to a brand-new one — GenerationType.UUID
@@ -169,11 +177,11 @@ public class LedgerService {
         accountRepository.save(creditAccount);
 
         LedgerTransaction transaction = ledgerTransactionRepository.save(
-                LedgerTransaction.of(payload.paymentId(), envelope.eventId(), envelope.eventType(), description));
+                LedgerTransaction.of(payload.paymentId(), envelope.eventId(), envelope.eventType(), mode, description));
         ledgerEntryRepository.save(LedgerEntry.of(
-                transaction.getId(), debitAccount.getId(), Direction.DEBIT, amountMinor, payload.currency()));
+                transaction.getId(), debitAccount.getId(), Direction.DEBIT, amountMinor, payload.currency(), mode));
         ledgerEntryRepository.save(LedgerEntry.of(
-                transaction.getId(), creditAccount.getId(), Direction.CREDIT, amountMinor, payload.currency()));
+                transaction.getId(), creditAccount.getId(), Direction.CREDIT, amountMinor, payload.currency(), mode));
 
         // Business metric (M13): one balanced posting per lifecycle event, by event type
         // and currency — the ledger-activity counterpart to payment-service's
@@ -189,8 +197,8 @@ public class LedgerService {
      * handles the actual insert either way. Saving here too would just be a redundant
      * extra round trip for a brand-new account.
      */
-    private Account getOrCreateAccount(AccountType type, UUID ownerId, String currency) {
-        return accountRepository.findByAccountTypeAndOwnerIdAndCurrency(type, ownerId, currency)
-                .orElseGet(() -> Account.open(type, ownerId, currency));
+    private Account getOrCreateAccount(AccountType type, UUID ownerId, String currency, String mode) {
+        return accountRepository.findByAccountTypeAndOwnerIdAndCurrencyAndMode(type, ownerId, currency, mode)
+                .orElseGet(() -> Account.open(type, ownerId, currency, mode));
     }
 }

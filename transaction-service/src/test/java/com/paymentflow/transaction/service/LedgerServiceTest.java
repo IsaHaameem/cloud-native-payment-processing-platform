@@ -68,7 +68,7 @@ class LedgerServiceTest {
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
 
-        lenient().when(accountRepository.findByAccountTypeAndOwnerIdAndCurrency(any(), any(), any()))
+        lenient().when(accountRepository.findByAccountTypeAndOwnerIdAndCurrencyAndMode(any(), any(), any(), any()))
                 .thenReturn(Optional.empty());
         lenient().when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(ledgerTransactionRepository.save(any(LedgerTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -109,12 +109,16 @@ class LedgerServiceTest {
         assertThat(entries).extracting(LedgerEntry::getDirection)
                 .containsExactlyInAnyOrder(Direction.DEBIT, Direction.CREDIT);
         assertThat(entries).allMatch(e -> e.getAmountMinor() == 10_000);
+        // The envelope carries no mode (built via the mode-less of(...)), so it resolves to
+        // "live" — the null->live backfill contract, applied to accounts and entries alike.
+        assertThat(entries).allMatch(e -> e.getMode().equals("live"));
 
         ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
         verify(accountRepository, times(2)).save(accountCaptor.capture());
         assertThat(accountCaptor.getAllValues())
                 .extracting(Account::getAccountType)
                 .containsExactlyInAnyOrder(AccountType.PLATFORM_CLEARING, AccountType.MERCHANT_PENDING);
+        assertThat(accountCaptor.getAllValues()).allMatch(a -> a.getMode().equals("live"));
     }
 
     @Test

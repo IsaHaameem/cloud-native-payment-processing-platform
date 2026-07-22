@@ -10,7 +10,7 @@ class AccountTest {
 
     @Test
     void debitIncreasesADebitNormalAccountsBalance() {
-        Account clearing = Account.open(AccountType.PLATFORM_CLEARING, null, "USD");
+        Account clearing = Account.open(AccountType.PLATFORM_CLEARING, null, "USD", "test");
 
         clearing.apply(Direction.DEBIT, 1000);
 
@@ -19,7 +19,7 @@ class AccountTest {
 
     @Test
     void creditDecreasesADebitNormalAccountsBalance() {
-        Account clearing = Account.open(AccountType.PLATFORM_CLEARING, null, "USD");
+        Account clearing = Account.open(AccountType.PLATFORM_CLEARING, null, "USD", "test");
         clearing.apply(Direction.DEBIT, 1000);
 
         clearing.apply(Direction.CREDIT, 400);
@@ -29,7 +29,7 @@ class AccountTest {
 
     @Test
     void creditIncreasesACreditNormalAccountsBalance() {
-        Account merchantPending = Account.open(AccountType.MERCHANT_PENDING, UUID.randomUUID(), "USD");
+        Account merchantPending = Account.open(AccountType.MERCHANT_PENDING, UUID.randomUUID(), "USD", "test");
 
         merchantPending.apply(Direction.CREDIT, 1000);
 
@@ -38,7 +38,7 @@ class AccountTest {
 
     @Test
     void debitDecreasesACreditNormalAccountsBalance() {
-        Account merchantSettled = Account.open(AccountType.MERCHANT_SETTLED, UUID.randomUUID(), "USD");
+        Account merchantSettled = Account.open(AccountType.MERCHANT_SETTLED, UUID.randomUUID(), "USD", "test");
         merchantSettled.apply(Direction.CREDIT, 1000);
 
         merchantSettled.apply(Direction.DEBIT, 300);
@@ -48,7 +48,7 @@ class AccountTest {
 
     @Test
     void newAccountStartsAtZeroBalance() {
-        Account account = Account.open(AccountType.MERCHANT_PENDING, UUID.randomUUID(), "EUR");
+        Account account = Account.open(AccountType.MERCHANT_PENDING, UUID.randomUUID(), "EUR", "test");
 
         assertThat(account.getBalanceMinor()).isZero();
     }

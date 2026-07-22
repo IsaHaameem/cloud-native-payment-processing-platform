@@ -202,14 +202,26 @@ class TransactionIntegrationTest {
         assertThat(clearingBalance(currency)).isEqualTo(concurrentEvents * amountEach);
     }
 
+    // The pre-M16 tests all operate in the default (live) partition — their events carry no
+    // mode and resolve to "live" — so the no-mode overloads default to live; the mode-aware
+    // overloads exist for the mode-isolation test below.
     private long clearingBalance(String currency) {
-        return accountRepository.findByAccountTypeAndOwnerIdAndCurrency(AccountType.PLATFORM_CLEARING, null, currency)
+        return clearingBalance(currency, "live");
+    }
+
+    private long clearingBalance(String currency, String mode) {
+        return accountRepository
+                .findByAccountTypeAndOwnerIdAndCurrencyAndMode(AccountType.PLATFORM_CLEARING, null, currency, mode)
                 .map(Account::getBalanceMinor)
                 .orElse(0L);
     }
 
     private long merchantBalance(AccountType type, UUID merchantId, String currency) {
-        return accountRepository.findByAccountTypeAndOwnerIdAndCurrency(type, merchantId, currency)
+        return merchantBalance(type, merchantId, currency, "live");
+    }
+
+    private long merchantBalance(AccountType type, UUID merchantId, String currency, String mode) {
+        return accountRepository.findByAccountTypeAndOwnerIdAndCurrencyAndMode(type, merchantId, currency, mode)
                 .map(Account::getBalanceMinor)
                 .orElse(0L);
     }
@@ -242,5 +254,54 @@ class TransactionIntegrationTest {
         String json = objectMapper.writeValueAsString(
                 envelope(eventId, eventType, paymentId, merchantId, status, previousStatus, eventAmountMinor));
         producer.send(new ProducerRecord<>(TOPIC, paymentId.toString(), json)).get(5, TimeUnit.SECONDS);
+    }
+
+    /** Publishes an event whose envelope carries an explicit {@code mode} (M16). */
+    private void publishWithMode(String mode, UUID eventId, String eventType, UUID paymentId, UUID merchantId,
+                                 String status, String previousStatus, long eventAmountMinor, String currency)
+            throws Exception {
+        PaymentLedgerEventPayload payload = new PaymentLedgerEventPayload(
+                paymentId, merchantId, 10_000, currency, status, previousStatus, eventAmountMinor);
+        EventEnvelope<PaymentLedgerEventPayload> envelope = new EventEnvelope<>(
+                eventId, eventType, paymentId.toString(), java.time.Instant.now(), "test-correlation", mode, payload);
+        producer.send(new ProducerRecord<>(TOPIC, paymentId.toString(),
+                objectMapper.writeValueAsString(envelope))).get(5, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void testAndLivePostingsAreBalanceIsolatedAndNeverAffectTheOtherMode() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        // A currency no other test method touches, so the shared-per-currency clearing
+        // account's balance is unambiguously this test's alone (as CHF is for the
+        // concurrency test) — the merchant accounts are already isolated by merchantId.
+        String currency = "SGD";
+
+        // 1) Authorize in TEST mode — only the TEST partition's balances move.
+        publishWithMode("test", UUID.randomUUID(), "PaymentAuthorized", UUID.randomUUID(), merchantId,
+                "AUTHORIZED", "CREATED", 5_000, currency);
+        await().atMost(Duration.ofSeconds(15)).until(() -> clearingBalance(currency, "test") == 5_000);
+
+        assertThat(clearingBalance(currency, "test")).isEqualTo(5_000);
+        assertThat(merchantBalance(AccountType.MERCHANT_PENDING, merchantId, currency, "test")).isEqualTo(5_000);
+        // The LIVE partition is completely untouched by the test-mode posting.
+        assertThat(clearingBalance(currency, "live")).isZero();
+        assertThat(merchantBalance(AccountType.MERCHANT_PENDING, merchantId, currency, "live")).isZero();
+
+        // 2) Authorize in LIVE mode (a different amount) — only the LIVE partition moves.
+        publishWithMode("live", UUID.randomUUID(), "PaymentAuthorized", UUID.randomUUID(), merchantId,
+                "AUTHORIZED", "CREATED", 7_000, currency);
+        await().atMost(Duration.ofSeconds(15)).until(() -> clearingBalance(currency, "live") == 7_000);
+
+        assertThat(clearingBalance(currency, "live")).isEqualTo(7_000);
+        assertThat(merchantBalance(AccountType.MERCHANT_PENDING, merchantId, currency, "live")).isEqualTo(7_000);
+        // The TEST partition's balances are unchanged by the live-mode posting.
+        assertThat(clearingBalance(currency, "test")).isEqualTo(5_000);
+        assertThat(merchantBalance(AccountType.MERCHANT_PENDING, merchantId, currency, "test")).isEqualTo(5_000);
+
+        // Two distinct clearing accounts exist for this currency — one per mode.
+        assertThat(accountRepository.findByAccountTypeAndOwnerIdAndCurrencyAndMode(
+                AccountType.PLATFORM_CLEARING, null, currency, "test")).isPresent();
+        assertThat(accountRepository.findByAccountTypeAndOwnerIdAndCurrencyAndMode(
+                AccountType.PLATFORM_CLEARING, null, currency, "live")).isPresent();
     }
 }

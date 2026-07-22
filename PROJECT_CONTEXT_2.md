@@ -8,7 +8,7 @@
 > **Status:** M15 (API Key Authentication & Machine-to-Machine Access) — **complete**
 > (2026-07-21). Post-M15 repository stabilization phase (8 fixes, §17) — **complete**
 > (2026-07-22). **M16 (Test/Live Mode Isolation) — in progress**, decomposed into
-> sub-milestones M16.1–M16.7; **M16.1–M16.2 complete** (2026-07-22).
+> sub-milestones M16.1–M16.7; **M16.1–M16.3 complete** (2026-07-22).
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
 > **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D125**.
 
@@ -3051,6 +3051,49 @@ four consumer services still pass unchanged, tolerating the now-populated `Event
 **Remaining M16 work.** M16.3 (transaction-service, per-mode clearing account) → M16.4 analytics →
 M16.5 audit → M16.6 notification → M16.7 consolidated docs + manual E2E. Consumer services are
 deliberately still mode-unaware.
+
+#### M16.3 — Transaction-service (ledger) is mode-partitioned ✅ (2026-07-22)
+
+**Summary.** The first consumer to become mode-aware: the double-entry ledger is now partitioned
+by mode. Test and live money can never mix because they post to **separate accounts** — the
+platform clearing account is one per `(currency, mode)`, and each merchant's pending/settled
+accounts one per `(type, owner, currency, mode)`. Ledger transactions and entries are stamped with
+mode too. This is the mechanism §12-R3 (mode-isolation hole) guards against, realised for the ledger.
+
+**Mode source.** The consumer reads `envelope.mode()` (populated by payment-service since M16.2);
+`LedgerService` normalises a `null` mode to `"live"` at a single point (`DEFAULT_MODE`), the same
+null→live backfill contract M16.1's envelope defines. No `Mode` enum in transaction-service — the
+consumer trusts the upstream-validated envelope string, and the DB `check (mode in ('test','live'))`
+plus the existing whole-transaction retry loop are the guard. Account resolution
+(`getOrCreateAccount`) and both ledger-row builders are keyed by mode, so a test event can only ever
+touch test accounts — isolation is structural, not a filter.
+
+**Files modified (production, 5).** `domain/Account.java` (+`mode`, non-updatable; `open(…, mode)`;
+`getMode()`); `domain/LedgerTransaction.java` + `domain/LedgerEntry.java` (+`mode`; `of(…, mode, …)`);
+`repository/AccountRepository.java` (`findByAccountTypeAndOwnerIdAndCurrency` →
+`…AndMode`); `service/LedgerService.java` (derive mode once null→live; thread through all four
+posting paths, `getOrCreateAccount`, and both row builders). **DB:** `transaction/V2__mode_isolation.sql`
+— additive, backfill `'live'`, then `NOT NULL`: `accounts.mode` (+check) with **both partial unique
+indexes recreated to include mode** (`uq_accounts_platform_clearing (currency, mode)`,
+`uq_accounts_merchant (account_type, owner_id, currency, mode)`); `ledger_transactions.mode` and
+`ledger_entries.mode` (+checks, denormalised for M19 query ergonomics). **Kafka/Redis/API:**
+unchanged (pure consumer; mode rides the M16.1 envelope).
+
+**Tests.** `AccountTest` (factory signature). `LedgerServiceTest` (mode-scoped finder stub; asserts a
+no-mode envelope resolves accounts and entries to `"live"`). `TransactionIntegrationTest` — balance
+helpers gained mode-aware overloads (existing tests default to live) + a mode-carrying publish helper
++ **the required balance-independence regression** `testAndLivePostingsAreBalanceIsolatedAndNeverAffect
+TheOtherMode`: authorize in test (only test balances move; live still zero), then authorize in live at
+a different amount (only live moves; test unchanged), and two distinct clearing accounts exist for the
+currency — one per mode.
+
+**Verification.** `:transaction-service` unit tests green (Account 5, LedgerService 11); integration
+tests green (5, incl. the balance-independence regression + the existing net-to-zero / concurrency /
+redelivery invariants, which now run in the live partition unchanged); full `./gradlew clean build`
+green — nothing else regressed; no F6 flake this run.
+
+**Remaining M16 work.** M16.4 analytics → M16.5 audit → M16.6 notification → M16.7 consolidated docs
++ manual E2E. analytics/audit/notification remain mode-unaware until their own sub-milestone.
 
 ---
 

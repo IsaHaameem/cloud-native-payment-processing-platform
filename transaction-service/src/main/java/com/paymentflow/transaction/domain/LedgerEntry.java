@@ -39,6 +39,11 @@ public class LedgerEntry {
     @Column(nullable = false, updatable = false, length = 3)
     private String currency;
 
+    // The test/live partition (M16) — denormalized onto the leg (mirroring the existing
+    // denormalized currency column) so an M19 balance query can filter by mode directly.
+    @Column(nullable = false, updatable = false, length = 4)
+    private String mode;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -47,17 +52,19 @@ public class LedgerEntry {
         // Required by JPA.
     }
 
-    private LedgerEntry(UUID ledgerTransactionId, UUID accountId, Direction direction, long amountMinor, String currency) {
+    private LedgerEntry(UUID ledgerTransactionId, UUID accountId, Direction direction, long amountMinor,
+                        String currency, String mode) {
         this.ledgerTransactionId = ledgerTransactionId;
         this.accountId = accountId;
         this.direction = direction;
         this.amountMinor = amountMinor;
         this.currency = currency;
+        this.mode = mode;
     }
 
     public static LedgerEntry of(UUID ledgerTransactionId, UUID accountId, Direction direction,
-                                 long amountMinor, String currency) {
-        return new LedgerEntry(ledgerTransactionId, accountId, direction, amountMinor, currency);
+                                 long amountMinor, String currency, String mode) {
+        return new LedgerEntry(ledgerTransactionId, accountId, direction, amountMinor, currency, mode);
     }
 
     public UUID getId() {
@@ -82,6 +89,10 @@ public class LedgerEntry {
 
     public String getCurrency() {
         return currency;
+    }
+
+    public String getMode() {
+        return mode;
     }
 
     public Instant getCreatedAt() {

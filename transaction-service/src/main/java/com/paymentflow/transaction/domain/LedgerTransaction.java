@@ -30,6 +30,11 @@ public class LedgerTransaction {
     @Column(name = "event_type", nullable = false, updatable = false, length = 50)
     private String eventType;
 
+    // The test/live partition this journal entry belongs to (M16) — denormalized here so
+    // the M19 ledger API can filter by mode without joining through to the accounts.
+    @Column(nullable = false, updatable = false, length = 4)
+    private String mode;
+
     @Column(length = 500)
     private String description;
 
@@ -41,15 +46,16 @@ public class LedgerTransaction {
         // Required by JPA.
     }
 
-    private LedgerTransaction(UUID paymentId, UUID eventId, String eventType, String description) {
+    private LedgerTransaction(UUID paymentId, UUID eventId, String eventType, String mode, String description) {
         this.paymentId = paymentId;
         this.eventId = eventId;
         this.eventType = eventType;
+        this.mode = mode;
         this.description = description;
     }
 
-    public static LedgerTransaction of(UUID paymentId, UUID eventId, String eventType, String description) {
-        return new LedgerTransaction(paymentId, eventId, eventType, description);
+    public static LedgerTransaction of(UUID paymentId, UUID eventId, String eventType, String mode, String description) {
+        return new LedgerTransaction(paymentId, eventId, eventType, mode, description);
     }
 
     public UUID getId() {
@@ -66,6 +72,10 @@ public class LedgerTransaction {
 
     public String getEventType() {
         return eventType;
+    }
+
+    public String getMode() {
+        return mode;
     }
 
     public String getDescription() {

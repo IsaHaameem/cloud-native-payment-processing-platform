@@ -41,6 +41,12 @@ public class Account {
     @Column(nullable = false, updatable = false, length = 3)
     private String currency;
 
+    // The test/live partition this account belongs to (M16, §4.4): the clearing account
+    // is one per (currency, mode), a merchant account one per (type, owner, currency, mode).
+    // Stored as the canonical lowercase string ("test"/"live") carried on the event envelope.
+    @Column(nullable = false, updatable = false, length = 4)
+    private String mode;
+
     @Column(name = "balance_minor", nullable = false)
     private long balanceMinor;
 
@@ -59,15 +65,16 @@ public class Account {
         // Required by JPA.
     }
 
-    private Account(AccountType accountType, UUID ownerId, String currency) {
+    private Account(AccountType accountType, UUID ownerId, String currency, String mode) {
         this.accountType = accountType;
         this.ownerId = ownerId;
         this.currency = currency;
+        this.mode = mode;
         this.balanceMinor = 0;
     }
 
-    public static Account open(AccountType accountType, UUID ownerId, String currency) {
-        return new Account(accountType, ownerId, currency);
+    public static Account open(AccountType accountType, UUID ownerId, String currency, String mode) {
+        return new Account(accountType, ownerId, currency, mode);
     }
 
     /** Posts a debit or credit, adjusting the running balance per this account's debit/credit normalcy. */
@@ -90,6 +97,10 @@ public class Account {
 
     public String getCurrency() {
         return currency;
+    }
+
+    public String getMode() {
+        return mode;
     }
 
     public long getBalanceMinor() {
