@@ -1,12 +1,17 @@
 package com.paymentflow.merchant.service;
 
 import com.paymentflow.common.exception.ResourceNotFoundException;
+import com.paymentflow.merchant.domain.ApiKey;
+import com.paymentflow.merchant.domain.ApiKeyType;
+import com.paymentflow.merchant.domain.KeyMode;
 import com.paymentflow.merchant.domain.Merchant;
 import com.paymentflow.merchant.dto.MerchantOnboardResponse;
 import com.paymentflow.merchant.dto.OnboardMerchantRequest;
 import com.paymentflow.merchant.dto.UpdateMerchantRequest;
 import com.paymentflow.merchant.dto.UpdateWebhookRequest;
+import com.paymentflow.merchant.event.MerchantEventPublisher;
 import com.paymentflow.merchant.exception.MerchantAlreadyExistsException;
+import com.paymentflow.merchant.mapper.ApiKeyMapper;
 import com.paymentflow.merchant.mapper.MerchantMapper;
 import com.paymentflow.merchant.repository.MerchantRepository;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -18,6 +23,7 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -36,7 +42,11 @@ class MerchantServiceTest {
     @Mock
     private ApiKeyService apiKeyService;
     @Spy
+    private ApiKeyMapper apiKeyMapper = new ApiKeyMapper();
+    @Spy
     private MerchantMapper merchantMapper = new MerchantMapper();
+    @Mock
+    private MerchantEventPublisher eventPublisher;
     // Deep stubs: meterRegistry.counter(...) must return a (mock) Counter, not null.
     @Mock(answer = Answers.RETURNS_DEEP_STUBS)
     private MeterRegistry meterRegistry;
@@ -57,18 +67,21 @@ class MerchantServiceTest {
     }
 
     @Test
-    void onboardPersistsMerchantAndIssuesAnApiKey() {
+    void onboardPersistsMerchantAndIssuesTheFourDefaultKeys() {
         UUID ownerUserId = UUID.randomUUID();
         when(merchantRepository.existsByOwnerUserId(ownerUserId)).thenReturn(false);
         when(merchantRepository.save(any(Merchant.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(apiKeyService.issue(any())).thenReturn(new ApiKeyService.IssuedApiKey("pf_raw-key", "pf_raw-key12"));
+        when(apiKeyService.issueDefaultSet(any())).thenAnswer(inv -> List.of(
+                issued(ApiKeyType.PUBLISHABLE, KeyMode.TEST), issued(ApiKeyType.SECRET, KeyMode.TEST),
+                issued(ApiKeyType.PUBLISHABLE, KeyMode.LIVE), issued(ApiKeyType.SECRET, KeyMode.LIVE)));
 
         MerchantOnboardResponse response = merchantService.onboard(ownerUserId,
                 new OnboardMerchantRequest("Acme", "billing@acme.test"));
 
         assertThat(response.merchant().businessName()).isEqualTo("Acme");
         assertThat(response.merchant().contactEmail()).isEqualTo("billing@acme.test");
-        assertThat(response.apiKey().apiKey()).isEqualTo("pf_raw-key");
+        assertThat(response.apiKeys()).hasSize(4);
+        verify(eventPublisher).publishMerchantOnboarded(any(Merchant.class));
     }
 
     @Test
@@ -117,16 +130,10 @@ class MerchantServiceTest {
         assertThat(response.webhookUrl()).isNull();
     }
 
-    @Test
-    void rotateMyApiKeyDelegatesToApiKeyServiceForTheOwnedMerchant() {
-        UUID ownerUserId = UUID.randomUUID();
-        Merchant merchant = Merchant.onboard(ownerUserId, "Acme", "billing@acme.test");
-        when(merchantRepository.findByOwnerUserId(ownerUserId)).thenReturn(Optional.of(merchant));
-        when(apiKeyService.rotate(any())).thenReturn(new ApiKeyService.IssuedApiKey("pf_new-key", "pf_new-key12"));
-
-        var response = merchantService.rotateMyApiKey(ownerUserId);
-
-        assertThat(response.apiKey()).isEqualTo("pf_new-key");
-        verify(apiKeyService).rotate(merchant.getId());
+    private static ApiKeyService.IssuedApiKey issued(ApiKeyType type, KeyMode mode) {
+        String raw = type.prefix() + "_" + mode.value() + "_abcdefghijklmnopqrstuvwx";
+        ApiKey key = ApiKey.issue(UUID.randomUUID(), type, mode, "Default key", raw.substring(0, 12),
+                "hash-" + raw, List.of("*"), null);
+        return new ApiKeyService.IssuedApiKey(raw, key);
     }
 }

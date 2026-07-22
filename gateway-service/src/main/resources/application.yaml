@@ -28,6 +28,35 @@ spring:
               uri: ${paymentflow.services.payment.base-uri}
               predicates:
                 - Path=/api/v1/payments/**
+            # M15: the public, key-authenticated /v1 surface — initially proxying
+            # payments only (§4.10: "/v1" denotes the API family; growing which
+            # downstream paths it covers is additive, never a breaking change).
+            # Rewritten onto payment-service's existing /api/v1/payments controller —
+            # no controller duplication needed on that side.
+            - id: payment-service-v1
+              uri: ${paymentflow.services.payment.base-uri}
+              predicates:
+                - Path=/v1/payments/**
+              filters:
+                # (?<segment>/?.*) — not /(?<segment>.*) — deliberately: the bare
+                # POST/GET /v1/payments (create/list, the most common real requests)
+                # has no trailing slash at all, so a pattern requiring a literal "/"
+                # before the capture group never matches it and the path passes
+                # through unrewritten, 404ing against payment-service. A real bug
+                # caught by this milestone's own gateway integration test, not a
+                # hypothetical edge case.
+                # $\{segment} (not ${segment}): YAML/Boot property-placeholder
+                # resolution would otherwise try to resolve "segment" as an actual
+                # config property before RewritePath's own regex engine ever sees
+                # the replacement string — the backslash escapes exactly that, and
+                # is stripped by the filter itself before the regex runs (Spring
+                # Cloud Gateway's own documented workaround for this collision).
+                - RewritePath=/v1/payments(?<segment>/?.*), /api/v1/payments$\{segment}
+          # V1 known issue #7 (M15 fix, D-noted): the gateway now sits behind an ALB in
+          # AWS, so X-Forwarded-* must be honored for scheme-dependent behavior (HSTS
+          # etc.) to see the real, not the internal-hop, scheme. Trusts only the ALB/
+          # local reverse-proxy hop, not arbitrary upstream clients.
+          trusted-proxies: 127.0.0.1,10.0.0.0/8,172.16.0.0/12
   data:
     redis:
       # Local default points at the compose Redis (host port 56379). Overridden by
@@ -56,6 +85,50 @@ paymentflow:
       replenish-rate: 20
       burst-capacity: 40
       requested-tokens: 1
+    api-key-cache:
+      # Negative caching (task 5, §4.8) stays short — long enough to blunt a burst of
+      # invalid-key enumeration, short enough that a key created moments ago (or
+      # fixed after a typo) isn't stuck failing.
+      positive-ttl: 5m
+      negative-ttl: 30s
+  internal-context:
+    # The HMAC secret every service uses to verify a gateway-asserted merchant context
+    # (M15, D100/D118) — the gateway signs with this same value. Sourced from Secrets
+    # Manager in AWS, env var locally (D18/D73's pattern). Local-dev-only default.
+    secret: ${PAYMENTFLOW_INTERNAL_CONTEXT_SECRET:dev-only-insecure-shared-secret-change-me}
+    max-clock-skew-seconds: 30
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      apiKeyVerify:
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        slowCallDurationThreshold: 1s
+        slowCallRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        # A key that genuinely doesn't verify is a client-side outcome, not a
+        # merchant-service health signal — same D51 rationale as payment-service's
+        # merchantService instance ignoring MerchantNotOnboardedException.
+        ignoreExceptions:
+          - com.paymentflow.gateway.security.apikey.InvalidApiKeyException
+  retry:
+    instances:
+      apiKeyVerify:
+        maxAttempts: 3
+        waitDuration: 100ms
+        ignoreExceptions:
+          - com.paymentflow.gateway.security.apikey.InvalidApiKeyException
+  timelimiter:
+    instances:
+      apiKeyVerify:
+        timeoutDuration: 800ms
+        cancelRunningFuture: true
 
 management:
   endpoints:

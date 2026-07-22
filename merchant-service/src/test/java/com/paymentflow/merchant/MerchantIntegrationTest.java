@@ -130,7 +130,9 @@ class MerchantIntegrationTest {
                                 new com.paymentflow.merchant.dto.OnboardMerchantRequest("Acme Corp", "billing@acme.test"))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.merchant.businessName").value("Acme Corp"))
-                .andExpect(jsonPath("$.apiKey.apiKey").value(org.hamcrest.Matchers.startsWith("pf_")));
+                .andExpect(jsonPath("$.apiKeys.length()").value(4))
+                .andExpect(jsonPath("$.apiKeys[0].apiKey").value(org.hamcrest.Matchers.anyOf(
+                        org.hamcrest.Matchers.startsWith("pk_"), org.hamcrest.Matchers.startsWith("sk_"))));
 
         mockMvc.perform(get("/api/v1/merchants/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
@@ -252,12 +254,15 @@ class MerchantIntegrationTest {
     }
 
     @Test
-    void rotatingApiKeyRevokesThePreviousOneAndIssuesADifferentValue() throws Exception {
+    void rotatingApiKeyGrantsThePreviousOneAGraceWindowAndIssuesADifferentValue() throws Exception {
         String subject = UUID.randomUUID().toString();
         String token = signedJwt(subject, List.of("USER"));
-        String firstRawKey = onboard(token, "Acme", "billing@acme.test");
+        String onboardBody = onboardRaw(token, "Acme", "billing@acme.test");
+        var firstKeyNode = objectMapper.readTree(onboardBody).get("apiKeys").get(1);
+        String firstRawKey = firstKeyNode.get("apiKey").asString();
+        String firstKeyId = firstKeyNode.get("id").asString();
 
-        String body = mockMvc.perform(post("/api/v1/merchants/me/api-key/rotate")
+        String body = mockMvc.perform(post("/api/v1/merchants/me/api-keys/" + firstKeyId + "/rotate")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
@@ -269,10 +274,11 @@ class MerchantIntegrationTest {
                 .filter(key -> key.getKeyHash().equals(sha256Hex(firstRawKey)) || key.getKeyHash().equals(sha256Hex(secondRawKey)))
                 .toList();
         assertThat(keysForThisMerchant).hasSize(2);
+        // Rotated-out key keeps authenticating during its grace window, not immediately revoked.
         assertThat(keysForThisMerchant).filteredOn(key -> key.getKeyHash().equals(sha256Hex(firstRawKey)))
-                .allMatch(key -> !key.isActive());
+                .allMatch(key -> key.isActive(Instant.now()) && key.getGraceExpiresAt() != null);
         assertThat(keysForThisMerchant).filteredOn(key -> key.getKeyHash().equals(sha256Hex(secondRawKey)))
-                .allMatch(com.paymentflow.merchant.domain.ApiKey::isActive);
+                .allMatch(key -> key.isActive(Instant.now()));
     }
 
     private static String sha256Hex(String raw) {
@@ -307,15 +313,20 @@ class MerchantIntegrationTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
 
+    /** Returns the raw value of the first secret-test key ({@code apiKeys[1]} — issueDefaultSet's order). */
     private String onboard(String token, String businessName, String contactEmail) throws Exception {
-        String body = mockMvc.perform(post("/api/v1/merchants")
+        String body = onboardRaw(token, businessName, contactEmail);
+        return objectMapper.readTree(body).get("apiKeys").get(1).get("apiKey").asString();
+    }
+
+    private String onboardRaw(String token, String businessName, String contactEmail) throws Exception {
+        return mockMvc.perform(post("/api/v1/merchants")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
                                 new com.paymentflow.merchant.dto.OnboardMerchantRequest(businessName, contactEmail))))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        return objectMapper.readTree(body).get("apiKey").get("apiKey").asString();
     }
 
     private static String signedJwt(String subject, List<String> roles) throws Exception {

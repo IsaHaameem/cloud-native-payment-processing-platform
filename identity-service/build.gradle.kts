@@ -16,6 +16,10 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-validation")
+    // M15: identity.events (D3 transactional outbox, mirrored from payment-service's
+    // M5 / merchant-service's M15 pattern) — identity-service is now a Kafka producer
+    // for the first time, publishing email-verification/password-reset events.
+    implementation("org.springframework.boot:spring-boot-starter-kafka")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     // Concrete Micrometer registry backend (M13) — closes the gap M8 flagged: the
     // /actuator/prometheus endpoint has been exposed since M8/M9 but had nothing
@@ -41,5 +45,7 @@ dependencies {
     // Testcontainers 2.x renamed all modules with a `testcontainers-` prefix.
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testImplementation("org.testcontainers:testcontainers-postgresql")
+    testImplementation("org.testcontainers:testcontainers-kafka")
+    testImplementation("org.springframework.kafka:spring-kafka-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

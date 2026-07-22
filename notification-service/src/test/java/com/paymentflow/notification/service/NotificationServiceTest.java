@@ -1,27 +1,23 @@
 package com.paymentflow.notification.service;
 
 import com.paymentflow.common.dto.event.EventEnvelope;
-import com.paymentflow.notification.domain.EmailLogEntry;
 import com.paymentflow.notification.domain.WebhookDelivery;
+import com.paymentflow.notification.email.EmailMessage;
+import com.paymentflow.notification.email.EmailSender;
 import com.paymentflow.notification.event.PaymentNotificationEventPayload;
-import com.paymentflow.notification.repository.EmailLogEntryRepository;
 import com.paymentflow.notification.repository.ProcessedEventRepository;
 import com.paymentflow.notification.repository.WebhookDeliveryRepository;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
-import java.time.Instant;
 import java.util.UUID;
-import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -36,7 +32,7 @@ class NotificationServiceTest {
     @Mock
     private ProcessedEventRepository processedEventRepository;
     @Mock
-    private EmailLogEntryRepository emailLogEntryRepository;
+    private EmailSender emailSender;
     @Mock
     private WebhookDeliveryRepository webhookDeliveryRepository;
     @Mock
@@ -52,9 +48,8 @@ class NotificationServiceTest {
 
     @BeforeEach
     void setUp() {
-        notificationService = new NotificationService(processedEventRepository, emailLogEntryRepository,
-                webhookDeliveryRepository, webhookDeliveryService, transactionTemplate, objectMapper,
-                new SimpleMeterRegistry());
+        notificationService = new NotificationService(processedEventRepository, emailSender,
+                webhookDeliveryRepository, webhookDeliveryService, transactionTemplate, objectMapper);
 
         lenient().when(transactionTemplate.execute(any())).thenAnswer(inv -> {
             TransactionCallback<?> callback = inv.getArgument(0);
@@ -78,22 +73,23 @@ class NotificationServiceTest {
 
         notificationService.handleEvent(env);
 
-        verify(emailLogEntryRepository, never()).save(any());
+        verify(emailSender, never()).send(any());
         verify(webhookDeliveryRepository, never()).save(any());
         verify(webhookDeliveryService, never()).attemptDelivery(any());
     }
 
     @Test
-    void newEventAlwaysLogsAnEmail() {
+    void newEventAlwaysSendsAnEmail() {
         var env = envelope(null);
         when(processedEventRepository.existsByEventId(env.eventId())).thenReturn(false);
 
         notificationService.handleEvent(env);
 
-        ArgumentCaptor<EmailLogEntry> captor = ArgumentCaptor.forClass(EmailLogEntry.class);
-        verify(emailLogEntryRepository).save(captor.capture());
-        assertThat(captor.getValue().getRecipientEmail()).isEqualTo("billing@acme.test");
-        assertThat(captor.getValue().getEventId()).isEqualTo(env.eventId());
+        ArgumentCaptor<EmailMessage> captor = ArgumentCaptor.forClass(EmailMessage.class);
+        verify(emailSender).send(captor.capture());
+        assertThat(captor.getValue().recipientEmail()).isEqualTo("billing@acme.test");
+        assertThat(captor.getValue().eventId()).isEqualTo(env.eventId());
+        assertThat(captor.getValue().merchantId()).isEqualTo(merchantId);
     }
 
     @Test

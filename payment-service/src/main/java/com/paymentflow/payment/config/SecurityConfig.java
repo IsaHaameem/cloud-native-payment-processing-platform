@@ -1,5 +1,6 @@
 package com.paymentflow.payment.config;
 
+import com.paymentflow.common.security.InternalContextFilter;
 import com.paymentflow.payment.security.RestAccessDeniedHandler;
 import com.paymentflow.payment.security.RestAuthenticationEntryPoint;
 import org.springframework.context.annotation.Bean;
@@ -14,6 +15,7 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 /**
  * Stateless resource-server security: payment-service holds no signing key of its own
@@ -31,8 +33,17 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http,
                                            JwtDecoder jwtDecoder,
                                            RestAuthenticationEntryPoint authenticationEntryPoint,
-                                           RestAccessDeniedHandler accessDeniedHandler) throws Exception {
+                                           RestAccessDeniedHandler accessDeniedHandler,
+                                           InternalContextFilter internalContextFilter) throws Exception {
         http
+                // API-key requests arrive from the gateway carrying a signed internal
+                // merchant context instead of a JWT (M15). This filter verifies that
+                // context and authenticates the request; it runs INSIDE the chain (not as a
+                // standalone servlet filter) so the authentication it sets survives
+                // SecurityContextHolderFilter and reaches AuthorizationFilter. A request
+                // with no internal-context header is untouched and falls through to the JWT
+                // resource-server path below, exactly as before M15.
+                .addFilterBefore(internalContextFilter, AuthorizationFilter.class)
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

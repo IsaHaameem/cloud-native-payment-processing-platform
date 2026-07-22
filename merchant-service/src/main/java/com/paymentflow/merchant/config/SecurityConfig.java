@@ -39,6 +39,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**", "/actuator/info",
                                 "/actuator/prometheus", "/actuator/metrics", "/actuator/metrics/**").permitAll()
+                        // Service-to-service only (M15, D98) — the gateway is this
+                        // endpoint's only legitimate caller and has no JWT to present.
+                        // Unreachable from outside regardless: no gateway route
+                        // predicate ever matches /internal/v1/**.
+                        .requestMatchers("/internal/v1/**").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth
                         .jwt(jwt -> jwt

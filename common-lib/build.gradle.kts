@@ -20,6 +20,14 @@ dependencies {
     compileOnly("org.springframework.boot:spring-boot-autoconfigure")
     compileOnly("org.springframework.boot:spring-boot-starter-web")
     compileOnly("org.springframework.boot:spring-boot-starter-validation")
+    // M15: InternalContextFilter / MerchantContextAuthenticationToken (internal-context
+    // header verification, D100/D118). compileOnly for the same reason as the web/
+    // validation deps above — every servlet service already brings
+    // spring-boot-starter-security itself; common-lib only needs the types to compile
+    // against, not to force security onto a module that doesn't want it (the gateway
+    // brings its own reactive security starter instead, and this filter is
+    // SERVLET-conditional so it never activates there anyway).
+    compileOnly("org.springframework.boot:spring-boot-starter-security")
     // M13: ObservabilityAutoConfiguration's MeterRegistryCustomizer bean. compileOnly
     // for the same reason as the web/validation deps above — every service already
     // brings spring-boot-starter-actuator (+ a concrete Micrometer registry) itself;
@@ -37,6 +45,7 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-web")
     testImplementation("org.springframework.boot:spring-boot-starter-validation")
     testImplementation("org.springframework.boot:spring-boot-starter-actuator")
+    testImplementation("org.springframework.boot:spring-boot-starter-security")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

@@ -39,6 +39,12 @@ paymentflow:
     # Matches payment.events' partition count (KafkaTopicConfig in payment-service) so
     # every partition can be consumed in parallel within this one consumer group.
     listener-concurrency: 3
+  internal-context:
+    # Every servlet service hosts common-lib's InternalContextFilter (SERVLET-
+    # conditional autoconfig, M15) — harmless here: transaction-service ships no REST
+    # API (D42) and nothing routes /v1/** to it, so the filter always no-ops (D100/D118).
+    secret: ${PAYMENTFLOW_INTERNAL_CONTEXT_SECRET:dev-only-insecure-shared-secret-change-me}
+    max-clock-skew-seconds: 30
 
 management:
   endpoints:

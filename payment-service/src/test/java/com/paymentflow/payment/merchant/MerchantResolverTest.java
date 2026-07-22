@@ -1,5 +1,7 @@
 package com.paymentflow.payment.merchant;
 
+import com.paymentflow.common.security.MerchantContext;
+import com.paymentflow.common.security.MerchantContextHolder;
 import com.paymentflow.payment.exception.MerchantNotOnboardedException;
 import com.paymentflow.payment.exception.MerchantServiceUnavailableException;
 import feign.FeignException;
@@ -32,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -103,6 +106,26 @@ class MerchantResolverTest {
 
     private static MerchantSummary summary() {
         return new MerchantSummary(UUID.randomUUID(), "billing@acme.test", null);
+    }
+
+    @Test
+    void whenAnInternalMerchantContextIsPresentTheFeignClientIsNeverInvoked() {
+        MerchantClient client = mock(MerchantClient.class);
+        MerchantResolver resolver = resolver(client, defaultCbConfig(), defaultRetryConfig(3),
+                defaultBulkheadConfig(), defaultTimeLimiterConfig());
+        UUID merchantId = UUID.randomUUID();
+        MerchantContext context = new MerchantContext(merchantId, "test", UUID.randomUUID(),
+                java.util.Set.of("payments:write"), "billing@acme.test", "https://acme.test/hooks");
+
+        try {
+            MerchantContextHolder.set(context);
+            MerchantSummary result = resolver.resolveCallerMerchant();
+
+            assertThat(result).isEqualTo(new MerchantSummary(merchantId, "billing@acme.test", "https://acme.test/hooks"));
+            verifyNoInteractions(client);
+        } finally {
+            MerchantContextHolder.clear();
+        }
     }
 
     @Test

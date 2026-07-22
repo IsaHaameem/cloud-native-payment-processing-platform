@@ -27,6 +27,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
+    private final EmailVerificationService emailVerificationService;
     private final UserMapper userMapper;
     private final MeterRegistry meterRegistry;
 
@@ -34,11 +35,13 @@ public class AuthService {
                        PasswordEncoder passwordEncoder,
                        JwtService jwtService,
                        RefreshTokenService refreshTokenService,
+                       EmailVerificationService emailVerificationService,
                        UserMapper userMapper, MeterRegistry meterRegistry) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
+        this.emailVerificationService = emailVerificationService;
         this.userMapper = userMapper;
         this.meterRegistry = meterRegistry;
     }
@@ -55,7 +58,12 @@ public class AuthService {
                 passwordEncoder.encode(request.password()),
                 request.fullName(),
                 EnumSet.of(Role.USER));
-        UserResponse response = userMapper.toResponse(userRepository.save(user));
+        user = userRepository.save(user);
+        // M15 task 11: self-serve signup isn't complete until the account is
+        // verifiable — issued async (identity.events -> notification-service) so this
+        // response never waits on it (D1).
+        emailVerificationService.requestVerification(user);
+        UserResponse response = userMapper.toResponse(user);
         meterRegistry.counter("auth_register_outcomes_total", "outcome", "success").increment();
         return response;
     }

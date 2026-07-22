@@ -39,6 +39,18 @@ paymentflow:
     # Matches payment.events' partition count (KafkaTopicConfig in payment-service) so
     # every partition can be consumed in parallel within this one consumer group.
     listener-concurrency: 3
+    # M15: identity.events — a distinct group id from the default payment.events one
+    # above (D5's naming convention), set explicitly on IdentityEventListener's
+    # @KafkaListener rather than relying on spring.kafka.consumer.group-id (which is
+    # already claimed by the default listener container factory for payment.events).
+    identity-events-topic: identity.events
+    identity-events-group-id: notification-service-identity.events
+  internal-context:
+    # Every servlet service hosts common-lib's InternalContextFilter (SERVLET-
+    # conditional autoconfig, M15) — harmless here: nothing routes /v1/** to
+    # notification-service, so the filter always no-ops (D100/D118).
+    secret: ${PAYMENTFLOW_INTERNAL_CONTEXT_SECRET:dev-only-insecure-shared-secret-change-me}
+    max-clock-skew-seconds: 30
   notification:
     retry-topic: payment.events.retry
     retry-group-id: notification-service-payment.events.retry

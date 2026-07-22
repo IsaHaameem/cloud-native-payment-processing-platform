@@ -1,7 +1,6 @@
 package com.paymentflow.merchant.web;
 
 import com.paymentflow.common.dto.page.PageResponse;
-import com.paymentflow.merchant.dto.ApiKeyIssuedResponse;
 import com.paymentflow.merchant.dto.MerchantOnboardResponse;
 import com.paymentflow.merchant.dto.MerchantResponse;
 import com.paymentflow.merchant.dto.OnboardMerchantRequest;
@@ -64,10 +63,8 @@ public class MerchantController {
         return merchantService.updateMyWebhook(ownerUserId(jwt), request);
     }
 
-    @PostMapping("/me/api-key/rotate")
-    public ApiKeyIssuedResponse rotateApiKey(@AuthenticationPrincipal Jwt jwt) {
-        return merchantService.rotateMyApiKey(ownerUserId(jwt));
-    }
+    // The old single-key rotate endpoint (POST /me/api-key/rotate) is superseded by
+    // the multi-key management API under /me/api-keys (M15, ApiKeyController, D99).
 
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")

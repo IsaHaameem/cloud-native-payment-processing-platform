@@ -4,7 +4,9 @@ import com.paymentflow.gateway.security.RestServerAccessDeniedHandler;
 import com.paymentflow.gateway.security.RestServerAuthenticationEntryPoint;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.oauth2.jwt.JwtValidators;
@@ -16,6 +18,7 @@ import org.springframework.security.oauth2.server.resource.authentication.Reacti
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.header.ReferrerPolicyServerHttpHeadersWriter;
 import org.springframework.security.web.server.header.XFrameOptionsServerHttpHeadersWriter;
+import org.springframework.security.web.server.util.matcher.PathPatternParserServerWebExchangeMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.reactive.CorsConfigurationSource;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
@@ -24,15 +27,26 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * Stateless, reactive edge security:
+ * Stateless, reactive edge security across <b>two</b> filter chains (M15 adds the
+ * first one; the second is V1's original chain, unchanged in substance):
  * <ul>
- *   <li>auth endpoints, JWKS, and health are public;</li>
- *   <li>every other request requires a valid RS256 access token, verified against
- *       identity-service's JWKS — the gateway authenticates only; role-based
- *       authorization stays in each downstream service (zero-trust, identity D17);</li>
- *   <li>the {@code roles} claim is still mapped to {@code ROLE_*} authorities so the
- *       rate-limit key resolver (and any future edge concern) can see them;</li>
- *   <li>401/403 render as the standard {@code ApiError} envelope.</li>
+ *   <li><b>{@code /v1/**}</b> (chain #1, evaluated first): no {@code oauth2ResourceServer}
+ *       at all — a session JWT is never accepted here (D114). Authorization relies
+ *       entirely on whatever {@link org.springframework.security.core.context.SecurityContext}
+ *       {@code ApiKeyAuthenticationWebFilter} already populated via
+ *       {@code ReactiveSecurityContextHolder.withAuthentication(...)} before this chain
+ *       ever runs (that filter is a plain {@code WebFilter}, registered well ahead of
+ *       Spring Security's own filter proxy). This split exists because Spring
+ *       Security's OAuth2 resource-server filter does not defer to a pre-populated
+ *       context — it attempts to parse <i>any</i> {@code Authorization: Bearer ...}
+ *       header as a JWT unconditionally, which would 401 every {@code sk_test_...}
+ *       credential before the API-key path ever got a chance. A single shared chain
+ *       could not express "authenticate this path a completely different way,"
+ *       only "skip authentication here" (which would be fail-open, not fail-closed) —
+ *       hence two chains, not one chain with an extra {@code permitAll()}.</li>
+ *   <li><b>everything else</b> (chain #2): byte-for-byte V1's original rule set — auth
+ *       endpoints/JWKS/health public, everything else requires a valid RS256 access
+ *       token verified against identity-service's JWKS. Untouched, not refactored.</li>
  * </ul>
  */
 @Configuration
@@ -40,6 +54,25 @@ import java.util.List;
 public class SecurityConfig {
 
     @Bean
+    @Order(1)
+    public SecurityWebFilterChain apiKeySecurityWebFilterChain(ServerHttpSecurity http,
+                                                                RestServerAuthenticationEntryPoint authenticationEntryPoint,
+                                                                RestServerAccessDeniedHandler accessDeniedHandler) {
+        http
+                .securityMatcher(new PathPatternParserServerWebExchangeMatcher("/v1/**"))
+                .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .headers(securityHeaders())
+                .authorizeExchange(exchange -> exchange
+                        .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .anyExchange().authenticated())
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler));
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
     public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http,
                                                           ReactiveJwtDecoder jwtDecoder,
                                                           CorsConfigurationSource corsConfigurationSource,
@@ -48,13 +81,7 @@ public class SecurityConfig {
         http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource))
-                .headers(headers -> headers
-                        .frameOptions(frame -> frame.mode(XFrameOptionsServerHttpHeadersWriter.Mode.DENY))
-                        .referrerPolicy(referrer -> referrer
-                                .policy(ReferrerPolicyServerHttpHeadersWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
-                        .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"))
-                        .permissionsPolicy(permissions -> permissions.policy("geolocation=(), camera=(), microphone=()"))
-                        .hsts(hsts -> hsts.includeSubdomains(true).maxAge(Duration.ofDays(365))))
+                .headers(securityHeaders())
                 .authorizeExchange(exchange -> exchange
                         .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .pathMatchers("/api/v1/auth/**", "/oauth2/jwks").permitAll()
@@ -71,6 +98,16 @@ public class SecurityConfig {
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler));
         return http.build();
+    }
+
+    private static Customizer<ServerHttpSecurity.HeaderSpec> securityHeaders() {
+        return headers -> headers
+                .frameOptions(frame -> frame.mode(XFrameOptionsServerHttpHeadersWriter.Mode.DENY))
+                .referrerPolicy(referrer -> referrer
+                        .policy(ReferrerPolicyServerHttpHeadersWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"))
+                .permissionsPolicy(permissions -> permissions.policy("geolocation=(), camera=(), microphone=()"))
+                .hsts(hsts -> hsts.includeSubdomains(true).maxAge(Duration.ofDays(365)));
     }
 
     @Bean
