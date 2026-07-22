@@ -8,7 +8,7 @@
 > **Status:** M15 (API Key Authentication & Machine-to-Machine Access) — **complete**
 > (2026-07-21). Post-M15 repository stabilization phase (8 fixes, §17) — **complete**
 > (2026-07-22). **M16 (Test/Live Mode Isolation) — in progress**, decomposed into
-> sub-milestones M16.1–M16.7; **M16.1 complete** (2026-07-22).
+> sub-milestones M16.1–M16.7; **M16.1–M16.2 complete** (2026-07-22).
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
 > **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D125**.
 
@@ -2989,8 +2989,68 @@ confirmed unrelated by an immediate clean re-run (all 18 notification tests gree
 
 **Decision.** D125 (nullable/`NON_NULL` additive design; `schemaVersion` deferred to M21).
 
-**Remaining M16 work.** M16.2–M16.7 (see decomposition above). Next: **M16.2** — payment-service
-becomes the first mode-partitioned data plane.
+#### M16.2 — Payment-service data plane is mode-partitioned ✅ (2026-07-22)
+
+**Summary.** payment-service became the first mode-partitioned data plane. Every payment,
+idempotency record, and payment event now carries a `mode` (`"test"`/`"live"`), resolved once
+per request; reads and idempotency are scoped by mode; a credential operating in one mode can
+never read or mutate a payment in the other (cross-mode → **404, not 403**, §4.4).
+
+**Mode resolution (`RequestModeResolver`).** One rule, on the servlet request thread: (1)
+API-key path → the gateway-signed `MerchantContext.mode` (key-bound, non-overridable — a
+`sk_test_` key cannot assert live); (2) JWT/dashboard path → the `X-PF-Mode` header, validated
+against the new `Mode` enum (unrecognised → 400); (3) neither → default `"test"` (dashboard
+opens in test mode, §3.1). The canonical persisted/wire value is the lowercase string — confirmed
+`ApiKeyVerifyResult` already lowercases it, so `MerchantContext.mode()` is `"test"`/`"live"`.
+`MerchantResolver`/`MerchantSummary` were left untouched — mode is resolved independently of
+merchant identity, so the resilience path (and its tests) is unchanged.
+
+**Files created (3).** `domain/Mode.java` (enum, local per schema-per-service; validation/parsing
+only — entities store the string), `mode/RequestModeResolver.java`, test
+`mode/RequestModeResolverTest.java`.
+
+**Files modified (production, 11).** `domain/Payment.java` (+`mode`, non-updatable;
+`create(merchantId, mode, …)`); `domain/IdempotencyRecord.java` (+`mode`; `of(merchantId, mode, …)`);
+`idempotency/IdempotencyService.java` (`guarded`/`record`/`findReplay`/lock all mode-keyed; Redis
+lock key → `idempotency:lock:<merchantId>:<mode>:<key>`); `repository/PaymentRepository.java`
+(`findByIdAndMerchantIdAndMode`, `findByMerchantIdAndMode` — replaced the mode-blind methods);
+`repository/IdempotencyRecordRepository.java` (`findByMerchantIdAndModeAndIdempotencyKey`);
+`service/PaymentService.java` (resolve mode in create/mutate/get/list; thread it into create,
+idempotency, and mode-scoped reads; mutate loads via the mode-scoped finder);
+`event/PaymentEventPublisher.java` (5-arg `EventEnvelope.of(…, payment.getMode(), payload)` —
+`PaymentEventPayload` unchanged, mode rides the envelope); `dto/PaymentResponse.java` +
+`mapper/PaymentMapper.java` (+`mode`); `gateway-service/application.yaml`
+(`RemoveRequestHeader=X-PF-Mode` on the `/v1` API-key route only — defense-in-depth, dashboard
+`/api/v1` route keeps it).
+
+**DB.** `payment/V2__mode_isolation.sql` — additive, backfill `'live'`, then `NOT NULL`:
+`payments.mode` (+check, +composite `idx_payments_merchant_mode` replacing `idx_payments_merchant_id`);
+`idempotency_keys.mode` (+check), uniqueness `(merchant_id, idempotency_key)` →
+`(merchant_id, mode, idempotency_key)`. **Redis:** idempotency lock key mode-namespaced.
+**Kafka:** unchanged (mode rides the M16.1 envelope). **API:** additive only — `PaymentResponse.mode`
+and the optional `X-PF-Mode` header. **Intended behavior change:** JWT/dashboard payments now
+default to `mode=test` (correct per §3.1); pre-M16 rows backfilled to live.
+
+**Tests modified/added.** New `RequestModeResolverTest` (precedence table incl. invalid→400).
+`IdempotencyServiceTest` (mode-threaded signatures + mode-scoped replay lookup + record carries
+mode). `PaymentServiceTest` (mocks `RequestModeResolver`; mode-scoped verifications).
+`PaymentTest` (factory signature). `PaymentIntegrationTest` — added: default-test + **event
+envelope carries `"mode":"test"`**; `X-PF-Mode` selects live; invalid mode → 400; **cross-mode
+GET → 404** while same-mode → 200; list scoped to mode; **the required regression** —
+`theSameIdempotencyKeyIsIndependentPerMerchantAndMode` (same `Idempotency-Key` coexists across
+Merchant A/test, A/live, B/test as three distinct payments, and a fourth same-tuple call replays
+the first). `InternalContextAuthenticationIntegrationTest` — API-key path persists the signed
+context's mode (test and live).
+
+**Verification.** payment-service unit tests green (RequestModeResolver 5, Idempotency 9, Payment
+domain, PaymentService); integration tests green (PaymentIntegrationTest 18 incl. the regression,
+InternalContext 4); full `:payment-service:test` green; full `./gradlew clean build` green — the
+four consumer services still pass unchanged, tolerating the now-populated `EventEnvelope.mode`
+(they don't act on it until M16.3–6). No F6 flake this run.
+
+**Remaining M16 work.** M16.3 (transaction-service, per-mode clearing account) → M16.4 analytics →
+M16.5 audit → M16.6 notification → M16.7 consolidated docs + manual E2E. Consumer services are
+deliberately still mode-unaware.
 
 ---
 

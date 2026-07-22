@@ -398,6 +398,142 @@ class PaymentIntegrationTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
 
+    @Test
+    void paymentDefaultsToTestModeAndStampsItOnTheEventEnvelope() throws Exception {
+        String token = signedJwt(UUID.randomUUID().toString());
+
+        String body = mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "mode-default-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amountMinor\":1000,\"currency\":\"USD\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mode").value("test"))
+                .andReturn().getResponse().getContentAsString();
+        UUID paymentId = UUID.fromString(objectMapper.readTree(body).get("id").asString());
+
+        String payload = outboxEventRepository.findAll().stream()
+                .filter(e -> e.getAggregateId().equals(paymentId))
+                .map(com.paymentflow.payment.domain.OutboxEvent::getPayload)
+                .findFirst().orElseThrow();
+        assertThat(payload).contains("\"mode\":\"test\"");
+    }
+
+    @Test
+    void theModeHeaderSelectsLiveMode() throws Exception {
+        String token = signedJwt(UUID.randomUUID().toString());
+
+        mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-PF-Mode", "live")
+                        .header("Idempotency-Key", "mode-live-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amountMinor\":1000,\"currency\":\"USD\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mode").value("live"));
+    }
+
+    @Test
+    void anInvalidModeHeaderIsRejected() throws Exception {
+        String token = signedJwt(UUID.randomUUID().toString());
+
+        mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-PF-Mode", "staging")
+                        .header("Idempotency-Key", "mode-invalid-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amountMinor\":1000,\"currency\":\"USD\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void aPaymentIsInvisibleFromADifferentModeAndSurfacesAs404() throws Exception {
+        String token = signedJwt(UUID.randomUUID().toString());
+
+        String body = mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-PF-Mode", "live")
+                        .header("Idempotency-Key", "mode-isolate-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amountMinor\":1000,\"currency\":\"USD\"}"))
+                .andReturn().getResponse().getContentAsString();
+        UUID paymentId = UUID.fromString(objectMapper.readTree(body).get("id").asString());
+
+        // Same merchant, wrong mode: a live payment must not be visible in test mode — 404, not 403.
+        mockMvc.perform(get("/api/v1/payments/" + paymentId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-PF-Mode", "test"))
+                .andExpect(status().isNotFound());
+
+        // Same merchant, same mode: visible.
+        mockMvc.perform(get("/api/v1/payments/" + paymentId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-PF-Mode", "live"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mode").value("live"));
+    }
+
+    @Test
+    void listIsScopedToTheRequestedMode() throws Exception {
+        String token = signedJwt(UUID.randomUUID().toString());
+
+        mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-PF-Mode", "test")
+                        .header("Idempotency-Key", "mode-list-test")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amountMinor\":1111,\"currency\":\"USD\"}"))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-PF-Mode", "live")
+                        .header("Idempotency-Key", "mode-list-live")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amountMinor\":2222,\"currency\":\"USD\"}"))
+                .andExpect(status().isCreated());
+
+        // This merchant has exactly one payment per mode; the test-mode list shows only the test one.
+        mockMvc.perform(get("/api/v1/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-PF-Mode", "test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.amountMinor == 1111)]").exists())
+                .andExpect(jsonPath("$.content[?(@.amountMinor == 2222)]").doesNotExist());
+    }
+
+    @Test
+    void theSameIdempotencyKeyIsIndependentPerMerchantAndMode() throws Exception {
+        // Fixed subjects so each maps to a stable, distinct merchant id via the stub.
+        String tokenA = signedJwt("merchant-a-idempotency");
+        String tokenB = signedJwt("merchant-b-idempotency");
+        String key = "shared-idem-key";
+        String body = "{\"amountMinor\":4200,\"currency\":\"USD\",\"description\":\"idem partition\"}";
+
+        UUID a1 = createReturningId(tokenA, "test", key, body); // Merchant A / test
+        UUID a2 = createReturningId(tokenA, "live", key, body); // Merchant A / live
+        UUID b1 = createReturningId(tokenB, "test", key, body); // Merchant B / test
+
+        // The same Idempotency-Key coexists independently across all three (merchant, mode)
+        // tuples — uniqueness is partitioned by both merchant and mode.
+        assertThat(List.of(a1, a2, b1)).doesNotHaveDuplicates();
+
+        // ...and a replay within one (merchant, mode) returns the SAME payment, not a fourth.
+        UUID a1Replay = createReturningId(tokenA, "test", key, body);
+        assertThat(a1Replay).isEqualTo(a1);
+    }
+
+    private UUID createReturningId(String token, String mode, String idempotencyKey, String body) throws Exception {
+        String response = mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-PF-Mode", mode)
+                        .header("Idempotency-Key", idempotencyKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return UUID.fromString(objectMapper.readTree(response).get("id").asString());
+    }
+
     private UUID createAuthorizedAndCaptured(String token, long amountMinor, String idempotencyKeyPrefix) throws Exception {
         String createBody = mockMvc.perform(post("/api/v1/payments")
                         .header("Authorization", "Bearer " + token)

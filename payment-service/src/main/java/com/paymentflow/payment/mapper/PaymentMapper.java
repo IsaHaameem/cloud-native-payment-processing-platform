@@ -11,6 +11,7 @@ public class PaymentMapper {
         return new PaymentResponse(
                 payment.getId(),
                 payment.getMerchantId(),
+                payment.getMode(),
                 payment.getAmountMinor(),
                 payment.getCurrency(),
                 payment.getStatus().name(),

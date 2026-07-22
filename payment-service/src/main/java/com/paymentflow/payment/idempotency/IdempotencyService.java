@@ -61,28 +61,31 @@ public class IdempotencyService {
      * matching response if one exists, otherwise runs {@code operation} and returns its
      * result. Always releases the lock, including on failure.
      */
-    public <T> T guarded(UUID merchantId, String idempotencyKey, String fingerprint,
+    public <T> T guarded(UUID merchantId, String mode, String idempotencyKey, String fingerprint,
                         Class<T> responseType, Supplier<T> operation) {
-        acquireLockOrThrow(merchantId, idempotencyKey);
+        acquireLockOrThrow(merchantId, mode, idempotencyKey);
         try {
-            Optional<T> replay = findReplay(merchantId, idempotencyKey, fingerprint, responseType);
+            Optional<T> replay = findReplay(merchantId, mode, idempotencyKey, fingerprint, responseType);
             if (replay.isPresent()) {
                 return replay.get();
             }
             return operation.get();
         } finally {
-            releaseLock(merchantId, idempotencyKey);
+            releaseLock(merchantId, mode, idempotencyKey);
         }
     }
 
     /** Persists the response under this idempotency key. Call from within the same transaction as the operation it records. */
-    public void record(UUID merchantId, String idempotencyKey, String fingerprint, int responseStatus, Object response) {
+    public void record(UUID merchantId, String mode, String idempotencyKey, String fingerprint, int responseStatus,
+                       Object response) {
         String body = objectMapper.writeValueAsString(response);
-        idempotencyRecordRepository.save(IdempotencyRecord.of(merchantId, idempotencyKey, fingerprint, responseStatus, body));
+        idempotencyRecordRepository.save(
+                IdempotencyRecord.of(merchantId, mode, idempotencyKey, fingerprint, responseStatus, body));
     }
 
-    private <T> Optional<T> findReplay(UUID merchantId, String idempotencyKey, String fingerprint, Class<T> responseType) {
-        return idempotencyRecordRepository.findByMerchantIdAndIdempotencyKey(merchantId, idempotencyKey)
+    private <T> Optional<T> findReplay(UUID merchantId, String mode, String idempotencyKey, String fingerprint,
+                                       Class<T> responseType) {
+        return idempotencyRecordRepository.findByMerchantIdAndModeAndIdempotencyKey(merchantId, mode, idempotencyKey)
                 .map(record -> {
                     if (!record.getRequestFingerprint().equals(fingerprint)) {
                         meterRegistry.counter("idempotency_key_outcomes_total", "outcome", "reused_conflict").increment();
@@ -96,20 +99,22 @@ public class IdempotencyService {
                 });
     }
 
-    private void acquireLockOrThrow(UUID merchantId, String idempotencyKey) {
+    private void acquireLockOrThrow(UUID merchantId, String mode, String idempotencyKey) {
         Boolean acquired = redisTemplate.opsForValue()
-                .setIfAbsent(lockKey(merchantId, idempotencyKey), "1", LOCK_TTL);
+                .setIfAbsent(lockKey(merchantId, mode, idempotencyKey), "1", LOCK_TTL);
         if (!Boolean.TRUE.equals(acquired)) {
             meterRegistry.counter("idempotency_key_outcomes_total", "outcome", "in_flight_conflict").increment();
             throw new IdempotencyKeyInFlightException(idempotencyKey);
         }
     }
 
-    private void releaseLock(UUID merchantId, String idempotencyKey) {
-        redisTemplate.delete(lockKey(merchantId, idempotencyKey));
+    private void releaseLock(UUID merchantId, String mode, String idempotencyKey) {
+        redisTemplate.delete(lockKey(merchantId, mode, idempotencyKey));
     }
 
-    private static String lockKey(UUID merchantId, String idempotencyKey) {
-        return LOCK_KEY_PREFIX + merchantId + ":" + idempotencyKey;
+    // Mode-namespaced (M16): the same Idempotency-Key in test vs live must take independent
+    // locks, matching the mode-partitioned uniqueness of the durable idempotency_keys record.
+    private static String lockKey(UUID merchantId, String mode, String idempotencyKey) {
+        return LOCK_KEY_PREFIX + merchantId + ":" + mode + ":" + idempotencyKey;
     }
 }

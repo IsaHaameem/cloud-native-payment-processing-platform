@@ -13,6 +13,7 @@ import com.paymentflow.payment.idempotency.IdempotencyService;
 import com.paymentflow.payment.mapper.PaymentMapper;
 import com.paymentflow.payment.merchant.MerchantResolver;
 import com.paymentflow.payment.merchant.MerchantSummary;
+import com.paymentflow.payment.mode.RequestModeResolver;
 import com.paymentflow.payment.repository.PaymentRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -36,32 +37,36 @@ public class PaymentService {
     private final PaymentEventPublisher eventPublisher;
     private final IdempotencyService idempotencyService;
     private final MerchantResolver merchantResolver;
+    private final RequestModeResolver requestModeResolver;
     private final TransactionTemplate transactionTemplate;
 
     public PaymentService(PaymentRepository paymentRepository, PaymentMapper paymentMapper,
                           PaymentEventPublisher eventPublisher, IdempotencyService idempotencyService,
-                          MerchantResolver merchantResolver, TransactionTemplate transactionTemplate) {
+                          MerchantResolver merchantResolver, RequestModeResolver requestModeResolver,
+                          TransactionTemplate transactionTemplate) {
         this.paymentRepository = paymentRepository;
         this.paymentMapper = paymentMapper;
         this.eventPublisher = eventPublisher;
         this.idempotencyService = idempotencyService;
         this.merchantResolver = merchantResolver;
+        this.requestModeResolver = requestModeResolver;
         this.transactionTemplate = transactionTemplate;
     }
 
     public PaymentResponse create(CreatePaymentRequest request, String idempotencyKey) {
         requireIdempotencyKey(idempotencyKey);
+        String mode = requestModeResolver.resolve();
         MerchantSummary merchant = merchantResolver.resolveCallerMerchant();
         UUID merchantId = merchant.id();
         String fingerprint = idempotencyService.fingerprint("POST:/api/v1/payments", request);
 
-        return idempotencyService.guarded(merchantId, idempotencyKey, fingerprint, PaymentResponse.class, () ->
+        return idempotencyService.guarded(merchantId, mode, idempotencyKey, fingerprint, PaymentResponse.class, () ->
                 transactionTemplate.execute(status -> {
-                    Payment payment = paymentRepository.save(
-                            Payment.create(merchantId, request.amountMinor(), request.currency(), request.description()));
+                    Payment payment = paymentRepository.save(Payment.create(
+                            merchantId, mode, request.amountMinor(), request.currency(), request.description()));
                     eventPublisher.publish(payment, "PaymentCreated", null, payment.getAmountMinor(), merchant);
                     PaymentResponse response = paymentMapper.toResponse(payment);
-                    idempotencyService.record(merchantId, idempotencyKey, fingerprint, 201, response);
+                    idempotencyService.record(merchantId, mode, idempotencyKey, fingerprint, 201, response);
                     return response;
                 }));
     }
@@ -98,13 +103,16 @@ public class PaymentService {
     }
 
     public PaymentResponse get(UUID paymentId) {
+        String mode = requestModeResolver.resolve();
         UUID merchantId = merchantResolver.resolveCallerMerchant().id();
-        return paymentMapper.toResponse(getOwnedPayment(paymentId, merchantId));
+        return paymentMapper.toResponse(getOwnedPayment(paymentId, merchantId, mode));
     }
 
     public PageResponse<PaymentResponse> list(Pageable pageable) {
+        String mode = requestModeResolver.resolve();
         UUID merchantId = merchantResolver.resolveCallerMerchant().id();
-        Page<PaymentResponse> page = paymentRepository.findByMerchantId(merchantId, pageable).map(paymentMapper::toResponse);
+        Page<PaymentResponse> page = paymentRepository.findByMerchantIdAndMode(merchantId, mode, pageable)
+                .map(paymentMapper::toResponse);
         return PageResponse.of(page.getContent(), page.getNumber(), page.getSize(), page.getTotalElements());
     }
 
@@ -119,19 +127,20 @@ public class PaymentService {
     private PaymentResponse mutate(UUID paymentId, String idempotencyKey, String operation, Object requestBody,
                                    Function<Payment, MutationOutcome> mutation) {
         requireIdempotencyKey(idempotencyKey);
+        String mode = requestModeResolver.resolve();
         MerchantSummary merchant = merchantResolver.resolveCallerMerchant();
         UUID merchantId = merchant.id();
         String fingerprint = idempotencyService.fingerprint(
                 "POST:/api/v1/payments/" + paymentId + "/" + operation, requestBody);
 
-        return idempotencyService.guarded(merchantId, idempotencyKey, fingerprint, PaymentResponse.class, () ->
+        return idempotencyService.guarded(merchantId, mode, idempotencyKey, fingerprint, PaymentResponse.class, () ->
                 transactionTemplate.execute(status -> {
-                    Payment payment = getOwnedPayment(paymentId, merchantId);
+                    Payment payment = getOwnedPayment(paymentId, merchantId, mode);
                     PaymentStatus previous = payment.getStatus();
                     MutationOutcome outcome = mutation.apply(payment);
                     eventPublisher.publish(payment, outcome.eventType(), previous, outcome.eventAmountMinor(), merchant);
                     PaymentResponse response = paymentMapper.toResponse(payment);
-                    idempotencyService.record(merchantId, idempotencyKey, fingerprint, 200, response);
+                    idempotencyService.record(merchantId, mode, idempotencyKey, fingerprint, 200, response);
                     return response;
                 }));
     }
@@ -139,8 +148,10 @@ public class PaymentService {
     private record MutationOutcome(String eventType, long eventAmountMinor) {
     }
 
-    private Payment getOwnedPayment(UUID paymentId, UUID merchantId) {
-        return paymentRepository.findByIdAndMerchantId(paymentId, merchantId)
+    // Scoped by mode as well as merchant: a payment in another mode is invisible here and
+    // surfaces as 404 (§4.4 — a test credential must not even confirm a live payment exists).
+    private Payment getOwnedPayment(UUID paymentId, UUID merchantId, String mode) {
+        return paymentRepository.findByIdAndMerchantIdAndMode(paymentId, merchantId, mode)
                 .orElseThrow(() -> ResourceNotFoundException.of("Payment", paymentId));
     }
 

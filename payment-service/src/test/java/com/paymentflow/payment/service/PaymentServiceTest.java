@@ -13,6 +13,7 @@ import com.paymentflow.payment.idempotency.IdempotencyService;
 import com.paymentflow.payment.mapper.PaymentMapper;
 import com.paymentflow.payment.merchant.MerchantResolver;
 import com.paymentflow.payment.merchant.MerchantSummary;
+import com.paymentflow.payment.mode.RequestModeResolver;
 import com.paymentflow.payment.repository.PaymentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,6 +54,8 @@ class PaymentServiceTest {
     @Mock
     private MerchantResolver merchantResolver;
     @Mock
+    private RequestModeResolver requestModeResolver;
+    @Mock
     private TransactionTemplate transactionTemplate;
 
     @InjectMocks
@@ -67,11 +70,12 @@ class PaymentServiceTest {
             TransactionCallback<?> callback = inv.getArgument(0);
             return callback.doInTransaction(null);
         });
-        lenient().when(idempotencyService.guarded(any(), any(), any(), any(), any())).thenAnswer(inv -> {
-            Supplier<?> supplier = inv.getArgument(4);
+        lenient().when(idempotencyService.guarded(any(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            Supplier<?> supplier = inv.getArgument(5);
             return supplier.get();
         });
         lenient().when(merchantResolver.resolveCallerMerchant()).thenReturn(merchant);
+        lenient().when(requestModeResolver.resolve()).thenReturn("test");
         lenient().when(idempotencyService.fingerprint(any(), any())).thenReturn("fingerprint");
     }
 
@@ -91,14 +95,16 @@ class PaymentServiceTest {
 
         assertThat(response.amountMinor()).isEqualTo(5000);
         assertThat(response.status()).isEqualTo("CREATED");
+        assertThat(response.mode()).isEqualTo("test");
         verify(eventPublisher).publish(any(Payment.class), eq("PaymentCreated"), isNull(), eq(5000L), eq(merchant));
-        verify(idempotencyService).record(eq(merchantId), eq("key-1"), any(), eq(201), any());
+        verify(idempotencyService).record(eq(merchantId), eq("test"), eq("key-1"), any(), eq(201), any());
     }
 
     @Test
     void authorizeTransitionsTheCallersOwnedPayment() {
-        Payment payment = Payment.create(merchantId, 5000, "USD", null);
-        when(paymentRepository.findByIdAndMerchantId(any(), eq(merchantId))).thenReturn(Optional.of(payment));
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null);
+        when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
+                .thenReturn(Optional.of(payment));
 
         PaymentResponse response = paymentService.authorize(UUID.randomUUID(), "key-2");
 
@@ -108,7 +114,8 @@ class PaymentServiceTest {
 
     @Test
     void operatingOnAnUnownedOrMissingPaymentIsNotFound() {
-        when(paymentRepository.findByIdAndMerchantId(any(), eq(merchantId))).thenReturn(Optional.empty());
+        when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
+                .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> paymentService.authorize(UUID.randomUUID(), "key-3"))
                 .isInstanceOf(ResourceNotFoundException.class);
@@ -116,10 +123,11 @@ class PaymentServiceTest {
 
     @Test
     void captureThenRefundWithNoAmountRefundsTheFullCapturedAmount() {
-        Payment payment = Payment.create(merchantId, 5000, "USD", null);
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null);
         payment.authorize();
         payment.capture();
-        when(paymentRepository.findByIdAndMerchantId(any(), eq(merchantId))).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
+                .thenReturn(Optional.of(payment));
 
         PaymentResponse response = paymentService.refund(UUID.randomUUID(), new RefundRequest(null), "key-4");
 
@@ -130,10 +138,11 @@ class PaymentServiceTest {
 
     @Test
     void partialRefundPublishesThePartiallyRefundedEventType() {
-        Payment payment = Payment.create(merchantId, 5000, "USD", null);
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null);
         payment.authorize();
         payment.capture();
-        when(paymentRepository.findByIdAndMerchantId(any(), eq(merchantId))).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
+                .thenReturn(Optional.of(payment));
 
         PaymentResponse response = paymentService.refund(UUID.randomUUID(), new RefundRequest(2000L), "key-5");
 
@@ -142,8 +151,8 @@ class PaymentServiceTest {
     }
 
     @Test
-    void listDelegatesToTheRepositoryScopedToTheCallersMerchant() {
-        when(paymentRepository.findByMerchantId(eq(merchantId), any())).thenReturn(Page.empty());
+    void listDelegatesToTheRepositoryScopedToTheCallersMerchantAndMode() {
+        when(paymentRepository.findByMerchantIdAndMode(eq(merchantId), eq("test"), any())).thenReturn(Page.empty());
 
         PageResponse<PaymentResponse> page = paymentService.list(PageRequest.of(0, 20));
 

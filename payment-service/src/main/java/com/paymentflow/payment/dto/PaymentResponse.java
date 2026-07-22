@@ -6,6 +6,7 @@ import java.util.UUID;
 public record PaymentResponse(
         UUID id,
         UUID merchantId,
+        String mode,
         long amountMinor,
         String currency,
         String status,

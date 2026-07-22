@@ -42,8 +42,10 @@ public class PaymentEventPublisher {
                 merchant.contactEmail(), merchant.webhookUrl());
 
         String correlationId = MDC.get(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+        // Mode (M16) rides the envelope, not the payload — every consumer receives the
+        // test/live partition without a lookup and cannot accidentally cross-post.
         EventEnvelope<PaymentEventPayload> envelope =
-                EventEnvelope.of(eventType, payment.getId().toString(), correlationId, payload);
+                EventEnvelope.of(eventType, payment.getId().toString(), correlationId, payment.getMode(), payload);
 
         String json = objectMapper.writeValueAsString(envelope);
         outboxEventRepository.save(OutboxEvent.of(payment.getId(), eventType, TOPIC, json));

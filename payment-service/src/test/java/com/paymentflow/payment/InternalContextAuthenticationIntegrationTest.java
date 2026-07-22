@@ -91,7 +91,23 @@ class InternalContextAuthenticationIntegrationTest {
                         .content(CREATE_BODY))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.merchantId").value(merchantId.toString()))
-                .andExpect(jsonPath("$.status").value("CREATED"));
+                .andExpect(jsonPath("$.status").value("CREATED"))
+                // The key's mode (from the signed context) is persisted on the payment — the
+                // API-key path's mode is bound to the key, not a client-chosen header (M16.2).
+                .andExpect(jsonPath("$.mode").value("test"));
+    }
+
+    @Test
+    void aLiveModeSignedContextCreatesALiveModePayment() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/v1/payments")
+                        .headers(signedContext(merchantId, "live", "payments:write"))
+                        .header("Idempotency-Key", "internal-ctx-live-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CREATE_BODY))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mode").value("live"));
     }
 
     @Test

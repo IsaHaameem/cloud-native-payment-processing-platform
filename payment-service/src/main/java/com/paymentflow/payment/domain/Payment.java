@@ -35,6 +35,12 @@ public class Payment {
     @Column(name = "merchant_id", nullable = false, updatable = false)
     private UUID merchantId;
 
+    // The test/live partition this payment lives in (M16, §4.4). Immutable: a payment is
+    // created in exactly one mode and never migrates. Stored as the canonical lowercase
+    // string ("test"/"live") — the same value carried on every event this payment emits.
+    @Column(nullable = false, updatable = false, length = 4)
+    private String mode;
+
     @Column(name = "amount_minor", nullable = false, updatable = false)
     private long amountMinor;
 
@@ -72,8 +78,9 @@ public class Payment {
         // Required by JPA.
     }
 
-    private Payment(UUID merchantId, long amountMinor, String currency, String description) {
+    private Payment(UUID merchantId, String mode, long amountMinor, String currency, String description) {
         this.merchantId = merchantId;
+        this.mode = mode;
         this.amountMinor = amountMinor;
         this.currency = currency;
         this.description = description;
@@ -82,8 +89,8 @@ public class Payment {
         this.refundedAmountMinor = 0;
     }
 
-    public static Payment create(UUID merchantId, long amountMinor, String currency, String description) {
-        return new Payment(merchantId, amountMinor, currency, description);
+    public static Payment create(UUID merchantId, String mode, long amountMinor, String currency, String description) {
+        return new Payment(merchantId, mode, amountMinor, currency, description);
     }
 
     public void authorize() {
@@ -136,6 +143,10 @@ public class Payment {
 
     public UUID getMerchantId() {
         return merchantId;
+    }
+
+    public String getMode() {
+        return mode;
     }
 
     public long getAmountMinor() {

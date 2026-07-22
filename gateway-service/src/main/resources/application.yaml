@@ -38,6 +38,12 @@ spring:
               predicates:
                 - Path=/v1/payments/**
               filters:
+                # Defense in depth (M16.2): mode on the API-key path is bound to the key
+                # (resolved from the signed internal context), never client-selectable —
+                # so any client-supplied X-PF-Mode is stripped here and can never reach a
+                # downstream service. The /api/v1 dashboard route deliberately keeps the
+                # header: the dashboard's mode toggle legitimately sets it (JWT path).
+                - RemoveRequestHeader=X-PF-Mode
                 # (?<segment>/?.*) — not /(?<segment>.*) — deliberately: the bare
                 # POST/GET /v1/payments (create/list, the most common real requests)
                 # has no trailing slash at all, so a pattern requiring a literal "/"

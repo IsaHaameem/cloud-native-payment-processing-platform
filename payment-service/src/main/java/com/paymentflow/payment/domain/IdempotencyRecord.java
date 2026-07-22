@@ -29,6 +29,11 @@ public class IdempotencyRecord {
     @Column(name = "merchant_id", nullable = false, updatable = false)
     private UUID merchantId;
 
+    // The mode this idempotency key belongs to (M16): the same Idempotency-Key is a
+    // distinct key per (merchant, mode), so a test retry never replays a live response.
+    @Column(nullable = false, updatable = false, length = 4)
+    private String mode;
+
     @Column(name = "idempotency_key", nullable = false, updatable = false)
     private String idempotencyKey;
 
@@ -49,18 +54,19 @@ public class IdempotencyRecord {
         // Required by JPA.
     }
 
-    private IdempotencyRecord(UUID merchantId, String idempotencyKey, String requestFingerprint,
+    private IdempotencyRecord(UUID merchantId, String mode, String idempotencyKey, String requestFingerprint,
                               int responseStatus, String responseBody) {
         this.merchantId = merchantId;
+        this.mode = mode;
         this.idempotencyKey = idempotencyKey;
         this.requestFingerprint = requestFingerprint;
         this.responseStatus = responseStatus;
         this.responseBody = responseBody;
     }
 
-    public static IdempotencyRecord of(UUID merchantId, String idempotencyKey, String requestFingerprint,
+    public static IdempotencyRecord of(UUID merchantId, String mode, String idempotencyKey, String requestFingerprint,
                                        int responseStatus, String responseBody) {
-        return new IdempotencyRecord(merchantId, idempotencyKey, requestFingerprint, responseStatus, responseBody);
+        return new IdempotencyRecord(merchantId, mode, idempotencyKey, requestFingerprint, responseStatus, responseBody);
     }
 
     public UUID getId() {
@@ -69,6 +75,10 @@ public class IdempotencyRecord {
 
     public UUID getMerchantId() {
         return merchantId;
+    }
+
+    public String getMode() {
+        return mode;
     }
 
     public String getIdempotencyKey() {

@@ -54,9 +54,10 @@ class IdempotencyServiceTest {
     @Test
     void guardedRunsOperationWhenLockAcquiredAndNoExistingRecord() {
         when(valueOperations.setIfAbsent(any(), any(), any())).thenReturn(true);
-        when(repository.findByMerchantIdAndIdempotencyKey(merchantId, "key-1")).thenReturn(Optional.empty());
+        when(repository.findByMerchantIdAndModeAndIdempotencyKey(merchantId, "test", "key-1"))
+                .thenReturn(Optional.empty());
 
-        TestResponse result = idempotencyService.guarded(merchantId, "key-1", "fp", TestResponse.class,
+        TestResponse result = idempotencyService.guarded(merchantId, "test", "key-1", "fp", TestResponse.class,
                 () -> new TestResponse("computed"));
 
         assertThat(result.value()).isEqualTo("computed");
@@ -67,7 +68,7 @@ class IdempotencyServiceTest {
     void guardedThrowsWhenLockIsHeldByAnotherRequest() {
         when(valueOperations.setIfAbsent(any(), any(), any())).thenReturn(false);
 
-        assertThatThrownBy(() -> idempotencyService.guarded(merchantId, "key-2", "fp", TestResponse.class,
+        assertThatThrownBy(() -> idempotencyService.guarded(merchantId, "test", "key-2", "fp", TestResponse.class,
                 () -> new TestResponse("x")))
                 .isInstanceOf(IdempotencyKeyInFlightException.class);
     }
@@ -76,10 +77,11 @@ class IdempotencyServiceTest {
     void guardedReplaysTheStoredResponseWhenFingerprintMatches() {
         when(valueOperations.setIfAbsent(any(), any(), any())).thenReturn(true);
         String storedBody = objectMapper.writeValueAsString(new TestResponse("stored"));
-        IdempotencyRecord record = IdempotencyRecord.of(merchantId, "key-3", "fp", 200, storedBody);
-        when(repository.findByMerchantIdAndIdempotencyKey(merchantId, "key-3")).thenReturn(Optional.of(record));
+        IdempotencyRecord record = IdempotencyRecord.of(merchantId, "test", "key-3", "fp", 200, storedBody);
+        when(repository.findByMerchantIdAndModeAndIdempotencyKey(merchantId, "test", "key-3"))
+                .thenReturn(Optional.of(record));
 
-        TestResponse result = idempotencyService.guarded(merchantId, "key-3", "fp", TestResponse.class,
+        TestResponse result = idempotencyService.guarded(merchantId, "test", "key-3", "fp", TestResponse.class,
                 () -> new TestResponse("should-not-run"));
 
         assertThat(result.value()).isEqualTo("stored");
@@ -89,22 +91,39 @@ class IdempotencyServiceTest {
     void guardedThrowsWhenFingerprintDiffersFromTheStoredRecord() {
         when(valueOperations.setIfAbsent(any(), any(), any())).thenReturn(true);
         String storedBody = objectMapper.writeValueAsString(new TestResponse("stored"));
-        IdempotencyRecord record = IdempotencyRecord.of(merchantId, "key-4", "original-fp", 200, storedBody);
-        when(repository.findByMerchantIdAndIdempotencyKey(merchantId, "key-4")).thenReturn(Optional.of(record));
+        IdempotencyRecord record = IdempotencyRecord.of(merchantId, "test", "key-4", "original-fp", 200, storedBody);
+        when(repository.findByMerchantIdAndModeAndIdempotencyKey(merchantId, "test", "key-4"))
+                .thenReturn(Optional.of(record));
 
-        assertThatThrownBy(() -> idempotencyService.guarded(merchantId, "key-4", "different-fp", TestResponse.class,
-                () -> new TestResponse("x")))
+        assertThatThrownBy(() -> idempotencyService.guarded(merchantId, "test", "key-4", "different-fp",
+                TestResponse.class, () -> new TestResponse("x")))
                 .isInstanceOf(IdempotencyKeyReusedException.class);
+    }
+
+    @Test
+    void replayLookupIsScopedToTheRequestsMode() {
+        // A request in test mode must consult the test partition only — never replay a
+        // response stored under the same key in live mode.
+        when(valueOperations.setIfAbsent(any(), any(), any())).thenReturn(true);
+        when(repository.findByMerchantIdAndModeAndIdempotencyKey(merchantId, "test", "key-shared"))
+                .thenReturn(Optional.empty());
+
+        TestResponse result = idempotencyService.guarded(merchantId, "test", "key-shared", "fp", TestResponse.class,
+                () -> new TestResponse("ran-in-test"));
+
+        assertThat(result.value()).isEqualTo("ran-in-test");
+        verify(repository).findByMerchantIdAndModeAndIdempotencyKey(merchantId, "test", "key-shared");
     }
 
     @Test
     void lockIsReleasedEvenWhenTheOperationThrows() {
         when(valueOperations.setIfAbsent(any(), any(), any())).thenReturn(true);
-        when(repository.findByMerchantIdAndIdempotencyKey(any(), any())).thenReturn(Optional.empty());
+        when(repository.findByMerchantIdAndModeAndIdempotencyKey(any(), any(), any())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> idempotencyService.guarded(merchantId, "key-5", "fp", TestResponse.class, () -> {
-            throw new RuntimeException("boom");
-        })).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> idempotencyService.guarded(merchantId, "test", "key-5", "fp", TestResponse.class,
+                () -> {
+                    throw new RuntimeException("boom");
+                })).isInstanceOf(RuntimeException.class);
 
         verify(redisTemplate).delete(anyString());
     }
@@ -120,10 +139,11 @@ class IdempotencyServiceTest {
     }
 
     @Test
-    void recordPersistsASerializedResponse() {
-        idempotencyService.record(merchantId, "key-6", "fp", 200, new TestResponse("x"));
+    void recordPersistsASerializedResponseWithItsMode() {
+        idempotencyService.record(merchantId, "live", "key-6", "fp", 200, new TestResponse("x"));
 
         verify(repository).save(argThat(record -> record.getMerchantId().equals(merchantId)
+                && record.getMode().equals("live")
                 && record.getIdempotencyKey().equals("key-6")
                 && record.getResponseStatus() == 200));
     }

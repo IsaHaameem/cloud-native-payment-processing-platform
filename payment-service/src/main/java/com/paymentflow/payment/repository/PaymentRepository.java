@@ -10,7 +10,7 @@ import java.util.UUID;
 
 public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
-    Optional<Payment> findByIdAndMerchantId(UUID id, UUID merchantId);
+    Optional<Payment> findByIdAndMerchantIdAndMode(UUID id, UUID merchantId, String mode);
 
-    Page<Payment> findByMerchantId(UUID merchantId, Pageable pageable);
+    Page<Payment> findByMerchantIdAndMode(UUID merchantId, String mode, Pageable pageable);
 }
