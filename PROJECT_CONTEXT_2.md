@@ -7,9 +7,10 @@
 >
 > **Status:** M15 (API Key Authentication & Machine-to-Machine Access) — **complete**
 > (2026-07-21). Post-M15 repository stabilization phase (8 fixes, §17) — **complete**
-> (2026-07-22). Pending user approval to proceed to M16.
+> (2026-07-22). **M16 (Test/Live Mode Isolation) — in progress**, decomposed into
+> sub-milestones M16.1–M16.7; **M16.1 complete** (2026-07-22).
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D124**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D125**.
 
 ---
 
@@ -2570,6 +2571,7 @@ decisions are appended as milestones are implemented.
 | D121 | `last_used_at` is updated via a short-TTL Redis `SETNX`-style marker (`apikey:lastused:<keyId>`, throttled to once per `lastUsedThrottle` window) plus a fire-and-forget `CompletableFuture` write, not a synchronous update on every verify | Update the column inline on every successful `verify()` call | Task 2's explicit constraint ("never one UPDATE per request") — a cache-hit-heavy key would otherwise turn every downstream request into a database write. A missed or delayed timestamp update is never worth blocking, or even slowing down, the request that triggered it |
 | D122 | merchant-service's `ApiKeyService.revoke()` deletes the gateway's `apikey:v1:<sha256>` Redis entry directly (same Redis instance, shared key-namespace convention documented in both services) rather than merchant-service calling the gateway, or the gateway polling | Leave revocation to the cache's own TTL; or add a synchronous revoke-notification call from merchant-service to the gateway | M15's own risk table calls for "short TTL plus explicit Redis eviction on revoke" — a revoked key must stop authenticating immediately, not just after its TTL lapses (verified by the manual E2E's revoke-then-immediately-call check). Direct Redis deletion needs no new network call or service dependency between merchant-service and the gateway, since both already share the same Redis instance |
 | D123 | On the API-key path the gateway **removes the client's `Authorization` header** before proxying downstream; the signed internal-context headers become the request's sole downstream credential | Forward the API key downstream unchanged alongside the internal context | Found during post-M15 E2E validation: a downstream service's OAuth2 resource server parses *any* forwarded `Authorization: Bearer …` value as a JWT and rejects the request 401 ("Malformed token") before the internal context is consulted — the same "parses any Bearer unconditionally" behaviour D119 handled at the gateway, which also applies to whatever the gateway *forwards*. The API key must not leak past the edge anyway (defence in depth); stripping it is both the fix and the correct security posture |
+| D125 | `EventEnvelope` gains `mode` as a **nullable, `NON_NULL`-omitted** field with a backward-compatible mode-less constructor + factory retained alongside the new mode-carrying ones; a `null` mode is read as `"live"` by every consumer; `schemaVersion` is **deferred to M21** | Add `mode` as a required (non-null) field and update every producer/consumer/test in one commit; also add `schemaVersion` now per §4.7 | M16.1 must be shippable as common-dto-only and leave the wire form byte-identical until a producer opts in — a required field would break every existing 4-arg `of(...)`/6-arg constructor caller (all in already-built consumer tests) and change the serialized JSON immediately, forcing a giant cross-service commit. Nullable+`NON_NULL` makes the producer (M16.2) and each consumer (M16.3–6) independently committable, with `null→live` matching the row-backfill semantics. `schemaVersion` is a genuine placeholder until M21's versioning gives it a consumer, so it is deferred rather than shipped unused |
 | D124 | Downstream, `InternalContextFilter` is registered **inside** each servlet service's Spring Security chain (`http.addFilterBefore(internalContextFilter, AuthorizationFilter.class)`), not as a standalone servlet filter ahead of the chain; `common-lib` provides it as a bean with automatic servlet registration disabled | Keep the original design: a globally auto-registered `FilterRegistrationBean` ordered ahead of `FilterChainProxy`, so no service's `SecurityConfig` need change | The original design (as `MerchantContextAuthenticationToken`'s own javadoc aspired to) was structurally impossible: a filter ahead of the chain sets an `Authentication` that `SecurityContextHolderFilter` replaces at the start of the chain, so the request reaches `AuthorizationFilter` unauthenticated. An authentication filter must run *within* the chain. Wired in payment-service (M15's only internal-context consumer); other servlet services wire it when they gain `/v1` routes. Guarded by a new `payment-service` regression test against the real chain — the original miss existed because the gateway integration test stubbed payment-service |
 
 ---
@@ -2933,6 +2935,62 @@ re-run multiple times to confirm no residual flakiness), the owning module's ful
 and a full `./gradlew clean build` — all green throughout. Fix #8 additionally rebuilt all
 8 Docker images from scratch (`--no-cache`) and confirmed zero Foojay/toolchain-download
 activity in any build log.
+
+### M16 — Test/Live Mode Isolation 🚧 (in progress, started 2026-07-22)
+
+**Objectives.** Make `mode` (`test`/`live`) a *structural* isolation boundary across the
+data plane (§4.4), not a filter queries remember to apply. M15 already resolves mode from
+the API key, HMAC-signs it into `X-PF-Internal-Mode`, and verifies it into
+`MerchantContext.mode` — but that mode is then *discarded* (`MerchantResolver` returns a
+`MerchantSummary` with no mode), so no payment, idempotency record, or event is partitioned
+by it, and the JWT/dashboard path has no mode at all. M16 threads mode through persistence,
+idempotency, the event envelope, and every consumer; a `sk_test_` key must never read,
+mutate, or observe a live object (cross-mode read → 404, never 403).
+
+**Decomposition (approved 2026-07-22).** Seven independently-testable, independently-
+committable sub-milestones: **M16.1** `EventEnvelope.mode` (common-dto); **M16.2**
+payment-service data plane (schema/entity/`RequestModeResolver`/idempotency/reads +
+`X-PF-Mode` header for the JWT path + gateway strip); **M16.3** transaction-service (per-mode
+clearing account); **M16.4** analytics-service; **M16.5** audit-service; **M16.6**
+notification-service; **M16.7** consolidated docs + full manual E2E. M16.3–M16.6 are mutually
+independent. Approved recommendations: M16.x numbering; `schemaVersion` deferred to M21;
+`X-PF-Mode` header for the JWT/dashboard mode; `PaymentResponse.mode` as a `"test"`/`"live"`
+string; all existing rows backfill to `"live"`.
+
+#### M16.1 — `EventEnvelope` carries `mode` ✅ (2026-07-22)
+
+**Summary.** `common-dto`'s `EventEnvelope` gained a nullable `String mode` field
+(§5/§11-D125). The field is `@JsonInclude(NON_NULL)`, so a producer that hasn't set it (every
+producer, as of M16.1) omits it entirely and the wire form is **byte-identical to the pre-M16
+envelope** — nothing else in the platform changes behaviour yet. A `null` mode read back is
+interpreted as `"live"` by consumers (M16.3–6), matching the row-backfill semantics.
+
+**Files modified.** `common-dto/.../event/EventEnvelope.java` — added `mode` as the 6th record
+component (before the generic `payload`); added a **backward-compatible mode-less constructor**
+and retained the 4-arg `of(...)` factory (both leave mode `null`) so every existing caller — the
+4-arg `of(...)` in payment/merchant/identity publishers and the 6-arg direct constructor in the
+transaction/audit/notification/analytics integration tests — compiles untouched; added a new
+5-arg `of(eventType, aggregateId, correlationId, mode, payload)` factory for M16.2+ producers.
+`common-dto/.../event/EventEnvelopeTest.java` — added five tests: mode-carrying factory reaches
+the wire; mode-less factory omits `mode` from JSON; mode-less constructor leaves mode null;
+legacy JSON without `mode` deserializes to `null` (the backward-compat read path); mode
+round-trips when present.
+
+**DB / Kafka / Redis / API.** None. Envelope-only, additive; no topic, schema, or contract
+change. (`payment.events` and consumers are unaffected until M16.2+.)
+
+**Verification.** `:common-dto:test` green (13 tests, incl. the 5 new). Full `./gradlew clean
+build` green across all modules — every service compiles against the new envelope, and the
+transaction/audit/notification/analytics integration tests exercise it through the real Jackson 3
+(`tools.jackson`) runtime via their 6-arg constructor + serialize/deserialize round-trips, so the
+runtime path is validated, not just common-dto's Jackson-2 test. One transient F6
+`ContainerFetchException` (postgres:17-alpine) in notification-service during the full build —
+confirmed unrelated by an immediate clean re-run (all 18 notification tests green).
+
+**Decision.** D125 (nullable/`NON_NULL` additive design; `schemaVersion` deferred to M21).
+
+**Remaining M16 work.** M16.2–M16.7 (see decomposition above). Next: **M16.2** — payment-service
+becomes the first mode-partitioned data plane.
 
 ---
 
