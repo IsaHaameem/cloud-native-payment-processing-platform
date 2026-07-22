@@ -8,5 +8,5 @@ import java.util.UUID;
 
 public interface MerchantPaymentStatsRepository extends JpaRepository<MerchantPaymentStats, UUID> {
 
-    Optional<MerchantPaymentStats> findByMerchantIdAndCurrency(UUID merchantId, String currency);
+    Optional<MerchantPaymentStats> findByMerchantIdAndCurrencyAndMode(UUID merchantId, String currency, String mode);
 }

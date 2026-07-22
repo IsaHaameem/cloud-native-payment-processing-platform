@@ -10,7 +10,7 @@ class MerchantPaymentStatsTest {
 
     @Test
     void newStatsStartAtAllZeros() {
-        MerchantPaymentStats stats = MerchantPaymentStats.open(UUID.randomUUID(), "USD");
+        MerchantPaymentStats stats = MerchantPaymentStats.open(UUID.randomUUID(), "USD", "test");
 
         assertThat(stats.getCreatedCount()).isZero();
         assertThat(stats.getAuthorizedCount()).isZero();
@@ -23,7 +23,7 @@ class MerchantPaymentStatsTest {
 
     @Test
     void incrementCreatedBumpsOnlyCreatedCount() {
-        MerchantPaymentStats stats = MerchantPaymentStats.open(UUID.randomUUID(), "USD");
+        MerchantPaymentStats stats = MerchantPaymentStats.open(UUID.randomUUID(), "USD", "test");
 
         stats.incrementCreated();
         stats.incrementCreated();
@@ -34,7 +34,7 @@ class MerchantPaymentStatsTest {
 
     @Test
     void incrementCapturedBumpsCountAndAccumulatesAmount() {
-        MerchantPaymentStats stats = MerchantPaymentStats.open(UUID.randomUUID(), "USD");
+        MerchantPaymentStats stats = MerchantPaymentStats.open(UUID.randomUUID(), "USD", "test");
 
         stats.incrementCaptured(5000);
         stats.incrementCaptured(3000);
@@ -45,7 +45,7 @@ class MerchantPaymentStatsTest {
 
     @Test
     void incrementRefundedBumpsCountAndAccumulatesAmount() {
-        MerchantPaymentStats stats = MerchantPaymentStats.open(UUID.randomUUID(), "USD");
+        MerchantPaymentStats stats = MerchantPaymentStats.open(UUID.randomUUID(), "USD", "test");
 
         stats.incrementRefunded(2000);
 
@@ -55,7 +55,7 @@ class MerchantPaymentStatsTest {
 
     @Test
     void incrementAuthorizedAndVoidedBumpTheirOwnCounters() {
-        MerchantPaymentStats stats = MerchantPaymentStats.open(UUID.randomUUID(), "USD");
+        MerchantPaymentStats stats = MerchantPaymentStats.open(UUID.randomUUID(), "USD", "test");
 
         stats.incrementAuthorized();
         stats.incrementVoided();

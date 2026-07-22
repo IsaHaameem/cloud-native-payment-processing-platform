@@ -29,6 +29,10 @@ public class AnalyticsService {
     private static final Logger log = LoggerFactory.getLogger(AnalyticsService.class);
     private static final int MAX_ATTEMPTS = 10;
     private static final long BACKOFF_BASE_MILLIS = 20;
+    // A null envelope mode (an in-flight pre-M16 message, or any not-yet-migrated producer)
+    // is read as live — the null->live backfill contract every merchant-scoped table applies
+    // to its pre-M16 rows (M16.1's EventEnvelope contract).
+    private static final String DEFAULT_MODE = "live";
 
     private final ProcessedEventRepository processedEventRepository;
     private final MerchantPaymentStatsRepository merchantPaymentStatsRepository;
@@ -76,9 +80,10 @@ public class AnalyticsService {
         }
 
         AnalyticsEventPayload payload = envelope.payload();
+        String mode = envelope.mode() == null ? DEFAULT_MODE : envelope.mode();
         MerchantPaymentStats stats = merchantPaymentStatsRepository
-                .findByMerchantIdAndCurrency(payload.merchantId(), payload.currency())
-                .orElseGet(() -> MerchantPaymentStats.open(payload.merchantId(), payload.currency()));
+                .findByMerchantIdAndCurrencyAndMode(payload.merchantId(), payload.currency(), mode)
+                .orElseGet(() -> MerchantPaymentStats.open(payload.merchantId(), payload.currency(), mode));
 
         switch (payload.status()) {
             case "CREATED" -> stats.incrementCreated();

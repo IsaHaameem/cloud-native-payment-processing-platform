@@ -8,7 +8,7 @@
 > **Status:** M15 (API Key Authentication & Machine-to-Machine Access) — **complete**
 > (2026-07-21). Post-M15 repository stabilization phase (8 fixes, §17) — **complete**
 > (2026-07-22). **M16 (Test/Live Mode Isolation) — in progress**, decomposed into
-> sub-milestones M16.1–M16.7; **M16.1–M16.3 complete** (2026-07-22).
+> sub-milestones M16.1–M16.7; **M16.1–M16.4 complete** (2026-07-22).
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
 > **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D125**.
 
@@ -3094,6 +3094,42 @@ green — nothing else regressed; no F6 flake this run.
 
 **Remaining M16 work.** M16.4 analytics → M16.5 audit → M16.6 notification → M16.7 consolidated docs
 + manual E2E. analytics/audit/notification remain mode-unaware until their own sub-milestone.
+
+#### M16.4 — Analytics-service (aggregates) is mode-partitioned ✅ (2026-07-22)
+
+**Summary.** A direct parallel of M16.3 applied to the read-model aggregate: the
+`merchant_payment_stats` row becomes **one per `(merchant_id, currency, mode)`**, so test and
+live counts/totals are structurally separate and never mix. Same mode source (`envelope.mode()`,
+`null → "live"` normalised once in `AnalyticsService` via `DEFAULT_MODE`); same guard (DB check +
+the existing optimistic-lock whole-transaction retry loop); no `Mode` enum (the consumer trusts
+the upstream-validated envelope string). The aggregate is looked up (or created) by mode, so a
+test event can only ever touch the test aggregate.
+
+**Files modified (production, 3).** `domain/MerchantPaymentStats.java` (+`mode`, non-updatable;
+`open(merchantId, currency, mode)`; `getMode()`); `repository/MerchantPaymentStatsRepository.java`
+(`findByMerchantIdAndCurrency` → `…AndMode`); `service/AnalyticsService.java` (derive mode
+null→live; mode-scoped lookup + `open(…, mode)`). **DB:** `analytics/V2__mode_isolation.sql` —
+additive, backfill `'live'`, then `NOT NULL`: `merchant_payment_stats.mode` (+check), uniqueness
+`(merchant_id, currency)` → `(merchant_id, currency, mode)`. **Kafka/Redis/API/payload:** unchanged
+(pure consumer; mode rides the M16.1 envelope).
+
+**Tests.** `MerchantPaymentStatsTest` (factory signature). `AnalyticsServiceTest` (mode-scoped
+finder stubs, `open(…, mode)`, and a null→live assertion on the saved aggregate).
+`AnalyticsIntegrationTest` — `statsFor` gained a mode-aware overload (existing calls default to
+live) + a mode-carrying publish helper + two regressions: `testAndLiveAggregatesAreSeparateRowsWith
+IndependentCounts` (a full test-mode sequence and a live-mode CREATED for the same merchant+currency
+produce two separate rows, each with only its own mode's counts) and **the required
+`replayingTheSameEventInTestModeIsANoOpAndLeavesLiveUntouched`** (publish CREATED in test, replay
+the identical eventId, deterministically confirm via a follow-up AUTHORIZED that the replay was
+consumed, assert the test aggregate counted CREATED exactly once, and the live partition has no row
+at all).
+
+**Verification.** `:analytics-service` unit tests green (MerchantPaymentStats 5, AnalyticsService 9);
+integration tests green (5, incl. both mode regressions + the existing concurrency/redelivery
+invariants, now in the live partition unchanged); full `./gradlew clean build` green; no F6 flake.
+
+**Remaining M16 work.** M16.5 audit → M16.6 notification → M16.7 consolidated docs + manual E2E.
+audit/notification remain mode-unaware until their own sub-milestone.
 
 ---
 

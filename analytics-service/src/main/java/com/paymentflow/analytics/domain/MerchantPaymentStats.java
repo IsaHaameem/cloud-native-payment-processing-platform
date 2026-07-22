@@ -35,6 +35,12 @@ public class MerchantPaymentStats {
     @Column(name = "currency", nullable = false, updatable = false, length = 3)
     private String currency;
 
+    // The test/live partition this aggregate belongs to (M16, §4.4): one stats row per
+    // (merchant, currency, mode), so test and live counts/totals are never mixed. Stored
+    // as the canonical lowercase string ("test"/"live") carried on the event envelope.
+    @Column(nullable = false, updatable = false, length = 4)
+    private String mode;
+
     @Column(name = "created_count", nullable = false)
     private long createdCount;
 
@@ -71,13 +77,14 @@ public class MerchantPaymentStats {
         // Required by JPA.
     }
 
-    private MerchantPaymentStats(UUID merchantId, String currency) {
+    private MerchantPaymentStats(UUID merchantId, String currency, String mode) {
         this.merchantId = merchantId;
         this.currency = currency;
+        this.mode = mode;
     }
 
-    public static MerchantPaymentStats open(UUID merchantId, String currency) {
-        return new MerchantPaymentStats(merchantId, currency);
+    public static MerchantPaymentStats open(UUID merchantId, String currency, String mode) {
+        return new MerchantPaymentStats(merchantId, currency, mode);
     }
 
     public void incrementCreated() {
@@ -112,6 +119,10 @@ public class MerchantPaymentStats {
 
     public String getCurrency() {
         return currency;
+    }
+
+    public String getMode() {
+        return mode;
     }
 
     public long getCreatedCount() {

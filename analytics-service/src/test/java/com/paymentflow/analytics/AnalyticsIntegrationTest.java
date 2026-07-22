@@ -169,8 +169,85 @@ class AnalyticsIntegrationTest {
         assertThat(statsFor(merchantId, currency).orElseThrow().getCreatedCount()).isEqualTo(concurrentEvents);
     }
 
+    @Test
+    void testAndLiveAggregatesAreSeparateRowsWithIndependentCounts() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        UUID testPaymentId = UUID.randomUUID();
+        UUID livePaymentId = UUID.randomUUID();
+
+        // A full test-mode sequence and a single live-mode CREATED, same merchant + currency.
+        publishWithMode("test", UUID.randomUUID(), "PaymentCreated", testPaymentId, merchantId, "CREATED", null, 9_000, "USD");
+        publishWithMode("test", UUID.randomUUID(), "PaymentAuthorized", testPaymentId, merchantId, "AUTHORIZED", "CREATED", 9_000, "USD");
+        publishWithMode("test", UUID.randomUUID(), "PaymentCaptured", testPaymentId, merchantId, "CAPTURED", "AUTHORIZED", 9_000, "USD");
+        publishWithMode("live", UUID.randomUUID(), "PaymentCreated", livePaymentId, merchantId, "CREATED", null, 3_000, "USD");
+
+        await().atMost(Duration.ofSeconds(15))
+                .until(() -> statsFor(merchantId, "USD", "test").map(s -> s.getCapturedCount() == 1).orElse(false));
+        await().atMost(Duration.ofSeconds(15))
+                .until(() -> statsFor(merchantId, "USD", "live").map(s -> s.getCreatedCount() == 1).orElse(false));
+
+        // Two separate rows, each carrying only its own mode's counts/totals.
+        MerchantPaymentStats testStats = statsFor(merchantId, "USD", "test").orElseThrow();
+        assertThat(testStats.getCreatedCount()).isEqualTo(1);
+        assertThat(testStats.getAuthorizedCount()).isEqualTo(1);
+        assertThat(testStats.getCapturedCount()).isEqualTo(1);
+        assertThat(testStats.getTotalCapturedAmountMinor()).isEqualTo(9_000);
+
+        MerchantPaymentStats liveStats = statsFor(merchantId, "USD", "live").orElseThrow();
+        assertThat(liveStats.getCreatedCount()).isEqualTo(1);
+        assertThat(liveStats.getAuthorizedCount()).isZero();   // live saw no authorize
+        assertThat(liveStats.getCapturedCount()).isZero();     // nor a capture
+        assertThat(liveStats.getTotalCapturedAmountMinor()).isZero();
+    }
+
+    @Test
+    void replayingTheSameEventInTestModeIsANoOpAndLeavesLiveUntouched() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        UUID paymentId = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+
+        publishWithMode("test", eventId, "PaymentCreated", paymentId, merchantId, "CREATED", null, 5_000, "USD");
+        await().atMost(Duration.ofSeconds(15))
+                .until(() -> statsFor(merchantId, "USD", "test").map(s -> s.getCreatedCount() == 1).orElse(false));
+
+        // Replay the identical event (same eventId).
+        publishWithMode("test", eventId, "PaymentCreated", paymentId, merchantId, "CREATED", null, 5_000, "USD");
+
+        // Both publishes share paymentId as the Kafka key, so a follow-up event for the same
+        // payment is consumed strictly after the replay — awaiting its effect proves the
+        // replay was already handled, deterministically (the Fix #5 pattern).
+        publishWithMode("test", UUID.randomUUID(), "PaymentAuthorized", paymentId, merchantId, "AUTHORIZED", "CREATED", 5_000, "USD");
+        await().atMost(Duration.ofSeconds(15))
+                .until(() -> statsFor(merchantId, "USD", "test").map(s -> s.getAuthorizedCount() == 1).orElse(false));
+
+        // The replay added nothing: exactly one CREATED counted in the test aggregate...
+        assertThat(statsFor(merchantId, "USD", "test").orElseThrow().getCreatedCount()).isEqualTo(1);
+        assertThat(processedEventRepository.existsByEventId(eventId)).isTrue();
+        // ...and the live partition was never touched by any of this.
+        assertThat(statsFor(merchantId, "USD", "live")).isEmpty();
+    }
+
+    // Pre-M16 tests operate in the default (live) partition — their events carry no mode
+    // and resolve to "live" — so the no-mode overload defaults to live; the mode-aware
+    // overload exists for the mode-isolation tests below.
     private java.util.Optional<MerchantPaymentStats> statsFor(UUID merchantId, String currency) {
-        return merchantPaymentStatsRepository.findByMerchantIdAndCurrency(merchantId, currency);
+        return statsFor(merchantId, currency, "live");
+    }
+
+    private java.util.Optional<MerchantPaymentStats> statsFor(UUID merchantId, String currency, String mode) {
+        return merchantPaymentStatsRepository.findByMerchantIdAndCurrencyAndMode(merchantId, currency, mode);
+    }
+
+    /** Publishes an event whose envelope carries an explicit {@code mode} (M16). */
+    private void publishWithMode(String mode, UUID eventId, String eventType, UUID paymentId, UUID merchantId,
+                                 String status, String previousStatus, long eventAmountMinor, String currency)
+            throws Exception {
+        AnalyticsEventPayload payload = new AnalyticsEventPayload(
+                paymentId, merchantId, 10_000, currency, status, previousStatus, eventAmountMinor);
+        EventEnvelope<AnalyticsEventPayload> envelope = new EventEnvelope<>(
+                eventId, eventType, paymentId.toString(), Instant.now(), "test-correlation", mode, payload);
+        producer.send(new ProducerRecord<>(TOPIC, paymentId.toString(),
+                objectMapper.writeValueAsString(envelope))).get(5, TimeUnit.SECONDS);
     }
 
     private EventEnvelope<AnalyticsEventPayload> envelope(UUID eventId, String eventType, UUID paymentId,

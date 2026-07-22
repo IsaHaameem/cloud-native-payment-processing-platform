@@ -55,7 +55,7 @@ class AnalyticsServiceTest {
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
 
-        lenient().when(merchantPaymentStatsRepository.findByMerchantIdAndCurrency(any(), any()))
+        lenient().when(merchantPaymentStatsRepository.findByMerchantIdAndCurrencyAndMode(any(), any(), any()))
                 .thenReturn(Optional.empty());
         lenient().when(merchantPaymentStatsRepository.save(any(MerchantPaymentStats.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
@@ -84,6 +84,9 @@ class AnalyticsServiceTest {
         ArgumentCaptor<MerchantPaymentStats> captor = ArgumentCaptor.forClass(MerchantPaymentStats.class);
         verify(merchantPaymentStatsRepository).save(captor.capture());
         assertThat(captor.getValue().getCreatedCount()).isEqualTo(1);
+        // The envelope carries no mode (built via the mode-less of(...)), so it resolves to
+        // "live" — the null->live backfill contract applied to the aggregate row.
+        assertThat(captor.getValue().getMode()).isEqualTo("live");
         verify(processedEventRepository).save(any());
     }
 
@@ -126,9 +129,9 @@ class AnalyticsServiceTest {
 
     @Test
     void anExistingStatsRowIsReusedNotDuplicated() {
-        MerchantPaymentStats existing = MerchantPaymentStats.open(merchantId, "USD");
+        MerchantPaymentStats existing = MerchantPaymentStats.open(merchantId, "USD", "live");
         existing.incrementCreated();
-        when(merchantPaymentStatsRepository.findByMerchantIdAndCurrency(merchantId, "USD"))
+        when(merchantPaymentStatsRepository.findByMerchantIdAndCurrencyAndMode(merchantId, "USD", "live"))
                 .thenReturn(Optional.of(existing));
 
         analyticsService.processEvent(envelope("AUTHORIZED", "CREATED", 10_000));
