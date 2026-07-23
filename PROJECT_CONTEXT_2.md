@@ -11,7 +11,7 @@
 > sub-milestones M16.1–M16.7 implemented, verified, committed, and E2E-validated on the
 > running docker-compose stack. **M17 (Sandbox Simulation Engine) — in progress**,
 > started 2026-07-23: architecture reviewed and approved (incl. the `AuthorizationAdvisor`
-> port, D127–D132), decomposed into M17.1–M17.8. **M17.1 complete.**
+> port, D127–D132), decomposed into M17.1–M17.8. **M17.1–M17.2 complete.**
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
 > **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D132**.
 
@@ -3376,6 +3376,90 @@ review, above).
 **Remaining M17 work.** M17.2 — `DecisionEngine` (pure function) + `POST
 /internal/v1/sandbox/decisions` + `decision_log` + decision-key idempotency (D128). Still no other
 service touched.
+
+#### M17.2 — `DecisionEngine`, the internal decision API, decision-key idempotency ✅ (2026-07-23)
+
+**Summary.** sandbox-service can now advise on an AUTHORIZE/CAPTURE/REFUND outcome over real HTTP:
+override → test card → mode default precedence (§8.2), an append-only decision log that doubles as
+the idempotency store (D128), and a structural (not merely behavioural) guarantee that a live
+decision can never read developer-controllable state. Still no other service touched — every test
+in this sub-milestone drives the endpoint directly, signing internal-context headers the same way
+payment-service will from M17.4.
+
+**A design correction found while implementing, not assumed in the design doc.** Spring Security's
+`WebAsyncManagerIntegrationFilter` propagates the `SecurityContext` across an async dispatch only for
+a controller returning `Callable` — **not** for `CompletableFuture`/`DeferredResult`, which is what
+M17.2's non-blocking-latency design requires the decision endpoint to return. Guarding
+`/internal/v1/**` with `.anyRequest().authenticated()` made `AuthorizationFilter` reject a genuinely-
+authenticated request with 401 on the async re-dispatch (no SecurityContext survived to check). Fixed
+by matching merchant-service's own established precedent for its internal-only endpoint exactly:
+`/internal/v1/**` is `permitAll()` at the Spring Security layer, with `InternalContextFilter`'s HMAC
+verification (unconditional, runs before the controller) and the controller's own explicit
+`MerchantContextHolder.get().orElseThrow()` as the real gate — not a weaker check, a different layer
+enforcing it, one that doesn't depend on surviving an async boundary Spring Security doesn't cover.
+
+**Files created.** **Domain:** `domain/Operation.java` (`AUTHORIZE|CAPTURE|REFUND`),
+`domain/DecisionSource.java` (`OVERRIDE|TEST_CARD|MODE_DEFAULT|ACQUIRER` — the field a live decision
+must never carry `OVERRIDE`/`TEST_CARD` for), `domain/OverrideScenario.java` (the six authorize/
+capture-affecting scenarios from §8.2; `duplicate_webhooks`/`webhook_failure` deliberately excluded,
+D131 — the engine never reasons about webhook delivery), `domain/DecisionLogEntry.java` (append-only
+JPA entity; `overrideId` has no FK until M17.5's table exists). **Engine (no Spring context needed to
+test):** `engine/TestCardProfile.java` (a plain record the engine takes instead of the JPA `TestCard`
+entity, which has no public constructor — the minimal fix that makes `DecisionEngine` actually
+unit-testable, not a premature abstraction), `engine/OverrideSnapshot.java`, `engine/EngineDecision.java`,
+`engine/DecisionEngine.java` — `decide(operation, card, override)` for test mode; `decideLive(operation)`
+for live mode, with **no card/override parameters at all**, so §7's mode-isolation guarantee is a
+method signature that cannot accept developer-controllable state, not merely a branch that chooses to
+ignore it. **Service/API:** `repository/DecisionLogRepository.java`, `dto/SandboxDecisionRequest.java`
+(carries no `merchantId`/`mode` — those come only from the verified signed context, §7 barrier ①),
+`dto/SandboxDecisionResponse.java`, `service/SandboxDecisionService.java` (decision-key replay lookup
+→ mode-gated evaluation → persist, with a `DataIntegrityViolationException` catch-and-requery for the
+genuine concurrent-same-key race), `web/SandboxDecisionController.java` (returns
+`CompletableFuture<SandboxDecisionResponse>` unconditionally; the decision is evaluated and persisted
+*eagerly*, only the response's delivery is delayed — no `Thread.sleep` anywhere, latency is simulated
+via `CompletableFuture.delayedExecutor` against a dedicated daemon-thread pool,
+`config/SandboxAsyncConfig.java`). **Security:** `config/SecurityConfig.java`,
+`security/RestAuthenticationEntryPoint.java`, `security/RestAccessDeniedHandler.java`,
+`security/SecurityErrorWriter.java` — mirror payment-service's classes of the same name, minus
+OAuth2/JWT (sandbox-service never accepts a JWT at all; its only authenticated callers sign the same
+internal-context mechanism a different way).
+
+**Files modified.** `build.gradle.kts` (+`spring-boot-starter-security`, for `InternalContextFilter`
+only — no `oauth2-resource-server`); `application.yaml` (+`paymentflow.internal-context.*`, now that
+`AbstractAuthenticationToken` is on the classpath and the property is no longer inert; +
+`spring.mvc.async.request-timeout: 15000`, comfortably above the 10s injectable-latency ceiling so
+Spring's own async timeout can never fire before the latency it's timing).
+
+**DB.** `sandbox/V3__decision_log.sql` — additive, one new table, no change to `test_cards`.
+
+**Tests.** `DecisionEngineTest` (26 cases) — the full card × override × operation precedence matrix
+with no Spring context: every `DecisionOutcome`/`CaptureBehaviour`/`RefundBehaviour` branch, override-
+beats-card for every applicable scenario, an override that doesn't apply to the current operation
+falling through correctly (`DELAY_SETTLEMENT` at AUTHORIZE, `FORCE_DECLINE` at CAPTURE/REFUND, no
+override scenario ever applying to REFUND), and all three `decideLive` operations. **Note on scope
+allocated deliberately:** override *expiry* (count/time) is **not** tested here — that state doesn't
+exist until M17.5's `simulation_overrides` table and `OverrideService`; the engine itself has no
+notion of expiry by design (§ engine javadoc), so those tests belong with the service that resolves
+"is this override still active," not with the pure function that assumes it already was.
+`SandboxDecisionIntegrationTest` (7 cases, Testcontainers Postgres, real signed headers via
+`InternalContextSigner` directly): missing context → 401; unknown token → mode-default approve; a
+known decline card → `DECLINE`/`card_declined`/`TEST_CARD`; **decision-key replay returns the
+original decision even when retried with a different, approving token** — the D128 property, with an
+assertion that exactly one `decision_log` row exists for the key; **live mode approves even when
+handed a token that declines in test mode** — proving §7's isolation empirically, not just by
+construction; an unknown operation → 400; `pm_card_slow` delays the response by ~5s while the decision
+itself is already recorded (verified via elapsed wall-clock time around the call).
+
+**Verification.** `:sandbox-service:test` green (34 tests: 26 `DecisionEngineTest` + 7
+`SandboxDecisionIntegrationTest` + 1 `TestCardCatalogueIntegrationTest`, carried over from M17.1).
+Full `./gradlew clean build` green across all 9 modules — no other service's compilation or tests
+affected.
+
+**Decisions.** None new (D127–D132 already recorded); the async/Spring-Security interaction above is
+an implementation finding, not a new architectural decision.
+
+**Remaining M17 work.** M17.3 — payment-service's `payment_method_token` (D130): additive migration,
+DTO/entity/mapper/response field. No sandbox call yet.
 
 ---
 

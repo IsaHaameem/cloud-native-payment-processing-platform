@@ -2,10 +2,10 @@
  * sandbox-service (M17) — the platform's simulated acquirer and scenario engine
  * (§4.2, D103). Advises payment-service on authorization outcomes; never mutates a
  * payment, never writes the ledger, never publishes payment.* (D103's load-bearing
- * boundary). Deliberately lean in M17.1: web + JPA + Flyway only, matching
- * analytics-service's minimal-dependency discipline — Spring Security (for the
- * signed internal-context endpoint) and Kafka (for the deferred-outcome topic) are
- * added in M17.2 and M17.6 respectively, when a caller for each actually exists.
+ * boundary). M17.1 was web + JPA + Flyway only; M17.2 adds Spring Security purely for
+ * common-lib's InternalContextFilter (D100) on the internal decision endpoint — no
+ * OAuth2 resource server, since this service never accepts a JWT. Kafka (for the
+ * deferred-outcome topic) is added in M17.6, when a caller for it exists.
  */
 plugins {
     id("paymentflow.java-conventions")
@@ -17,6 +17,7 @@ dependencies {
     implementation(project(":common-lib"))
 
     implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")

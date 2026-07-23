@@ -1,0 +1,193 @@
+package com.paymentflow.sandbox;
+
+import com.paymentflow.common.security.InternalContextHeaders;
+import com.paymentflow.common.security.InternalContextSigner;
+import com.paymentflow.sandbox.repository.DecisionLogRepository;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
+
+import java.time.Instant;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * Drives {@code POST /internal/v1/sandbox/decisions} over real HTTP against real
+ * Postgres, signing internal-context headers the same way payment-service's
+ * {@code SandboxAuthorizationAdvisor} adapter will from M17.4 — this milestone builds
+ * and proves the endpoint before any other service becomes a real caller.
+ *
+ * <p>The controller returns a {@code CompletableFuture} unconditionally (even for a
+ * zero-latency decision, §6/M17.2's non-blocking-latency design), so every request
+ * that reaches it — as opposed to being rejected earlier by security or validation —
+ * goes through Spring MVC Test's two-step async dispatch, not a single {@code perform}.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@Testcontainers
+class SandboxDecisionIntegrationTest {
+
+    @Container
+    @ServiceConnection
+    static PostgreSQLContainer<?> postgres =
+            new PostgreSQLContainer<>(DockerImageName.parse("postgres:17-alpine"));
+
+    private static final String SECRET = "dev-only-insecure-shared-secret-change-me";
+    private static final String SERVICE_KEY_ID = UUID.randomUUID().toString();
+    private static final String SERVICE_SCOPES = "internal:payment-service";
+    private static final InternalContextSigner SIGNER = new InternalContextSigner();
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private DecisionLogRepository decisionLogRepository;
+
+    @Test
+    void missingInternalContextIsUnauthorized() throws Exception {
+        mockMvc.perform(post("/internal/v1/sandbox/decisions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"decisionKey":"k-1","paymentId":"%s","operation":"AUTHORIZE",
+                                 "amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID())))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void noTokenFallsToModeDefaultApprove() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        performDecision(signedPost(merchantId, "test")
+                        .content("""
+                                {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                                 "amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID(), UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("APPROVE"))
+                .andExpect(jsonPath("$.source").value("MODE_DEFAULT"));
+    }
+
+    @Test
+    void knownDeclineCardDeclinesWithItsCode() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        performDecision(signedPost(merchantId, "test")
+                        .content("""
+                                {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                                 "paymentMethodToken":"pm_card_chargeDeclined","amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID(), UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("DECLINE"))
+                .andExpect(jsonPath("$.declineCode").value("card_declined"))
+                .andExpect(jsonPath("$.source").value("TEST_CARD"));
+    }
+
+    @Test
+    void decisionKeyReplayReturnsTheOriginalDecisionWithoutReevaluating() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        UUID paymentId = UUID.randomUUID();
+        String decisionKey = "replay-" + UUID.randomUUID();
+
+        String firstBody = """
+                {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                 "paymentMethodToken":"pm_card_chargeDeclined","amountMinor":1000,"currency":"USD"}
+                """.formatted(decisionKey, paymentId);
+        performDecision(signedPost(merchantId, "test").content(firstBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("DECLINE"));
+
+        // A retried call with the SAME decision key but a different (approving) token
+        // must still return the ORIGINAL decline — the log is authoritative, not the
+        // second call's inputs.
+        String retryBody = """
+                {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                 "paymentMethodToken":"pm_card_visa","amountMinor":1000,"currency":"USD"}
+                """.formatted(decisionKey, paymentId);
+        performDecision(signedPost(merchantId, "test").content(retryBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("DECLINE"))
+                .andExpect(jsonPath("$.declineCode").value("card_declined"));
+
+        assertThat(decisionLogRepository.findByDecisionKey(decisionKey)).isPresent();
+        long matching = decisionLogRepository.findAll().stream()
+                .filter(e -> e.getDecisionKey().equals(decisionKey))
+                .count();
+        assertThat(matching).isEqualTo(1);
+    }
+
+    @Test
+    void liveModeIgnoresADecliningTokenAndApproves() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        performDecision(signedPost(merchantId, "live")
+                        .content("""
+                                {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                                 "paymentMethodToken":"pm_card_chargeDeclined","amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID(), UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("APPROVE"))
+                .andExpect(jsonPath("$.source").value("MODE_DEFAULT"));
+    }
+
+    @Test
+    void unknownOperationIsBadRequest() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        mockMvc.perform(signedPost(merchantId, "test")
+                        .content("""
+                                {"decisionKey":"%s","paymentId":"%s","operation":"BOGUS",
+                                 "amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID(), UUID.randomUUID())))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void slowCardResponseIsDelayedByItsLatencyProfile() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        Instant start = Instant.now();
+        performDecision(signedPost(merchantId, "test")
+                        .content("""
+                                {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                                 "paymentMethodToken":"pm_card_slow","amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID(), UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("APPROVE"))
+                .andExpect(jsonPath("$.latencyMs").value(5000));
+
+        assertThat(Instant.now()).isAfterOrEqualTo(start.plusMillis(4900));
+    }
+
+    /** Completes the two-step dispatch every async controller return requires under MockMvc. */
+    private ResultActions performDecision(MockHttpServletRequestBuilder request) throws Exception {
+        MvcResult mvcResult = mockMvc.perform(request).andExpect(request().asyncStarted()).andReturn();
+        return mockMvc.perform(asyncDispatch(mvcResult));
+    }
+
+    private static MockHttpServletRequestBuilder signedPost(UUID merchantId, String mode) {
+        long issuedAt = Instant.now().getEpochSecond();
+        String signature = SIGNER.sign(SECRET, merchantId.toString(), mode, SERVICE_KEY_ID, SERVICE_SCOPES,
+                null, null, issuedAt);
+        return post("/internal/v1/sandbox/decisions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(InternalContextHeaders.MERCHANT_ID, merchantId.toString())
+                .header(InternalContextHeaders.MODE, mode)
+                .header(InternalContextHeaders.KEY_ID, SERVICE_KEY_ID)
+                .header(InternalContextHeaders.SCOPES, SERVICE_SCOPES)
+                .header(InternalContextHeaders.ISSUED_AT, String.valueOf(issuedAt))
+                .header(InternalContextHeaders.SIGNATURE, signature);
+    }
+}

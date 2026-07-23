@@ -21,9 +21,25 @@ spring:
     schemas: sandbox
     default-schema: sandbox
     locations: classpath:db/migration
+  mvc:
+    async:
+      # Comfortably above DecisionEngine.MAX_INJECTABLE_LATENCY_MS (10s) — the
+      # decision endpoint's response can be deliberately delayed up to that ceiling
+      # (pm_card_slow, inject_latency, force_timeout), and Spring's own async request
+      # timeout must never fire before the simulated latency it's timing.
+      request-timeout: 15000
 
 server:
   port: 8094
+
+paymentflow:
+  internal-context:
+    # M17.2: payment-service becomes a legitimate *signer* of this header family
+    # (D100's mechanism reused for a service-to-service call, not gateway-to-service)
+    # to call POST /internal/v1/sandbox/decisions. From M17.5, the gateway signs the
+    # same way for the sk_test_-authenticated /v1/test/* control routes.
+    secret: ${PAYMENTFLOW_INTERNAL_CONTEXT_SECRET:dev-only-insecure-shared-secret-change-me}
+    max-clock-skew-seconds: 30
 
 management:
   endpoints:
