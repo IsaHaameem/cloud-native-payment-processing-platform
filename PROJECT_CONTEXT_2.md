@@ -2039,6 +2039,11 @@ pipeline was never *directly* confirmed on AWS because no `psql` or ECS Exec acc
 - New ALB routing rules for the portal and the `/v1/*` API paths.
 - ECS autoscaling policies — V1 ran every service as a single unscaled task, which M14
   explicitly noted made real cloud load testing meaningless.
+- **Capacity-provider fix (carried over from V1, must land before the apply):** remove the
+  explicit `launch_type = "FARGATE"` from `modules/ecs-service` so services actually inherit
+  the cluster's `FARGATE_SPOT` default — V1's deployment silently ran entirely on-demand
+  because of it (§14). This is a pre-apply task, not a post-deployment optimization: applying
+  first and correcting after would mean paying the on-demand premium twice over.
 - WAF in front of the ALB: rate-based rules, common rule set.
 - ECS Exec enabled on the Kafka-touching services, closing the V1 verification gap.
 - Optional (costed, decided at kickoff): the M13 observability stack deployed to AWS.
@@ -2064,7 +2069,13 @@ external endpoint; a limited smoke load test.
 - [ ] The portal works against the deployed API, including CORS.
 - [ ] Webhooks reach a real external endpoint with valid signatures.
 - [ ] Autoscaling, WAF, and ECS Exec verified working.
+- [ ] **Every running task confirms `capacityProviderName: FARGATE_SPOT`** via
+      `aws ecs describe-tasks` — verified on the tasks themselves, not inferred from the
+      cluster's default strategy, which is exactly the inference that hid V1's on-demand
+      billing for four days.
 - [ ] Teardown and cost runbook written, with a `terraform destroy` plan reviewed.
+      The runbook must record that `modules/ecr` needs `force_delete = true` (or a manual
+      image purge) — V1's teardown failed on all 8 repositories without it.
 
 **Deliverables.** Terraform for all V2 components; deployed environment; a functioning
 `cd.yml`; verification evidence; cost and teardown runbook.
@@ -2631,6 +2642,8 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **The internal-context HMAC secret is `.env`-only** (`PAYMENTFLOW_INTERNAL_CONTEXT_SECRET`), with a hardcoded, clearly-insecure local-dev default (`dev-only-insecure-shared-secret-change-me`) baked into every service's `application.yaml` and `docker-compose.yml`. Secrets Manager wiring is explicitly out of scope per D113 (local-first V2, one AWS milestone at the end, M29) — this is a real, load-bearing gap for that milestone to close, not an accident.
 - **Rotate-with-grace has no explicit "list keys near grace expiry" surface** — a developer can see `graceExpiresAt` on a key via `GET /api/v1/merchants/me/api-keys`, but there's no proactive notification (email/webhook) when a grace window is about to lapse. No milestone currently owns this; flagged here as a real gap in the developer experience, not assigned anywhere yet.
 - **`api_key_issued_total`/`api_key_revoked_total`/`api_key_rotated_total`/`email_logged_total` (generalized) are the only new M15 metrics** — no Grafana panel or alert rule was added for any of them (M13's dashboards predate M15). A future observability pass should decide whether these belong on an existing dashboard or a new "developer platform" one.
+- **`modules/ecs-service`'s explicit `launch_type` silently defeats the cluster's `FARGATE_SPOT` default — the entire V1 deployment billed at on-demand rates.** Found during the post-M16 teardown (2026-07-23), not during the deployment itself. `modules/ecs-cluster` sets `default_capacity_provider_strategy { capacity_provider = "FARGATE_SPOT" }` and the live cluster genuinely carried that strategy — but `modules/ecs-service` creates every service with an explicit `launch_type = "FARGATE"`, and **an explicit launch type bypasses the cluster's default capacity provider entirely**. Confirmed against the live estate before teardown: every service reported `launchType: FARGATE` with `capacityProviderName: null`, and so did the running tasks. The cluster-level setting was inert for the full deployment window (2026-07-19 → 2026-07-23); all nine tasks ran on-demand, roughly $90/month of a ~$165/month estate, where Spot would have cut that line item by ~60–70%. **The trap is that the cluster configuration reads as correct** — `describe-clusters` returns `FARGATE_SPOT`, and only `describe-tasks` reveals what capacity actually served the workload. Owned by M29 as a pre-apply task (§5), deliberately not fixed now: V2 is local-first (D113), so there is no live ECS service to fix against until M29 re-applies. The fix is to drop `launch_type` from `modules/ecs-service` and either inherit the cluster default or set an explicit per-service `capacity_provider_strategy`.
+- **`modules/ecr` has no `force_delete`, so `terraform destroy` cannot complete while images exist.** V1's teardown (2026-07-23) destroyed 106 of 114 resources and failed on all 8 ECR repositories with `RepositoryNotEmptyException` — each held 3 images (3.30 GB total). Everything billable was destroyed successfully because ECR sits in its own corner of the dependency graph, so the practical impact was an incomplete teardown rather than continued cost (~$0.33/month retained). The repositories were kept deliberately after the fact, since M29 will need them again. M29's teardown runbook must either set `force_delete = true` or purge images as a documented first step.
 
 ---
 
