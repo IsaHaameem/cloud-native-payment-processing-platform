@@ -36,8 +36,15 @@ resource "aws_ecs_cluster_capacity_providers" "this" {
 
   capacity_providers = ["FARGATE", "FARGATE_SPOT"]
 
+  # FARGATE_SPOT by default (~50-70% cheaper than on-demand Fargate) rather
+  # than FARGATE — this platform's own cost-consciousness (Risks) applies
+  # here too, and a rare Spot interruption (2-minute warning, ECS reschedules
+  # onto new capacity automatically) is a non-issue for a portfolio/demo
+  # workload with no real uptime SLA. Both capacity providers stay available
+  # so any future environment that genuinely needs on-demand reliability can
+  # override the strategy without touching this module.
   default_capacity_provider_strategy {
-    capacity_provider = "FARGATE"
+    capacity_provider = "FARGATE_SPOT"
     weight            = 1
   }
 }

@@ -11,9 +11,9 @@ variable "service_names" {
 }
 
 variable "retention_days" {
-  description = "CloudWatch Logs retention. 30 days by default — long enough to debug a recent incident, short enough not to accumulate indefinite storage cost for a portfolio-scale workload."
+  description = "CloudWatch Logs retention. 7 days by default — long enough to debug a recent demo/verification session, short enough not to accumulate indefinite storage cost for a portfolio-scale workload that isn't run continuously."
   type        = number
-  default     = 30
+  default     = 7
 }
 
 variable "tags" {
