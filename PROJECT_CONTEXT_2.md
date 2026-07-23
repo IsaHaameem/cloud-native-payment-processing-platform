@@ -9,9 +9,11 @@
 > (2026-07-21). Post-M15 repository stabilization phase (8 fixes, §17) — **complete**
 > (2026-07-22). **M16 (Test/Live Mode Isolation) — complete** (2026-07-22): all
 > sub-milestones M16.1–M16.7 implemented, verified, committed, and E2E-validated on the
-> running docker-compose stack. Pending user approval of the M16 completion report to proceed to M17.
+> running docker-compose stack. **M17 (Sandbox Simulation Engine) — in progress**,
+> started 2026-07-23: architecture reviewed and approved (incl. the `AuthorizationAdvisor`
+> port, D127–D132), decomposed into M17.1–M17.8. **M17.1 complete.**
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D126**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D132**.
 
 ---
 
@@ -2586,6 +2588,12 @@ decisions are appended as milestones are implemented.
 | D126 | audit-service records `mode` as a **nullable** column, verbatim from the envelope (null when absent), with **no backfill** and **no null→live coercion** — deliberately unlike the NOT-NULL + backfill-live pattern M16.2–16.4 use | Make `audit_log.mode` NOT NULL and backfill existing rows to `'live'`, matching every other M16 table for consistency | Audit is a faithful, schema-agnostic recorder (D44) consuming *two* streams through one method: `payment.events` (which carry a mode) and `merchant.events` (key/merchant lifecycle, mode-less). A mode-less event — e.g. a **test**-key `ApiKeyIssued` — coerced to `'live'` would be a factual lie in an immutable audit trail. Audit partitions nothing (it appends one row per event; it never resolves a per-mode row/account), so it has no reason to apply the null→live interpretation that is a *consumer's* choice for its *own* partitioning. Existing rows genuinely predate mode or came from a mode-less stream, so null ("declared no mode") is the truthful value. The check still rejects any non-test/live string; a CHECK passes on NULL, so null stays valid. The M19 Events API filters payment events by concrete test/live; mode-less events correctly don't match |
 | D125 | `EventEnvelope` gains `mode` as a **nullable, `NON_NULL`-omitted** field with a backward-compatible mode-less constructor + factory retained alongside the new mode-carrying ones; a `null` mode is read as `"live"` by every consumer; `schemaVersion` is **deferred to M21** | Add `mode` as a required (non-null) field and update every producer/consumer/test in one commit; also add `schemaVersion` now per §4.7 | M16.1 must be shippable as common-dto-only and leave the wire form byte-identical until a producer opts in — a required field would break every existing 4-arg `of(...)`/6-arg constructor caller (all in already-built consumer tests) and change the serialized JSON immediately, forcing a giant cross-service commit. Nullable+`NON_NULL` makes the producer (M16.2) and each consumer (M16.3–6) independently committable, with `null→live` matching the row-backfill semantics. `schemaVersion` is a genuine placeholder until M21's versioning gives it a consumer, so it is deferred rather than shipped unused |
 | D124 | Downstream, `InternalContextFilter` is registered **inside** each servlet service's Spring Security chain (`http.addFilterBefore(internalContextFilter, AuthorizationFilter.class)`), not as a standalone servlet filter ahead of the chain; `common-lib` provides it as a bean with automatic servlet registration disabled | Keep the original design: a globally auto-registered `FilterRegistrationBean` ordered ahead of `FilterChainProxy`, so no service's `SecurityConfig` need change | The original design (as `MerchantContextAuthenticationToken`'s own javadoc aspired to) was structurally impossible: a filter ahead of the chain sets an `Authentication` that `SecurityContextHolderFilter` replaces at the start of the chain, so the request reaches `AuthorizationFilter` unauthenticated. An authentication filter must run *within* the chain. Wired in payment-service (M15's only internal-context consumer); other servlet services wire it when they gain `/v1` routes. Guarded by a new `payment-service` regression test against the real chain — the original miss existed because the gateway integration test stubbed payment-service |
+| D127 | (M17) A simulation override's `remaining_count` is consumed via an atomic conditional `UPDATE … WHERE remaining_count > 0`, not `@Version` optimistic locking | Optimistic locking on `simulation_overrides`, matching the platform's other aggregates | Optimistic locking is correct for an aggregate whose invariants span fields; `remaining_count` is a counter on a hot row under concurrent authorizations, where optimistic locking converts contention into retry storms for no invariant that spans fields. `Payment` keeps optimistic locking untouched — this adds to the platform's vocabulary, not a replacement |
+| D128 | (M17) sandbox-service's advisory call is idempotent via a caller-supplied `decision_key`, unique on `decision_log`; the log doubles as the idempotency store | A separate idempotency table alongside the log | The advice call has a side effect (override consumption) but is wrapped in payment-service's Resilience4j Retry (M8 shape) — a naive retry would double-consume an override. One unique key, one table, gives idempotency and the audit trail together rather than two mechanisms that could drift apart |
+| D129 | (M17) The sandbox decision is obtained **before** payment-service opens its database transaction; authority over the payment's state is re-established by re-loading it under optimistic locking once the decision returns | Call sandbox from inside the same `TransactionTemplate` block as the state mutation | Holding a pooled DB connection across a network call (up to ~5s under `pm_card_slow`/`inject_latency`) risks connection-pool exhaustion under exactly the load M14 measured. The pre-transaction read is advisory only (token/amount + a fail-fast FSM check); the FSM's optimistic-lock guarantee is unweakened because authority is re-established, not assumed, when the transaction opens |
+| D130 | (M17) `payments.payment_method_token` is a nullable column with no backfill; a token-less payment resolves to the mode default (test → auto-approve, live → the simulated acquirer) | Require a token on every payment; add a synthetic default token | Keeps M17 additive to M16/M5: every existing integration test and every existing caller that never sends a token continues to behave exactly as before. This is the property that lets M17 introduce a payment-method concept without touching a single M16.2 test |
+| D131 | (M17) Webhook-path simulation scenarios (`duplicate_webhooks`, `webhook_failure`, delayed/out-of-order delivery) are **defined** in M17's override vocabulary and schema, but **enacted** by M18 (which reads the active override during delivery) | Reject these scenarios until M18 ships; or pull webhook-delivery machinery forward into M17 | Builds the schema and control API once rather than extending them again in M18. Accepted trade-off: between M17 and M18, setting one of these overrides returns 200 with an explicit `enactedFrom: "M18"` marker rather than doing anything — an honest no-op, not a silent one |
+| D132 | (M17) payment-service depends on an `AuthorizationAdvisor` **port** (an acquirer-neutral decision contract); `SandboxAuthorizationAdvisor` is the one adapter behind it. No provider-selection strategy, multi-provider config, or separate adapter service is introduced | (a) A concrete `SandboxAdvisor` with no interface, matching `MerchantResolver`'s precedent; (b) a full routing/strategy abstraction for provider selection | (a) risks sandbox-specific vocabulary (`source`, `latencyMs`, test-card identity) leaking into `PaymentResponse`/`PaymentEventPayload` before M21 freezes the public contract — cheap to fix now, a versioned-contract migration to fix after. (b) encodes a guess about a selection axis with zero real-PSP experience; real PSP integration is explicitly beyond V2 (§15). The port's job is to make any such leak an explicit, reviewable diff, not to enable a swap that costs nothing to make either way |
 
 ---
 
@@ -3260,8 +3268,114 @@ harness).
 implemented, verified, and committed. Mode is now a *structural* property (§4.4): API-key mode is
 key-bound and non-forgeable; JWT/dashboard mode is a caller-owned `X-PF-Mode` selector; every
 merchant-scoped payment/ledger/analytics row is partitioned by mode; audit and notification record it
-verbatim (D126); and legacy mode-less events remain correct. **Ready for M17 (sandbox-service) pending
-user approval of the M16 completion report.**
+verbatim (D126); and legacy mode-less events remain correct.
+
+### M17 — Sandbox Simulation Engine 🚧 (in progress, started 2026-07-23)
+
+**Objective.** Per §5/M17: introduce `sandbox-service`, route authorization decisions through it,
+make failure requestable and deterministic for test mode while D104's simulated acquirer keeps live
+mode observably different — without payment-service ever depending on anything sandbox-specific.
+
+**Architecture review (2026-07-23, approved).** Two review passes before implementation, per this
+project's standing "design before code" discipline:
+
+1. **The M17 design itself** — three findings corrected the plan before any code was written: (a)
+   the brief's "sandbox never touches live" reading conflicts with D104 and M17's own completion
+   criteria; resolved as **sandbox advises both modes, only test mode is developer-controllable**
+   (a live decision's `source` is structurally always `ACQUIRER`, never reachable by merchant
+   input); (b) `payment_method_token` has no entry point anywhere in the platform today — added as
+   D130; (c) the sandbox call must be obtained **before** the payment transaction opens, never
+   inside it — D129, the fix for a connection-pool-exhaustion risk the original task list didn't
+   surface. Also: `pm_card_disputed`'s dispute-event behaviour and a `PARTIALLY_CAPTURED` FSM state
+   are both **out of scope** — the former has no dispute concept anywhere in V2 (§15), the latter
+   would modify M5's completed, M14-load-tested all-or-nothing capture invariant for a simulation
+   feature, not a product decision. Four rulings (A–D) resolved: live authorization keeps D104's
+   simulated acquirer (Ruling A); the token is an additive nullable column (Ruling B, D130); webhook-
+   path scenarios are defined now, enacted in M18 (Ruling C, D131); partial capture is dropped, not
+   built (Ruling D).
+2. **Future-extensibility pass** — should payment-service depend on an `AuthorizationAdvisor` port
+   now, so a real-PSP adapter can replace sandbox later without touching payment-service? **Yes**,
+   narrowly: a 1-method port + an acquirer-neutral decision contract, with sandbox as the one
+   adapter behind it (D132). Explicitly **not** introduced: provider-selection strategy, multi-
+   provider config, a separate adapter service — each would encode a guess about an axis (which
+   provider, selected how) with zero real-PSP experience. The port's value isn't "swapping is
+   easier" (extracting an interface from one class is trivial) — it's that sandbox-specific
+   vocabulary (`source`, `latencyMs`, test-card identity) is prevented from leaking into
+   `PaymentResponse`/`PaymentEventPayload`, which become **frozen public contracts** once M21's CI
+   spec-diff ships. `PENDING` (not a sandbox-shaped `deferred{…}` object) crosses the port for
+   deferred outcomes; `source`/`latencyMs`/override identity stay behind it, surfaced only via
+   sandbox's own decision-log query API (M17.8) — "payment-service learns the verdict; sandbox
+   keeps the reasoning."
+
+**Decomposition.** Eight independently-committable sub-milestones: **M17.1** `sandbox-service`
+module + schema + seeded test-card catalogue (no other service touched); **M17.2** `DecisionEngine`
++ internal decision API + decision log/idempotency (still no other service touched); **M17.3**
+payment-service's `payment_method_token` (additive, no sandbox call yet); **M17.4** the
+`AuthorizationAdvisor` port + `SandboxAuthorizationAdvisor` adapter wired into authorize, with
+degradation; **M17.5** simulation overrides + control API + live-mode rejection; **M17.6** deferred
+outcomes (scheduler + `sandbox.scheduled.events` + payment-service's first Kafka consumer role);
+**M17.7** the live simulated acquirer (D104); **M17.8** decision-log query API, docs rendered from
+the catalogue, full E2E, milestone closure. Ordering rationale: sandbox is fully built and tested
+(17.1–17.2) before payment-service is touched at all; the token (17.3) lands separately from the
+call (17.4) so a regression in one can never implicate the other; Kafka (17.6) is last among the
+mechanisms because it is the only piece introducing a new architectural role for payment-service.
+
+#### M17.1 — `sandbox-service` module, schema, seeded test-card catalogue ✅ (2026-07-23)
+
+**Summary.** New Gradle module `sandbox-service` (`:8094`) boots against real Postgres with its own
+`sandbox` schema and serves the seeded test-card catalogue (§8.1) over public, unauthenticated HTTP.
+Deliberately the leanest possible service — no Spring Security, no Kafka, no Feign — since this
+sub-milestone's only inbound interface is one piece of public reference data. Zero other service
+touched.
+
+**Files created.** Module: `sandbox-service/build.gradle.kts` (web, validation, actuator, data-jpa,
+flyway, postgres — matching `analytics-service`'s minimal-dependency template; Spring Security and
+Kafka are added in M17.2 and M17.6, when a caller for each actually exists);
+`SandboxServiceApplication.java`; `application.yaml` (port 8094, `default-schema: sandbox`, no
+`internal-context.*` config yet — that property is inert without `AbstractAuthenticationToken` on
+the classpath, so it's added in M17.2 alongside the security dependency, not speculatively here).
+**Domain:** `domain/TestCard.java` (natural `token` primary key — no synthetic id, since nothing
+references a row except by its token), `domain/DecisionOutcome.java` (`APPROVE|DECLINE|ERROR|DELAY|
+REQUIRE_ACTION` — `DELAY` is unused by any seeded card in M17.1–M17.8, reserved for a future
+authorize-time-deferred scenario, matching D131's define-vocabulary-now discipline),
+`domain/CaptureBehaviour.java` (`SUCCEED|FAIL|DEFER`), `domain/RefundBehaviour.java`
+(`SUCCEED|FAIL`). **Data access:** `repository/TestCardRepository.java`,
+`service/TestCardService.java` (the one place both this milestone's catalogue endpoint and M17.2's
+decision-engine card lookup go through — one lookup path, not two). **API:**
+`dto/TestCardResponse.java`, `mapper/TestCardMapper.java`, `web/TestCardController.java` (`GET
+/v1/test/cards`).
+
+**DB.** `sandbox/V1__init_sandbox.sql` — `test_cards` (token PK, outcome/capture_behaviour/
+refund_behaviour as check-constrained closed vocabularies; `chk_test_cards_outcome_shape` makes the
+catalogue's coherence a schema guarantee — a DECLINE row with no `decline_code` cannot be inserted).
+`sandbox/V2__seed_test_cards.sql` — all 15 cards from §8.1 plus two new ones closing failure-
+simulation gaps the original catalogue didn't cover: `pm_card_lostCard` (`DECLINE/lost_card`) and
+`pm_card_issuerUnavailable` (`ERROR/issuer_unavailable`). `pm_card_disputed` is seeded as a plain
+approve+capture (documented in its own row's description) — no dispute/chargeback concept exists
+anywhere in V2 (§15), so there is no event to raise; recording that honestly rather than promising a
+dispute event M17 cannot emit.
+
+**Shared infra.** `settings.gradle.kts` (+`sandbox-service`); `docker-compose.yml` (+`sandbox-service`
+block, port 8094, no `depends_on` beyond Postgres); `docker/postgres/init/01-init-schemas.sql`
+(+`sandbox` schema — belt-and-suspenders documentation; Flyway's own `schemas` property would create
+it regardless, exactly how every other service's schema already gets created under Testcontainers).
+
+**Tests.** `TestCardCatalogueIntegrationTest` (`@SpringBootTest` + `@AutoConfigureMockMvc` +
+Testcontainers Postgres, the `PaymentIntegrationTest` pattern): both migrations apply against a real,
+empty Postgres and `GET /v1/test/cards` returns all 17 seeded rows over real HTTP, asserting the
+outcome/decline-code/error-code/latency/capture-behaviour/refund-behaviour shape for a representative
+card of each kind — the completion criterion this sub-milestone actually needed proven.
+
+**Verification.** `:sandbox-service:compileJava` clean. `:sandbox-service:test` green (1 test). Full
+`./gradlew clean build` green across all 9 modules — no existing service's compilation or tests
+affected (confirms the "zero other files touched" scope held in practice, not just in the file list).
+
+**Decisions.** None new in this sub-milestone (D127–D132 recorded from the design/extensibility
+review, above).
+
+**Remaining M17 work.** M17.2 — `DecisionEngine` (pure function) + `POST
+/internal/v1/sandbox/decisions` + `decision_log` + decision-key idempotency (D128). Still no other
+service touched.
 
 ---
 

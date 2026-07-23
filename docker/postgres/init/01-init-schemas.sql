@@ -16,6 +16,7 @@ CREATE SCHEMA IF NOT EXISTS transaction;
 CREATE SCHEMA IF NOT EXISTS audit;
 CREATE SCHEMA IF NOT EXISTS notification;
 CREATE SCHEMA IF NOT EXISTS analytics;
+CREATE SCHEMA IF NOT EXISTS sandbox;
 
 -- UUID generation (gen_random_uuid) ships with pgcrypto; enable it up front so
 -- migrations can rely on it regardless of which service runs first.
@@ -28,3 +29,4 @@ COMMENT ON SCHEMA transaction  IS 'transaction-service: double-entry ledger';
 COMMENT ON SCHEMA audit        IS 'audit-service: immutable audit trail';
 COMMENT ON SCHEMA notification IS 'notification-service: webhook/email delivery state';
 COMMENT ON SCHEMA analytics    IS 'analytics-service: read models / aggregates';
+COMMENT ON SCHEMA sandbox      IS 'sandbox-service: simulated acquirer, test cards, overrides, decision log';

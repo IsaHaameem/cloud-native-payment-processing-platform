@@ -48,6 +48,7 @@ include("transaction-service")
 include("audit-service")
 include("notification-service")
 include("analytics-service")
+include("sandbox-service")
 
 // ── Performance / load testing (M14) ────────────────────────────────────
 include("load-tests")

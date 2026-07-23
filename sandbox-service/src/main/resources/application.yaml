@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: sandbox-service
+  datasource:
+    # Local default points at the compose Postgres (host port 55432). Overridden by
+    # SPRING_DATASOURCE_* env vars in containers / production.
+    url: jdbc:postgresql://localhost:55432/paymentflow
+    username: paymentflow
+    password: paymentflow
+  jpa:
+    hibernate:
+      ddl-auto: validate        # Flyway owns the schema; Hibernate only validates it.
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: sandbox
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    schemas: sandbox
+    default-schema: sandbox
+    locations: classpath:db/migration
+
+server:
+  port: 8094
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    metrics:
+      export:
+        # Prometheus (pull-based scrape) is this platform's metrics backend; see
+        # every other service's application.yaml for why the OTLP push exporter is
+        # disabled here (no receiver configured; Tempo only ingests traces).
+        enabled: false
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # Local default points at the compose Tempo. Overridden by
+          # MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT in containers.
+          endpoint: http://localhost:4318/v1/traces
+
+# Correlation/request ids (common-lib's filter) and trace/span ids (Micrometer
+# Tracing, M13) surface on every log line.
+logging:
+  pattern:
+    level: "%5p [correlationId=%X{correlationId:-},requestId=%X{requestId:-},traceId=%X{traceId:-},spanId=%X{spanId:-}]"
