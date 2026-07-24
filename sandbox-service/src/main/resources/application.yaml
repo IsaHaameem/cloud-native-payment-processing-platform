@@ -21,6 +21,16 @@ spring:
     schemas: sandbox
     default-schema: sandbox
     locations: classpath:db/migration
+  kafka:
+    # Local default points at the compose Kafka's host-published listener.
+    # KafkaProducerConfig builds its own KafkaTemplate<String,String> with explicit
+    # StringSerializer instances (mirrors payment-service, M17.6's first producer role
+    # for this service) — the scheduled-outcome row is already a fully-serialized JSON
+    # EventEnvelope by the time ScheduledOutcomeRelay ships it, same as the payment
+    # outbox.
+    bootstrap-servers: localhost:59092
+    producer:
+      acks: all
   mvc:
     async:
       # Comfortably above DecisionEngine.MAX_INJECTABLE_LATENCY_MS (10s) — the
@@ -33,6 +43,13 @@ server:
   port: 8094
 
 paymentflow:
+  scheduled-outcomes:
+    # How often ScheduledOutcomeRelay polls for due, undelivered rows (M17.6) — mirrors
+    # payment-service's paymentflow.outbox.relay-interval-ms in spirit; 1s keeps the
+    # observable delay between a deferred outcome's fireAt and its actual Kafka publish
+    # small relative to the shortest deferral this platform simulates (pm_card_
+    # delayedSettlement's ~5s).
+    relay-interval-ms: 1000
   internal-context:
     # M17.2: payment-service becomes a legitimate *signer* of this header family
     # (D100's mechanism reused for a service-to-service call, not gateway-to-service)

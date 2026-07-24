@@ -38,6 +38,14 @@ spring:
     bootstrap-servers: localhost:59092
     producer:
       acks: all
+    # M17.6: this service's first consumer role (sandbox.scheduled.events) — group id
+    # follows D5's <service>-<topic> convention, matching transaction-service's own
+    # consumer exactly.
+    consumer:
+      group-id: payment-service-sandbox.scheduled.events
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 server:
   port: 8083
@@ -53,6 +61,12 @@ paymentflow:
       base-uri: http://localhost:8094
   outbox:
     relay-interval-ms: 2000
+  kafka:
+    sandbox-scheduled-events-topic: sandbox.scheduled.events
+    # Matches sandbox.scheduled.events' partition count (KafkaTopicConfig in
+    # sandbox-service) so every partition can be consumed in parallel within this one
+    # consumer group — same rationale as transaction-service's own listener-concurrency.
+    listener-concurrency: 3
   internal-context:
     # The HMAC secret every service uses to verify a gateway-asserted merchant context
     # (M15, D100/D118) — payment-service is the first consumer of it (MerchantResolver

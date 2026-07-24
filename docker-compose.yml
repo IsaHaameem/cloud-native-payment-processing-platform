@@ -261,12 +261,15 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-paymentflow}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-paymentflow}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8094:8094"
     depends_on:
       postgres:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     networks:
       - paymentflow

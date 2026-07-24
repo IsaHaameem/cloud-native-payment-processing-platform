@@ -11,7 +11,7 @@
 > sub-milestones M16.1–M16.7 implemented, verified, committed, and E2E-validated on the
 > running docker-compose stack. **M17 (Sandbox Simulation Engine) — in progress**,
 > started 2026-07-23: architecture reviewed and approved (incl. the `AuthorizationAdvisor`
-> port, D127–D132), decomposed into M17.1–M17.8. **M17.1–M17.5 complete.**
+> port, D127–D132), decomposed into M17.1–M17.8. **M17.1–M17.6 complete.**
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
 > **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D132**.
 
@@ -3681,6 +3681,115 @@ just designed for).
 
 **Remaining M17 work.** M17.6 — deferred outcomes: the scheduler, `sandbox.scheduled.events`, and
 payment-service's first Kafka consumer role.
+
+#### M17.6 — Deferred outcomes: the scheduler, `sandbox.scheduled.events`, payment-service's first Kafka consumer role ✅ (2026-07-24)
+
+**Summary.** `pm_card_delayedSettlement` and the `DELAY_SETTLEMENT` override now do what §8.1/§8.2
+document: authorize succeeds immediately, and the payment's capture settles asynchronously ~N seconds
+later, applied through the *same* FSM guard (`Payment.capture()`) a synchronous call uses. sandbox-service
+gains its first producer role (`sandbox.scheduled.events`); payment-service gains its first consumer
+role. `AuthorizationAdvisor` is untouched — payment-service's `authorize()` flow doesn't change at all;
+the scheduling trigger is entirely internal to sandbox-service's own decision orchestration.
+
+**The design question this milestone actually turned on.** §8.1 describes `pm_card_delayedSettlement`
+as "authorizes now, captures asynchronously later," but no milestone in M17.1–M17.8's decomposition
+wires payment-service's `capture()` endpoint to call sandbox at all (only `authorize()`, M17.4) — and
+D131's "`DELAY` is unused by any seeded card in M17.1–M17.8" already forecloses the *other* obvious
+reading (a deferred-*authorization* outcome). Resolved without touching `DecisionEngine` (a pure
+function, D103/M17.2's own charter: "no persistence, no I/O") or payment-service's capture HTTP
+contract (V1, M5): `SandboxDecisionService`, after a successful AUTHORIZE decision, runs one additional
+read-only lookahead — `decisionEngine.decide(CAPTURE, sameCard, sameOverride)` — purely to ask "would
+this payment's capture defer?" If the engine's answer carries `deferredOperation`, a `scheduled_outcomes`
+row is written in the *same transaction* as the authorize decision; the override is consumed (D127) via
+the identical `source == OVERRIDE` check M17.5 already established. No seeded card or override makes an
+AUTHORIZE decision *itself* carry `deferredOperation` today, so this lookahead is the only thing that
+ever schedules anything — but the mechanism is generic (whatever `deferredOperation`/`deferredDelayMs`
+the engine returns), not hardcoded to capture.
+
+**Schema.** `sandbox/V5__scheduled_outcomes.sql` — `scheduled_outcomes` (payment, merchant, mode,
+operation, outcome, fire-at, delivered-at), mirroring `outbox_events`' shape (D3) exactly: a
+`delivered_at IS NULL` predicate is the "still pending" query, same as payment-service's own outbox.
+`chk_scheduled_outcomes_mode check (mode = 'test')` — the same structural (not just runtime)
+mode-isolation guarantee `simulation_overrides` already has (§7). `payment/V4__processed_sandbox_events.sql`
+— `processed_events`, payment-service's own idempotent-consumer dedup table (D2), mirroring
+transaction-service's identical table (M6) — generic by design despite the migration's filename
+(Flyway filenames are permanent once applied), not scoped to sandbox specifically.
+
+**Files created (sandbox-service).** `domain/ScheduledOutcome.java` (JPA entity, `markDelivered()`),
+`repository/ScheduledOutcomeRepository.java`, `service/ScheduledOutcomeService.java` (the write side,
+called only from within `SandboxDecisionService`'s existing transaction), `event/SandboxScheduledOutcomePayload.java`,
+`scheduler/ScheduledOutcomeRelay.java` (the poller — `@Scheduled` + `@Transactional`, publishes to
+`sandbox.scheduled.events` via a `KafkaTemplate<String,String>`, marks delivered; a failed publish is
+left undelivered for the next tick, at-least-once, D2, identical shape to payment-service's
+`OutboxRelay`), `config/KafkaProducerConfig.java`/`config/KafkaTopicConfig.java` (mirror
+payment-service's exactly). `build.gradle.kts` gains `spring-boot-starter-kafka` — this service's first
+Kafka dependency, exactly where M17.1's own comment said it would land ("Kafka ... is added in M17.6,
+when a caller for it exists").
+
+**Files created (payment-service, confined to the existing sandbox adapter package plus one neutral
+consumer-idempotency table).** `authorization/sandbox/SandboxScheduledEventListener.java` — a thin
+`@KafkaListener` translator: parses the sandbox-shaped envelope, and for a `CAPTURE` operation makes one
+plain call, `paymentService.applyDeferredCapture(eventId, eventType, paymentId, mode)` — no sandbox
+vocabulary crosses out of this package (D132's discipline extended to the Kafka boundary, not just the
+synchronous port). `authorization/sandbox/SandboxScheduledOutcomePayload.java` (the wire-shape
+projection, D4). `event/ProcessedEvent.java` + `repository/ProcessedEventRepository.java` — deliberately
+*not* placed in the sandbox package: this is generic Kafka-consumer dedup infrastructure (an event id
+and type, nothing sandbox-shaped), living alongside `PaymentEventPayload`/`PaymentEventPublisher` where
+any future consumer role can reuse it, matching `PaymentService.applyDeferredCapture`'s own
+sandbox-agnostic signature.
+
+**Files modified.** `service/SandboxDecisionService.java` — the capture-lookahead-and-schedule step
+described above. `service/PaymentService.java` — `applyDeferredCapture(eventId, eventType, paymentId, mode)`:
+the entire "dedup check → `Payment.capture()` → publish → mark processed" sequence in *one*
+`transactionTemplate` attempt, retried whole on `OptimisticLockingFailureException` (mirrors
+transaction-service's `LedgerService.processEvent`, M6, exactly — and deliberately *not* split across
+the listener's own transaction and this method's, which would have nested the retry loop inside an
+outer transaction and broken per-attempt retry semantics, a bug caught during design, not by a failing
+test). An already-CAPTURED (or otherwise non-`AUTHORIZED`) payment — the client's own explicit capture
+beat the deferred event, or this is a redelivery — is a durable no-op, not an error.
+`repository/OutboxEventRepository.java` gains `findTopByAggregateIdOrderByCreatedAtDesc` — a
+Kafka-triggered mutation has no caller/JWT to resolve a merchant through, so `merchantContactEmail`/
+`merchantWebhookUrl` for the `PaymentCaptured` event are sourced from the payment's own most recent
+prior event instead (every event already carries them, D43) rather than a merchant-service call this
+code path has no request context to make.
+
+**Files modified (infrastructure).** `docker-compose.yml` — sandbox-service gains
+`SPRING_KAFKA_BOOTSTRAP_SERVERS` and a `kafka: condition: service_healthy` dependency.
+`sandbox-service`/`payment-service` `application.yaml` — producer/consumer Kafka config,
+`paymentflow.scheduled-outcomes.relay-interval-ms` (1s), `paymentflow.kafka.sandbox-scheduled-events-topic`.
+
+**Tests.** `SimulationOverrideTest`/`OverrideServiceTest` untouched (M17.5's own suite, unaffected).
+`SandboxDecisionIntegrationTest` (extended): authorizing `pm_card_delayedSettlement` schedules a
+`CAPTURE` row (~5s out) without changing the authorize outcome; an active `DELAY_SETTLEMENT` override
+schedules a deferred capture *and* is consumed even though it never applies to the AUTHORIZE decision
+itself; a plain approving card schedules nothing. New `ScheduledOutcomeRelayIntegrationTest`
+(Testcontainers Postgres + Kafka): a due row is published with the correct envelope shape and marked
+delivered; a not-yet-due row is not published (fixed a real test bug here — a fresh consumer group with
+`auto-offset-reset=earliest` also sees an *earlier test method's* leftover message on the shared topic;
+filtering by this test's own `paymentId` key, not a raw record count, is what actually proves the
+negative). `PaymentServiceTest` (unit, Mockito): `applyDeferredCapture`'s already-processed/not-found/
+mode-mismatch/already-captured branches. New `SandboxScheduledEventIntegrationTest` (Testcontainers
+Postgres + Kafka, mirrors `TransactionIntegrationTest`'s pattern exactly — publish real messages, poll
+for the async effect, no live sandbox-service required to test this consumer in isolation): a deferred
+capture transitions `AUTHORIZED` → `CAPTURED` with the correct `PaymentCaptured` event (merchant fields
+included); redelivering the same event id is an idempotent no-op; a payment already captured directly is
+untouched by a subsequent deferred event; a client's direct capture racing the deferred consumer for the
+same payment never double-captures (concurrency correctness, D127-style optimistic-lock retry proven
+against a real database, not mocked).
+
+**Verification.** All new/targeted tests green in isolation; `:sandbox-service:test` green (69 tests,
+full suite); `:payment-service:test` green (full suite, unaffected pre-M17.6 tests included); full
+`./gradlew clean build` green across all 9 modules; `docker compose -f docker-compose.infra.yml -f
+docker-compose.yml config` validates cleanly (the full live-stack `docker-compose up` + health + E2E
+validation is M17.8's own explicit scope, not repeated here).
+
+**Decisions.** None new — D3 (transactional outbox), D127 (atomic override consumption), D131
+(webhook-scenario deferral), and D132 (the port boundary) already cover every design choice this
+milestone made; the capture-lookahead mechanism is an implementation consequence of those, not a new
+architectural decision.
+
+**Remaining M17 work.** M17.7 — the decision log query API and sandbox-service's remaining operational
+capabilities.
 
 ---
 

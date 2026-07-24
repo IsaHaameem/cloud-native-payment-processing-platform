@@ -37,13 +37,16 @@ public class SandboxDecisionService {
     private final TestCardService testCardService;
     private final DecisionEngine decisionEngine;
     private final OverrideService overrideService;
+    private final ScheduledOutcomeService scheduledOutcomeService;
 
     public SandboxDecisionService(DecisionLogRepository decisionLogRepository, TestCardService testCardService,
-                                  DecisionEngine decisionEngine, OverrideService overrideService) {
+                                  DecisionEngine decisionEngine, OverrideService overrideService,
+                                  ScheduledOutcomeService scheduledOutcomeService) {
         this.decisionLogRepository = decisionLogRepository;
         this.testCardService = testCardService;
         this.decisionEngine = decisionEngine;
         this.overrideService = overrideService;
+        this.scheduledOutcomeService = scheduledOutcomeService;
     }
 
     @Transactional
@@ -55,7 +58,7 @@ public class SandboxDecisionService {
         }
 
         Operation operation = parseOperation(request.operation());
-        Evaluation evaluation = evaluate(merchantId, mode, operation, request.paymentMethodToken());
+        Evaluation evaluation = evaluate(merchantId, mode, operation, request.paymentId(), request.paymentMethodToken());
         EngineDecision decision = evaluation.decision();
 
         DecisionLogEntry entry = DecisionLogEntry.of(request.decisionKey(), merchantId, mode, request.paymentId(),
@@ -79,8 +82,19 @@ public class SandboxDecisionService {
      * override-applies-to-this-operation check (§8.2's precedence, e.g. an
      * authorize-only override set while a REFUND is being decided) is the single source
      * of truth for whether the override was really used, so this never double-guesses it.
+     *
+     * <p>M17.6: a successful AUTHORIZE decision triggers one additional, read-only
+     * lookahead — {@code decide(CAPTURE, ...)} against the same card/override — purely
+     * to answer "would this payment's capture defer?" (D3's own definition of an
+     * authorize-time decision never needing to know that on its own). No seeded card or
+     * override ever makes AUTHORIZE itself carry {@code deferredOperation} (D131's
+     * "unused by any seeded card in M17.1–M17.8" applies to authorize-time {@code DELAY}
+     * specifically), so only this capture lookahead ever schedules anything today —
+     * the mechanism stays generic (any {@code deferredOperation} the engine returns), not
+     * hardcoded to capture.
      */
-    private Evaluation evaluate(UUID merchantId, String mode, Operation operation, String paymentMethodToken) {
+    private Evaluation evaluate(UUID merchantId, String mode, Operation operation, UUID paymentId,
+                                String paymentMethodToken) {
         if (LIVE_MODE.equals(mode)) {
             return new Evaluation(decisionEngine.decideLive(operation), null);
         }
@@ -89,13 +103,33 @@ public class SandboxDecisionService {
         Optional<OverrideSnapshot> engineOverride = activeOverride.flatMap(SandboxDecisionService::toEngineSnapshot);
 
         EngineDecision decision = decisionEngine.decide(operation, card, engineOverride);
-        UUID consumedOverrideId = null;
-        if (decision.source() == DecisionSource.OVERRIDE && activeOverride.isPresent()) {
-            SimulationOverride override = activeOverride.get();
-            overrideService.consume(override.getId());
-            consumedOverrideId = override.getId();
+        UUID consumedOverrideId = consumeIfApplied(decision, activeOverride);
+        scheduleIfDeferred(decision, merchantId, mode, paymentId);
+
+        if (operation == Operation.AUTHORIZE && decision.outcome() == DecisionOutcome.APPROVE) {
+            EngineDecision captureLookahead = decisionEngine.decide(Operation.CAPTURE, card, engineOverride);
+            consumeIfApplied(captureLookahead, activeOverride);
+            scheduleIfDeferred(captureLookahead, merchantId, mode, paymentId);
         }
+
         return new Evaluation(decision, consumedOverrideId);
+    }
+
+    private UUID consumeIfApplied(EngineDecision decision, Optional<SimulationOverride> activeOverride) {
+        if (decision.source() != DecisionSource.OVERRIDE || activeOverride.isEmpty()) {
+            return null;
+        }
+        UUID overrideId = activeOverride.get().getId();
+        overrideService.consume(overrideId);
+        return overrideId;
+    }
+
+    private void scheduleIfDeferred(EngineDecision decision, UUID merchantId, String mode, UUID paymentId) {
+        if (decision.deferredOperation() == null) {
+            return;
+        }
+        scheduledOutcomeService.schedule(paymentId, merchantId, mode, decision.deferredOperation(),
+                decision.outcome(), decision.deferredDelayMs());
     }
 
     private static Optional<OverrideSnapshot> toEngineSnapshot(SimulationOverride override) {

@@ -2,8 +2,11 @@ package com.paymentflow.sandbox;
 
 import com.paymentflow.common.security.InternalContextHeaders;
 import com.paymentflow.common.security.InternalContextSigner;
+import com.paymentflow.sandbox.domain.Operation;
+import com.paymentflow.sandbox.domain.ScheduledOutcome;
 import com.paymentflow.sandbox.domain.SimulationScenario;
 import com.paymentflow.sandbox.repository.DecisionLogRepository;
+import com.paymentflow.sandbox.repository.ScheduledOutcomeRepository;
 import com.paymentflow.sandbox.service.OverrideService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,6 +68,9 @@ class SandboxDecisionIntegrationTest {
 
     @Autowired
     private OverrideService overrideService;
+
+    @Autowired
+    private ScheduledOutcomeRepository scheduledOutcomeRepository;
 
     @Test
     void missingInternalContextIsUnauthorized() throws Exception {
@@ -244,6 +251,75 @@ class SandboxDecisionIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.outcome").value("APPROVE"))
                 .andExpect(jsonPath("$.source").value("MODE_DEFAULT"));
+    }
+
+    @Test
+    void authorizingWithADelayedSettlementCardSchedulesADeferredCaptureWithoutAffectingTheAuthorizeOutcome()
+            throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        UUID paymentId = UUID.randomUUID();
+        Instant before = Instant.now();
+
+        performDecision(signedPost(merchantId, "test")
+                        .content("""
+                                {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                                 "paymentMethodToken":"pm_card_delayedSettlement","amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID(), paymentId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("APPROVE"))
+                .andExpect(jsonPath("$.source").value("TEST_CARD"));
+
+        List<ScheduledOutcome> scheduled = scheduledOutcomeRepository.findAll().stream()
+                .filter(s -> s.getPaymentId().equals(paymentId))
+                .toList();
+        assertThat(scheduled).hasSize(1);
+        ScheduledOutcome outcome = scheduled.get(0);
+        assertThat(outcome.getOperation()).isEqualTo(Operation.CAPTURE);
+        assertThat(outcome.getMerchantId()).isEqualTo(merchantId);
+        assertThat(outcome.getMode()).isEqualTo("test");
+        assertThat(outcome.getFireAt()).isAfterOrEqualTo(before.plusMillis(4900));
+        assertThat(outcome.isDelivered()).isFalse();
+    }
+
+    @Test
+    void anActiveDelaySettlementOverrideSchedulesADeferredCaptureAndIsConsumed() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        UUID paymentId = UUID.randomUUID();
+        overrideService.create(merchantId, "test", SimulationScenario.DELAY_SETTLEMENT, null, null, 3000, 1, null);
+
+        performDecision(signedPost(merchantId, "test")
+                        .content("""
+                                {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                                 "amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID(), paymentId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("APPROVE"))
+                .andExpect(jsonPath("$.source").value("MODE_DEFAULT")); // DELAY_SETTLEMENT never applies to AUTHORIZE
+
+        List<ScheduledOutcome> scheduled = scheduledOutcomeRepository.findAll().stream()
+                .filter(s -> s.getPaymentId().equals(paymentId))
+                .toList();
+        assertThat(scheduled).hasSize(1);
+        assertThat(scheduled.get(0).getOperation()).isEqualTo(Operation.CAPTURE);
+
+        assertThat(overrideService.findActive(merchantId, "test")).isEmpty(); // remainingCount was 1, now exhausted
+    }
+
+    @Test
+    void authorizingWithAPlainApprovingCardSchedulesNothing() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        UUID paymentId = UUID.randomUUID();
+
+        performDecision(signedPost(merchantId, "test")
+                        .content("""
+                                {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                                 "paymentMethodToken":"pm_card_visa","amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID(), paymentId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("APPROVE"));
+
+        assertThat(scheduledOutcomeRepository.findAll().stream().filter(s -> s.getPaymentId().equals(paymentId)))
+                .isEmpty();
     }
 
     /** Completes the two-step dispatch every async controller return requires under MockMvc. */

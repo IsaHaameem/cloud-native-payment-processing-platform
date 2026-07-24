@@ -17,7 +17,9 @@ import com.paymentflow.payment.mapper.PaymentMapper;
 import com.paymentflow.payment.merchant.MerchantResolver;
 import com.paymentflow.payment.merchant.MerchantSummary;
 import com.paymentflow.payment.mode.RequestModeResolver;
+import com.paymentflow.payment.repository.OutboxEventRepository;
 import com.paymentflow.payment.repository.PaymentRepository;
+import com.paymentflow.payment.repository.ProcessedEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,9 +31,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,6 +44,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -63,6 +68,12 @@ class PaymentServiceTest {
     private TransactionTemplate transactionTemplate;
     @Mock
     private AuthorizationAdvisor authorizationAdvisor;
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
+    @Mock
+    private ProcessedEventRepository processedEventRepository;
+    @Mock
+    private ObjectMapper objectMapper;
 
     @InjectMocks
     private PaymentService paymentService;
@@ -76,6 +87,11 @@ class PaymentServiceTest {
             TransactionCallback<?> callback = inv.getArgument(0);
             return callback.doInTransaction(null);
         });
+        lenient().doAnswer(inv -> {
+            Consumer<org.springframework.transaction.TransactionStatus> action = inv.getArgument(0);
+            action.accept(null);
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(any());
         lenient().when(idempotencyService.guarded(any(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
             Supplier<?> supplier = inv.getArgument(5);
             return supplier.get();
@@ -205,5 +221,55 @@ class PaymentServiceTest {
         PageResponse<PaymentResponse> page = paymentService.list(PageRequest.of(0, 20));
 
         assertThat(page.content()).isEmpty();
+    }
+
+    @Test
+    void applyDeferredCaptureSkipsAnAlreadyProcessedEvent() {
+        UUID eventId = UUID.randomUUID();
+        when(processedEventRepository.existsByEventId(eventId)).thenReturn(true);
+
+        paymentService.applyDeferredCapture(eventId, "DeferredOutcomeSettled", UUID.randomUUID(), "test");
+
+        verify(paymentRepository, never()).findById(any());
+        verify(processedEventRepository, never()).save(any());
+    }
+
+    @Test
+    void applyDeferredCaptureIsANoOpWhenThePaymentIsNotFound() {
+        UUID paymentId = UUID.randomUUID();
+        when(paymentRepository.findById(paymentId)).thenReturn(Optional.empty());
+
+        paymentService.applyDeferredCapture(UUID.randomUUID(), "DeferredOutcomeSettled", paymentId, "test");
+
+        verifyNoInteractions(eventPublisher);
+        verify(processedEventRepository).save(any());
+    }
+
+    @Test
+    void applyDeferredCaptureIsANoOpForAModeMismatch() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = Payment.create(merchantId, "live", 5000, "USD", null, null);
+        payment.authorize();
+        when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(payment));
+
+        paymentService.applyDeferredCapture(UUID.randomUUID(), "DeferredOutcomeSettled", paymentId, "test");
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.AUTHORIZED);
+        verifyNoInteractions(eventPublisher);
+        verify(processedEventRepository).save(any());
+    }
+
+    @Test
+    void applyDeferredCaptureIsANoOpWhenThePaymentIsAlreadyCaptured() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null);
+        payment.authorize();
+        payment.capture();
+        when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(payment));
+
+        paymentService.applyDeferredCapture(UUID.randomUUID(), "DeferredOutcomeSettled", paymentId, "test");
+
+        verifyNoInteractions(eventPublisher);
+        verify(processedEventRepository).save(any());
     }
 }

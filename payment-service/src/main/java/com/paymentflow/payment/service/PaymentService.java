@@ -1,29 +1,40 @@
 package com.paymentflow.payment.service;
 
+import com.paymentflow.common.dto.event.EventEnvelope;
 import com.paymentflow.common.dto.page.PageResponse;
 import com.paymentflow.common.exception.BadRequestException;
 import com.paymentflow.common.exception.ResourceNotFoundException;
 import com.paymentflow.payment.authorization.AuthorizationAdvisor;
 import com.paymentflow.payment.authorization.AuthorizationDecision;
 import com.paymentflow.payment.authorization.AuthorizationRequest;
+import com.paymentflow.payment.domain.OutboxEvent;
 import com.paymentflow.payment.domain.Payment;
 import com.paymentflow.payment.domain.PaymentStatus;
 import com.paymentflow.payment.dto.CreatePaymentRequest;
 import com.paymentflow.payment.dto.PaymentResponse;
 import com.paymentflow.payment.dto.RefundRequest;
+import com.paymentflow.payment.event.PaymentEventPayload;
 import com.paymentflow.payment.event.PaymentEventPublisher;
+import com.paymentflow.payment.event.ProcessedEvent;
 import com.paymentflow.payment.exception.IllegalPaymentStateTransitionException;
 import com.paymentflow.payment.idempotency.IdempotencyService;
 import com.paymentflow.payment.mapper.PaymentMapper;
 import com.paymentflow.payment.merchant.MerchantResolver;
 import com.paymentflow.payment.merchant.MerchantSummary;
 import com.paymentflow.payment.mode.RequestModeResolver;
+import com.paymentflow.payment.repository.OutboxEventRepository;
 import com.paymentflow.payment.repository.PaymentRepository;
+import com.paymentflow.payment.repository.ProcessedEventRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -36,6 +47,10 @@ import java.util.function.Function;
 @Service
 public class PaymentService {
 
+    private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
+    private static final int MAX_DEFERRED_CAPTURE_ATTEMPTS = 5;
+    private static final long DEFERRED_CAPTURE_BACKOFF_BASE_MILLIS = 20;
+
     private final PaymentRepository paymentRepository;
     private final PaymentMapper paymentMapper;
     private final PaymentEventPublisher eventPublisher;
@@ -44,11 +59,16 @@ public class PaymentService {
     private final RequestModeResolver requestModeResolver;
     private final TransactionTemplate transactionTemplate;
     private final AuthorizationAdvisor authorizationAdvisor;
+    private final OutboxEventRepository outboxEventRepository;
+    private final ProcessedEventRepository processedEventRepository;
+    private final ObjectMapper objectMapper;
 
     public PaymentService(PaymentRepository paymentRepository, PaymentMapper paymentMapper,
                           PaymentEventPublisher eventPublisher, IdempotencyService idempotencyService,
                           MerchantResolver merchantResolver, RequestModeResolver requestModeResolver,
-                          TransactionTemplate transactionTemplate, AuthorizationAdvisor authorizationAdvisor) {
+                          TransactionTemplate transactionTemplate, AuthorizationAdvisor authorizationAdvisor,
+                          OutboxEventRepository outboxEventRepository, ProcessedEventRepository processedEventRepository,
+                          ObjectMapper objectMapper) {
         this.paymentRepository = paymentRepository;
         this.paymentMapper = paymentMapper;
         this.eventPublisher = eventPublisher;
@@ -57,6 +77,9 @@ public class PaymentService {
         this.requestModeResolver = requestModeResolver;
         this.transactionTemplate = transactionTemplate;
         this.authorizationAdvisor = authorizationAdvisor;
+        this.outboxEventRepository = outboxEventRepository;
+        this.processedEventRepository = processedEventRepository;
+        this.objectMapper = objectMapper;
     }
 
     public PaymentResponse create(CreatePaymentRequest request, String idempotencyKey) {
@@ -140,6 +163,98 @@ public class PaymentService {
             case PENDING -> throw new IllegalStateException(
                     "PENDING authorization outcomes are not produced by any adapter until M17.6.");
         };
+    }
+
+    /**
+     * Applies a capture that was deferred at authorize time (M17.6) — the SAME FSM
+     * guard {@link Payment#capture()} a synchronous call uses, triggered by an inbound
+     * Kafka event instead of a client request. No {@code Idempotency-Key}/HTTP replay
+     * involved here at all: the caller's own dedup (D2, {@code ProcessedEvent}, keyed
+     * on {@code eventId}) is what makes redelivery safe, wrapped around the same
+     * transactional attempt so a redelivered event can never be recorded processed
+     * without the capture actually having been applied (or vice versa).
+     *
+     * <p>An already-CAPTURED (or otherwise no-longer-{@code AUTHORIZED}) payment is not
+     * an error here — the client may have captured it explicitly before the deferred
+     * event fired, or a redelivery may arrive after the first delivery already applied
+     * it. Either way this is a durable no-op, not a failure to retry.
+     *
+     * <p>Retried on {@link OptimisticLockingFailureException} (a genuine race against a
+     * concurrent client-initiated mutation of the same payment) — mirrors
+     * transaction-service's {@code LedgerService.processEvent} (M6) exactly: the whole
+     * attempt (dedup check included) is retried from scratch under a fresh transaction,
+     * not just the FSM mutation, since Postgres aborts the rest of a transaction after
+     * any conflict.
+     */
+    public void applyDeferredCapture(UUID eventId, String eventType, UUID paymentId, String mode) {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                transactionTemplate.executeWithoutResult(
+                        status -> applyDeferredCaptureInTransaction(eventId, eventType, paymentId, mode));
+                return;
+            } catch (OptimisticLockingFailureException e) {
+                if (attempt >= MAX_DEFERRED_CAPTURE_ATTEMPTS) {
+                    throw e;
+                }
+                log.warn("Retrying deferred capture for payment {} (attempt {}/{}) after {}", paymentId, attempt,
+                        MAX_DEFERRED_CAPTURE_ATTEMPTS, e.getClass().getSimpleName());
+                backoff(attempt);
+            }
+        }
+    }
+
+    private void applyDeferredCaptureInTransaction(UUID eventId, String eventType, UUID paymentId, String mode) {
+        if (processedEventRepository.existsByEventId(eventId)) {
+            log.debug("Event {} already processed, skipping", eventId);
+            return;
+        }
+
+        Optional<Payment> maybePayment = paymentRepository.findById(paymentId);
+        if (maybePayment.isPresent() && maybePayment.get().getMode().equals(mode)) {
+            applyCaptureIfStillPending(maybePayment.get());
+        } else {
+            log.warn("Deferred capture for payment {} (mode {}) skipped — payment not found in that mode", paymentId, mode);
+        }
+
+        processedEventRepository.save(ProcessedEvent.of(eventId, eventType));
+    }
+
+    private void applyCaptureIfStillPending(Payment payment) {
+        PaymentStatus previous = payment.getStatus();
+        try {
+            payment.capture();
+        } catch (IllegalPaymentStateTransitionException alreadyHandled) {
+            log.debug("Payment {} is already past AUTHORIZED ({}) — deferred capture is a no-op", payment.getId(), previous);
+            return;
+        }
+        MerchantSummary merchant = resolveMerchantSummaryForSystemEvent(payment);
+        eventPublisher.publish(payment, "PaymentCaptured", previous, payment.getAmountMinor(), merchant);
+    }
+
+    /**
+     * There is no caller/JWT to resolve a merchant through for a Kafka-triggered
+     * mutation (M17.6) — every event already published for this payment carries the
+     * merchant's contact email/webhook URL (D43), so the most recent one is the source
+     * of truth here instead of a fresh merchant-service call this code path has no
+     * request context to make.
+     */
+    private MerchantSummary resolveMerchantSummaryForSystemEvent(Payment payment) {
+        OutboxEvent latest = outboxEventRepository.findTopByAggregateIdOrderByCreatedAtDesc(payment.getId())
+                .orElseThrow(() -> new IllegalStateException("No prior event exists for payment " + payment.getId()));
+        EventEnvelope<PaymentEventPayload> envelope = objectMapper.readValue(latest.getPayload(), objectMapper
+                .getTypeFactory().constructParametricType(EventEnvelope.class, PaymentEventPayload.class));
+        PaymentEventPayload payload = envelope.payload();
+        return new MerchantSummary(payment.getMerchantId(), payload.merchantContactEmail(), payload.merchantWebhookUrl());
+    }
+
+    private static void backoff(int attempt) {
+        try {
+            long jitterMillis = DEFERRED_CAPTURE_BACKOFF_BASE_MILLIS * attempt
+                    + (long) (Math.random() * DEFERRED_CAPTURE_BACKOFF_BASE_MILLIS);
+            Thread.sleep(jitterMillis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     public PaymentResponse capture(UUID paymentId, String idempotencyKey) {
