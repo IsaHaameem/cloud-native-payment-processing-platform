@@ -58,6 +58,17 @@ spring:
                 # is stripped by the filter itself before the regex runs (Spring
                 # Cloud Gateway's own documented workaround for this collision).
                 - RewritePath=/v1/payments(?<segment>/?.*), /api/v1/payments$\{segment}
+            # M17.5: sandbox-service's own public control API is already at /v1/test/
+            # simulations (no /api/v1 duplicate controller exists there to rewrite onto,
+            # unlike payment-service) — a direct passthrough route, same as
+            # merchant-service's and identity-service's routes above. Reachable only via
+            # a signed API-key context (sandbox-service has no OAuth2 resource server of
+            # its own, D100); live-mode rejection happens in sandbox-service itself, not
+            # here (§7 — the gateway has no notion of which scenarios are test-only).
+            - id: sandbox-service-simulations
+              uri: ${paymentflow.services.sandbox.base-uri}
+              predicates:
+                - Path=/v1/test/simulations/**
           # V1 known issue #7 (M15 fix, D-noted): the gateway now sits behind an ALB in
           # AWS, so X-Forwarded-* must be honored for scheme-dependent behavior (HSTS
           # etc.) to see the real, not the internal-hop, scheme. Trusts only the ALB/
@@ -84,6 +95,8 @@ paymentflow:
       base-uri: http://localhost:8082
     payment:
       base-uri: http://localhost:8083
+    sandbox:
+      base-uri: http://localhost:8094
   gateway:
     cors:
       allowed-origins: http://localhost:3000

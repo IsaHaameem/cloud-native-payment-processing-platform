@@ -289,6 +289,7 @@ services:
       PAYMENTFLOW_SERVICES_IDENTITY_BASE_URI: http://identity-service:8081
       PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI: http://merchant-service:8082
       PAYMENTFLOW_SERVICES_PAYMENT_BASE_URI: http://payment-service:8083
+      PAYMENTFLOW_SERVICES_SANDBOX_BASE_URI: http://sandbox-service:8094
       PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:

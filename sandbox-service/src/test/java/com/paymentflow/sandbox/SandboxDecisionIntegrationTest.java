@@ -2,7 +2,9 @@ package com.paymentflow.sandbox;
 
 import com.paymentflow.common.security.InternalContextHeaders;
 import com.paymentflow.common.security.InternalContextSigner;
+import com.paymentflow.sandbox.domain.SimulationScenario;
 import com.paymentflow.sandbox.repository.DecisionLogRepository;
+import com.paymentflow.sandbox.service.OverrideService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -59,6 +61,9 @@ class SandboxDecisionIntegrationTest {
 
     @Autowired
     private DecisionLogRepository decisionLogRepository;
+
+    @Autowired
+    private OverrideService overrideService;
 
     @Test
     void missingInternalContextIsUnauthorized() throws Exception {
@@ -169,6 +174,76 @@ class SandboxDecisionIntegrationTest {
                 .andExpect(jsonPath("$.latencyMs").value(5000));
 
         assertThat(Instant.now()).isAfterOrEqualTo(start.plusMillis(4900));
+    }
+
+    @Test
+    void anActiveForceDeclineOverrideBeatsAnApprovingCardAndIsConsumedExactlyOnce() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        overrideService.create(merchantId, "test", SimulationScenario.FORCE_DECLINE, "insufficient_funds", null,
+                null, 1, null);
+
+        performDecision(signedPost(merchantId, "test")
+                        .content("""
+                                {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                                 "paymentMethodToken":"pm_card_visa","amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID(), UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("DECLINE"))
+                .andExpect(jsonPath("$.declineCode").value("insufficient_funds"))
+                .andExpect(jsonPath("$.source").value("OVERRIDE"));
+
+        // remainingCount was 1 — exhausted by the call above, so the very next
+        // AUTHORIZE decision for this merchant falls through to the card again.
+        performDecision(signedPost(merchantId, "test")
+                        .content("""
+                                {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                                 "paymentMethodToken":"pm_card_visa","amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID(), UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("APPROVE"))
+                .andExpect(jsonPath("$.source").value("TEST_CARD"));
+    }
+
+    @Test
+    void anAuthorizeOnlyOverrideNeverAppliesToRefundAndIsNeverConsumedByIt() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        overrideService.create(merchantId, "test", SimulationScenario.FORCE_DECLINE, "insufficient_funds", null,
+                null, 1, null);
+
+        // REFUND: no override scenario targets it (§8.2) — falls straight to mode default.
+        performDecision(signedPost(merchantId, "test")
+                        .content("""
+                                {"decisionKey":"%s","paymentId":"%s","operation":"REFUND",
+                                 "amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID(), UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("APPROVE"))
+                .andExpect(jsonPath("$.source").value("MODE_DEFAULT"));
+
+        // The override is still untouched — an AUTHORIZE right after still sees it.
+        performDecision(signedPost(merchantId, "test")
+                        .content("""
+                                {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                                 "amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID(), UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("DECLINE"))
+                .andExpect(jsonPath("$.source").value("OVERRIDE"));
+    }
+
+    @Test
+    void aWebhookScenarioOverrideNeverReachesTheEngine() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        overrideService.create(merchantId, "test", SimulationScenario.DUPLICATE_WEBHOOKS, null, null, null, 5, null);
+
+        performDecision(signedPost(merchantId, "test")
+                        .content("""
+                                {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                                 "amountMinor":1000,"currency":"USD"}
+                                """.formatted(UUID.randomUUID(), UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("APPROVE"))
+                .andExpect(jsonPath("$.source").value("MODE_DEFAULT"));
     }
 
     /** Completes the two-step dispatch every async controller return requires under MockMvc. */

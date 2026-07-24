@@ -44,8 +44,11 @@ class ApiKeyAuthenticationIntegrationTest {
 
     private static DisposableServer merchantStub;
     private static DisposableServer paymentStub;
+    private static DisposableServer sandboxStub;
     private static final AtomicReference<String> lastReceivedInternalMerchantId = new AtomicReference<>();
     private static final AtomicReference<String> lastReceivedAuthorization = new AtomicReference<>();
+    private static final AtomicReference<String> lastSandboxReceivedInternalMerchantId = new AtomicReference<>();
+    private static final AtomicReference<String> lastSandboxReceivedInternalMode = new AtomicReference<>();
 
     private static final UUID VALID_MERCHANT_ID = UUID.randomUUID();
     private static final UUID VALID_KEY_ID = UUID.randomUUID();
@@ -84,6 +87,19 @@ class ApiKeyAuthenticationIntegrationTest {
                         .post("/api/v1/payments", ApiKeyAuthenticationIntegrationTest::paymentStubResponse)
                         .post("/api/v1/payments/**", ApiKeyAuthenticationIntegrationTest::paymentStubResponse))
                 .bindNow();
+
+        sandboxStub = HttpServer.create()
+                .port(0)
+                .route(routes -> routes.post("/v1/test/simulations", (req, res) -> {
+                    lastSandboxReceivedInternalMerchantId.set(req.requestHeaders().get(InternalContextHeaders.MERCHANT_ID));
+                    lastSandboxReceivedInternalMode.set(req.requestHeaders().get(InternalContextHeaders.MODE));
+                    return res.status(201).header("Content-Type", "application/json")
+                            .sendString(Mono.just("""
+                                    {"id":"%s","scenario":"FORCE_RATE_LIMIT","declineCode":null,"errorCode":null,
+                                     "latencyMs":null,"remainingCount":3,"expiresAt":null,"enactedFrom":null}
+                                    """.formatted(UUID.randomUUID())));
+                }))
+                .bindNow();
     }
 
     /** Registered for both the bare path and {@code /**} — Reactor Netty's own path matcher, unlike Spring's
@@ -103,12 +119,17 @@ class ApiKeyAuthenticationIntegrationTest {
         if (paymentStub != null) {
             paymentStub.disposeNow();
         }
+        if (sandboxStub != null) {
+            sandboxStub.disposeNow();
+        }
     }
 
     @AfterEach
     void resetCaptured() {
         lastReceivedInternalMerchantId.set(null);
         lastReceivedAuthorization.set(null);
+        lastSandboxReceivedInternalMerchantId.set(null);
+        lastSandboxReceivedInternalMode.set(null);
     }
 
     @DynamicPropertySource
@@ -118,6 +139,7 @@ class ApiKeyAuthenticationIntegrationTest {
         registry.add("spring.data.redis.password", () -> "");
         registry.add("paymentflow.services.merchant.base-uri", () -> "http://localhost:" + merchantStub.port());
         registry.add("paymentflow.services.payment.base-uri", () -> "http://localhost:" + paymentStub.port());
+        registry.add("paymentflow.services.sandbox.base-uri", () -> "http://localhost:" + sandboxStub.port());
     }
 
     private WebTestClient client() {
@@ -194,5 +216,19 @@ class ApiKeyAuthenticationIntegrationTest {
         client().get().uri("/v1/payments")
                 .exchange()
                 .expectStatus().isUnauthorized();
+    }
+
+    @Test
+    void aValidSecretKeyReachesSandboxSimulationsWithASignedInternalContext() {
+        // M17.5: sandbox-service's control API is a direct passthrough route (no
+        // /api/v1 rewrite exists on that side) — proving the route itself resolves and
+        // carries the same signed context every other API-key route does.
+        client().post().uri("/v1/test/simulations")
+                .header("Authorization", "Bearer " + VALID_SECRET_KEY)
+                .exchange()
+                .expectStatus().isCreated();
+
+        assertThat(lastSandboxReceivedInternalMerchantId.get()).isEqualTo(VALID_MERCHANT_ID.toString());
+        assertThat(lastSandboxReceivedInternalMode.get()).isEqualToIgnoringCase("TEST");
     }
 }

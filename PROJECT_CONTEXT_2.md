@@ -11,7 +11,7 @@
 > sub-milestones M16.1–M16.7 implemented, verified, committed, and E2E-validated on the
 > running docker-compose stack. **M17 (Sandbox Simulation Engine) — in progress**,
 > started 2026-07-23: architecture reviewed and approved (incl. the `AuthorizationAdvisor`
-> port, D127–D132), decomposed into M17.1–M17.8. **M17.1–M17.4 complete.**
+> port, D127–D132), decomposed into M17.1–M17.8. **M17.1–M17.5 complete.**
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
 > **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D132**.
 
@@ -3586,6 +3586,101 @@ Testcontainers); `:sandbox-service:test` green and unaffected (M17.4 touches onl
 which is a scoping call within M17.4's own boundary, not a new architectural decision.
 
 **Remaining M17 work.** M17.5 — simulation overrides + control API + live-mode rejection.
+
+#### M17.5 — Simulation overrides, control API, live-mode rejection ✅ (2026-07-24)
+
+**Summary.** The "chaos knob" (§8.2) is real: a merchant can now force the next N test-mode
+authorizations (or the next N seconds) to decline, error, add latency, time out, rate-limit, or
+defer capture settlement — through a public, key-authenticated control API — and
+`SandboxDecisionService`'s override lookup (documented as a gap since M17.2) is wired in. Every
+scenario is contained inside sandbox-service; payment-service is completely untouched by this
+milestone — it still only ever sees `APPROVED`/`DECLINED`/`ERROR`/`PENDING` through
+`AuthorizationAdvisor` (M17.4), exactly as before.
+
+**Schema (`sandbox/V4__simulation_overrides.sql`).** `simulation_overrides` (merchant, mode,
+scenario, decline/error code, latency, remaining count, expiry, revoked-at). Two structural
+guarantees, not just runtime checks: `chk_simulation_overrides_mode check (mode = 'test')` makes a
+live-mode row impossible regardless of what the application layer does or fails to check (§7); a
+partial unique index (`merchant_id, mode where revoked_at is null`) makes "at most one active
+override per merchant/mode" a schema fact, not just application discipline. Additive FK from
+`decision_log.override_id` to this table — M17.2's own migration comment anticipated exactly this
+("`override_id` has no foreign key yet... M17.5 adds the FK additively").
+
+**A broader vocabulary than the engine's, by design.** `domain/SimulationScenario` (8 values,
+matching §8.2's full table) is deliberately wider than `DecisionEngine`'s own 6-value
+`OverrideScenario` (M17.2, untouched): `toEngineScenario()` maps 6 of them 1:1 and returns empty for
+`DUPLICATE_WEBHOOKS`/`WEBHOOK_FAILURE` — D131's "defined now, enacted by M18" scenarios are
+validated and persisted here (so M18 has something to read) but never reach the engine at all,
+keeping M17.2's "the engine never reasons about webhook delivery" property exactly intact.
+
+**Files created (sandbox-service, flat packages matching the module's own convention).**
+`domain/SimulationScenario.java`, `domain/SimulationOverride.java` (JPA entity; no setters for
+`remainingCount`/`revokedAt` — both change only through the repository's atomic `@Modifying`
+queries, never entity mutation; no `@Version`, D127); `repository/SimulationOverrideRepository.java`
+(`decrementRemainingCount` — D127's single atomic conditional `UPDATE ... WHERE remaining_count > 0`,
+a no-op by SQL semantics for a `null`-count row rather than needing a separate branch;
+`revokeActive`); `service/OverrideService.java` (create supersedes any existing active override for
+the same merchant/mode; live-mode create rejected with `ForbiddenException`, defense-in-depth
+alongside the schema check; scenario-specific field validation the way `SandboxDecisionRequest`'s own
+cross-field rules are validated — in the service, not bean-validation annotations);
+`dto/CreateSimulationOverrideRequest.java`, `dto/SimulationOverrideResponse.java`,
+`mapper/SimulationOverrideMapper.java` (sets `enactedFrom: "M18"` only for the two webhook
+scenarios); `web/SimulationController.java` (`POST /v1/test/simulations`, `GET`/`DELETE
+/v1/test/simulations/active` — plain, non-async MVC returns, so the existing
+`.anyRequest().authenticated()` catch-all in `SecurityConfig` already covers it; no `SecurityConfig`
+change needed, its own M17.2 javadoc already anticipated this exact caller).
+
+**Files modified.** `service/SandboxDecisionService.java` — `evaluate()` now looks up the active
+override via `OverrideService.findActive`, hands the engine an `OverrideSnapshot` when one maps to an
+engine scenario, and consumes it (D127) only when the engine's own returned `source` is actually
+`OVERRIDE` — the engine's existing "does this scenario apply to this operation" precedence check
+(§8.2, unchanged since M17.2) is the single source of truth for whether the override was really
+used, so the service never re-derives or second-guesses that. `overrideId` now flows into
+`DecisionLogEntry` instead of always `null`.
+
+**The gateway route (D100's existing mechanism, not a new one).** `sandbox-service` has no OAuth2
+resource server and never will for this endpoint family — its control API is reachable only via the
+gateway asserting the same HMAC-signed internal context it already asserts for payment-service's
+`/v1/payments` (M15), routed by one new declarative entry
+(`gateway-service/application.yaml`: `Path=/v1/test/simulations/**`, direct passthrough, no rewrite
+needed since sandbox-service's own controller path already is `/v1/test/simulations`). No changes to
+`ApiKeyAuthenticationWebFilter`: the existing generic "a publishable key cannot mutate" check already
+covers POST/DELETE here with no path-specific scope needed.
+
+**Tests.** `SimulationOverrideTest` (unit, domain-only): the three independent ways an override ends
+(revoked, expired, exhausted), tested without persistence. `OverrideServiceTest` (unit, Mockito):
+live-mode rejection, every scenario's required-field validation, latency-ceiling validation, the
+"needs a count or a duration" rule, revoke-before-create, duration-to-expiry conversion, consume
+delegation. `SandboxDecisionIntegrationTest` (extended, Testcontainers): a `FORCE_DECLINE` override
+beats an approving card and is consumed exactly once (the very next authorize falls back to the
+card); an authorize-only override never applies to `REFUND` and is never consumed by it; a webhook
+scenario override never reaches the engine at all. New `SimulationControllerIntegrationTest`
+(Testcontainers): create/get-active/revoke over real HTTP with signed headers; live-mode POST → 403;
+a scenario missing its required field → 400; neither count nor duration → 400; a webhook scenario →
+201 with `enactedFrom: "M18"`; a second create supersedes the first; no active override → 404;
+missing internal context → 401. Gateway: `ApiKeyAuthenticationIntegrationTest` gained a sandbox stub
+and one test proving `/v1/test/simulations` resolves through the new route with a signed context.
+
+**A bug caught by the test suite, not by inspection.** The first draft of
+`chk_simulation_overrides_remaining_count_positive` required `remaining_count > 0` unconditionally —
+which made D127's own atomic decrement (1 → 0, the exhaustion case the whole mechanism exists to
+produce) violate the table's own constraint, surfacing as a 500 from
+`SandboxDecisionIntegrationTest`'s new override tests. Fixed to `>= 0` (a negative value is what's
+actually invalid; requiring positive-at-creation is `OverrideService`'s job, not this constraint's) —
+recorded here because it's exactly the kind of schema/application split this project's own review
+discipline exists to catch.
+
+**Verification.** New unit tests green in isolation; `:sandbox-service:test` green (full suite,
+Testcontainers Postgres); `:gateway-service:test` green (full suite, including the new route test);
+`:payment-service:test` green and unaffected (M17.5 touches no payment-service file at all — verified
+by grepping for any cross-reference in both directions before commit). Full `./gradlew clean build`
+green across all 9 modules.
+
+**Decisions.** None new beyond D127/D131 (already recorded, now actually implemented rather than
+just designed for).
+
+**Remaining M17 work.** M17.6 — deferred outcomes: the scheduler, `sandbox.scheduled.events`, and
+payment-service's first Kafka consumer role.
 
 ---
 
