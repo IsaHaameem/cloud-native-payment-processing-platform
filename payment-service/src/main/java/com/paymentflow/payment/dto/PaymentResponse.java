@@ -13,6 +13,7 @@ public record PaymentResponse(
         long capturedAmountMinor,
         long refundedAmountMinor,
         String description,
+        String paymentMethodToken,
         String failureReason,
         Instant createdAt,
         Instant updatedAt) {

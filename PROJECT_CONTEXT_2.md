@@ -11,7 +11,7 @@
 > sub-milestones M16.1–M16.7 implemented, verified, committed, and E2E-validated on the
 > running docker-compose stack. **M17 (Sandbox Simulation Engine) — in progress**,
 > started 2026-07-23: architecture reviewed and approved (incl. the `AuthorizationAdvisor`
-> port, D127–D132), decomposed into M17.1–M17.8. **M17.1–M17.2 complete.**
+> port, D127–D132), decomposed into M17.1–M17.8. **M17.1–M17.3 complete.**
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
 > **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D132**.
 
@@ -3460,6 +3460,43 @@ an implementation finding, not a new architectural decision.
 
 **Remaining M17 work.** M17.3 — payment-service's `payment_method_token` (D130): additive migration,
 DTO/entity/mapper/response field. No sandbox call yet.
+
+#### M17.3 — payment-service's `payment_method_token` ✅ (2026-07-24)
+
+**Summary.** `Payment` gains an optional `paymentMethodToken` — the test-card token (§8.1) a payment
+authorizes against — as a purely additive concept (D130). No sandbox call exists yet (M17.4); the
+column exists so M17.4 has something to read instead of landing schema and call together. A payment
+created without a token behaves exactly as every payment did before M17, which is also exactly what
+lets every M16.2 test keep passing untouched.
+
+**Files created.** `db/migration/V3__payment_method_token.sql` — `alter table payments add column
+payment_method_token varchar(64)`, nullable, no backfill, no constraint.
+
+**Files modified.** `domain/Payment.java` (+`paymentMethodToken` field, `updatable = false` — set once
+at creation, like every other payment-defining field; `create()`'s signature extended, getter added).
+`dto/CreatePaymentRequest.java` (+optional `paymentMethodToken`, `@Size(max = 64)` — no other
+validation, since the token's meaning, a known test card or not, is sandbox-service's business, not
+payment-service's). `dto/PaymentResponse.java` / `mapper/PaymentMapper.java` (field threaded through to
+the API response). `service/PaymentService.java` (`request.paymentMethodToken()` passed into
+`Payment.create(...)`).
+
+**Tests.** Every existing call site of `Payment.create(...)` / `new CreatePaymentRequest(...)` updated
+to the new arity (`PaymentTest`, `PaymentServiceTest`, `MerchantResilienceIntegrationTest`) — all pass
+`null` unless the token is what's under test, keeping every pre-M17 assertion unchanged.
+`PaymentIntegrationTest` gains two cases: `paymentMethodTokenRoundTripsWhenSupplied` (a token in the
+request body comes back on the created payment's response) and `paymentMethodTokenIsNullWhenOmitted`
+(the field is absent from the response when never supplied — no `null` literal serialized, matching
+Jackson 3's default).
+
+**Verification.** `:payment-service:test` green (full suite, real Postgres/Kafka via Testcontainers,
+no tests skipped). Full `./gradlew clean build` green across all 9 modules — sandbox-service and every
+other service unaffected, confirming the migration and field addition are additive in practice, not
+just by intent.
+
+**Decisions.** None new (D130 already recorded).
+
+**Remaining M17 work.** M17.4 — the `AuthorizationAdvisor` port + `SandboxAuthorizationAdvisor` adapter
+wired into `authorize()`, with degradation (D129, D132).
 
 ---
 

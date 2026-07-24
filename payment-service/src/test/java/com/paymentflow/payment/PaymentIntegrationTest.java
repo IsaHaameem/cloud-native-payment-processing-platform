@@ -200,6 +200,34 @@ class PaymentIntegrationTest {
     }
 
     @Test
+    void paymentMethodTokenRoundTripsWhenSupplied() throws Exception {
+        String token = signedJwt(UUID.randomUUID().toString());
+
+        mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "token-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"amountMinor":1000,"currency":"USD","paymentMethodToken":"pm_card_visa"}"""))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.paymentMethodToken").value("pm_card_visa"));
+    }
+
+    @Test
+    void paymentMethodTokenIsNullWhenOmitted() throws Exception {
+        String token = signedJwt(UUID.randomUUID().toString());
+
+        mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "token-2")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"amountMinor":1000,"currency":"USD"}"""))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.paymentMethodToken").doesNotExist());
+    }
+
+    @Test
     void partialRefundsAccumulateToFullyRefunded() throws Exception {
         String token = signedJwt(UUID.randomUUID().toString());
         UUID paymentId = createAuthorizedAndCaptured(token, 10000, "partial-1");

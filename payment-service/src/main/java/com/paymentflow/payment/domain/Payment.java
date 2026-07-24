@@ -60,6 +60,13 @@ public class Payment {
     @Column(length = 500)
     private String description;
 
+    // The test-card token this payment authorizes against (M17, D130). Nullable, with no
+    // backfill — a payment created without one (every payment before M17, and every one
+    // that still doesn't supply it) resolves to the mode default at authorize time
+    // (M17.4): auto-approve in test, the simulated acquirer in live.
+    @Column(name = "payment_method_token", updatable = false, length = 64)
+    private String paymentMethodToken;
+
     @Column(name = "failure_reason", length = 500)
     private String failureReason;
 
@@ -78,19 +85,22 @@ public class Payment {
         // Required by JPA.
     }
 
-    private Payment(UUID merchantId, String mode, long amountMinor, String currency, String description) {
+    private Payment(UUID merchantId, String mode, long amountMinor, String currency, String description,
+                   String paymentMethodToken) {
         this.merchantId = merchantId;
         this.mode = mode;
         this.amountMinor = amountMinor;
         this.currency = currency;
         this.description = description;
+        this.paymentMethodToken = paymentMethodToken;
         this.status = PaymentStatus.CREATED;
         this.capturedAmountMinor = 0;
         this.refundedAmountMinor = 0;
     }
 
-    public static Payment create(UUID merchantId, String mode, long amountMinor, String currency, String description) {
-        return new Payment(merchantId, mode, amountMinor, currency, description);
+    public static Payment create(UUID merchantId, String mode, long amountMinor, String currency, String description,
+                                 String paymentMethodToken) {
+        return new Payment(merchantId, mode, amountMinor, currency, description, paymentMethodToken);
     }
 
     public void authorize() {
@@ -171,6 +181,10 @@ public class Payment {
 
     public String getDescription() {
         return description;
+    }
+
+    public String getPaymentMethodToken() {
+        return paymentMethodToken;
     }
 
     public String getFailureReason() {

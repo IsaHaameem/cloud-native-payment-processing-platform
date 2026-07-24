@@ -81,7 +81,7 @@ class PaymentServiceTest {
 
     @Test
     void createRequiresAnIdempotencyKey() {
-        CreatePaymentRequest request = new CreatePaymentRequest(1000, "USD", "x");
+        CreatePaymentRequest request = new CreatePaymentRequest(1000, "USD", "x", null);
 
         assertThatThrownBy(() -> paymentService.create(request, null)).isInstanceOf(BadRequestException.class);
         assertThatThrownBy(() -> paymentService.create(request, "  ")).isInstanceOf(BadRequestException.class);
@@ -91,7 +91,7 @@ class PaymentServiceTest {
     void createSavesAPendingPaymentAndPublishesAnEvent() {
         when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        PaymentResponse response = paymentService.create(new CreatePaymentRequest(5000, "USD", "desc"), "key-1");
+        PaymentResponse response = paymentService.create(new CreatePaymentRequest(5000, "USD", "desc", null), "key-1");
 
         assertThat(response.amountMinor()).isEqualTo(5000);
         assertThat(response.status()).isEqualTo("CREATED");
@@ -102,7 +102,7 @@ class PaymentServiceTest {
 
     @Test
     void authorizeTransitionsTheCallersOwnedPayment() {
-        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null);
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null);
         when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
                 .thenReturn(Optional.of(payment));
 
@@ -123,7 +123,7 @@ class PaymentServiceTest {
 
     @Test
     void captureThenRefundWithNoAmountRefundsTheFullCapturedAmount() {
-        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null);
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null);
         payment.authorize();
         payment.capture();
         when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
@@ -138,7 +138,7 @@ class PaymentServiceTest {
 
     @Test
     void partialRefundPublishesThePartiallyRefundedEventType() {
-        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null);
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null);
         payment.authorize();
         payment.capture();
         when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))

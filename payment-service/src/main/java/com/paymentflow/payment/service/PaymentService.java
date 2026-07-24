@@ -63,7 +63,8 @@ public class PaymentService {
         return idempotencyService.guarded(merchantId, mode, idempotencyKey, fingerprint, PaymentResponse.class, () ->
                 transactionTemplate.execute(status -> {
                     Payment payment = paymentRepository.save(Payment.create(
-                            merchantId, mode, request.amountMinor(), request.currency(), request.description()));
+                            merchantId, mode, request.amountMinor(), request.currency(), request.description(),
+                            request.paymentMethodToken()));
                     eventPublisher.publish(payment, "PaymentCreated", null, payment.getAmountMinor(), merchant);
                     PaymentResponse response = paymentMapper.toResponse(payment);
                     idempotencyService.record(merchantId, mode, idempotencyKey, fingerprint, 201, response);

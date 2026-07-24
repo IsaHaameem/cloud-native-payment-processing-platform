@@ -18,6 +18,7 @@ public class PaymentMapper {
                 payment.getCapturedAmountMinor(),
                 payment.getRefundedAmountMinor(),
                 payment.getDescription(),
+                payment.getPaymentMethodToken(),
                 payment.getFailureReason(),
                 payment.getCreatedAt(),
                 payment.getUpdatedAt());
