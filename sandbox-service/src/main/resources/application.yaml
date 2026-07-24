@@ -43,6 +43,14 @@ server:
   port: 8094
 
 paymentflow:
+  simulated-acquirer:
+    # D104/M17.7 — deliberately "configurable per environment" (§8.4): small enough
+    # that live mode isn't a noisy nuisance for local dev, real enough that live is
+    # measurably different from test's deterministic-by-default behaviour.
+    decline-rate: 0.03
+    error-rate: 0.01
+    latency-mean-ms: 120
+    latency-std-dev-ms: 40
   scheduled-outcomes:
     # How often ScheduledOutcomeRelay polls for due, undelivered rows (M17.6) — mirrors
     # payment-service's paymentflow.outbox.relay-interval-ms in spirit; 1s keeps the

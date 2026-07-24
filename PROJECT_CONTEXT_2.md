@@ -11,7 +11,7 @@
 > sub-milestones M16.1–M16.7 implemented, verified, committed, and E2E-validated on the
 > running docker-compose stack. **M17 (Sandbox Simulation Engine) — in progress**,
 > started 2026-07-23: architecture reviewed and approved (incl. the `AuthorizationAdvisor`
-> port, D127–D132), decomposed into M17.1–M17.8. **M17.1–M17.6 complete.**
+> port, D127–D132), decomposed into M17.1–M17.8. **M17.1–M17.7 complete.**
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
 > **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D132**.
 
@@ -3788,8 +3788,77 @@ validation is M17.8's own explicit scope, not repeated here).
 milestone made; the capture-lookahead mechanism is an implementation consequence of those, not a new
 architectural decision.
 
-**Remaining M17 work.** M17.7 — the decision log query API and sandbox-service's remaining operational
-capabilities.
+**Remaining M17 work.** M17.7 — the live simulated acquirer (D104).
+
+#### M17.7 — The live simulated acquirer (D104) ✅ (2026-07-24)
+
+**Summary.** Live mode is no longer indistinguishable from test mode's own deterministic default: it
+now applies a small stochastic decline rate, an occasional transient error, and a realistic latency
+distribution — configurable per environment (§8.4) — recorded in `decision_log` with `source=ACQUIRER`
+so behaviour stays explainable after the fact. `AuthorizationAdvisor` (M17.4) needed zero changes:
+`SandboxAuthorizationAdvisor`'s mapping already treats any `DECLINE`/`ERROR` outcome generically, so a
+live acquirer decline flows through the exact same port-level path a test-mode decline does.
+
+**Correction to a scope misstatement in M17.6's own changelog entry, caught before it did any
+damage.** M17.6's "Remaining M17 work" pointer (just above, now fixed) mislabeled M17.7 as "the
+decision-log query API" — the original M17 architecture review (§17, this document, 2026-07-23)
+assigns that to **M17.8**, and M17.7 to the live simulated acquirer. Caught and confirmed with Isa
+before writing any M17.7 code; corrected here rather than silently compounding the error into the
+implementation itself.
+
+**Where the implementation actually landed.** `DecisionEngine.decideLive` was, by its own M17.2
+javadoc, always the designated extension point ("Until M17.7 wires the simulated acquirer, this is the
+same deterministic approve every mode default is") — completing it is not a redesign of a completed
+milestone, it is that milestone's own documented gap. The engine stays a pure function even though live
+mode is now stochastic: `decideLive(Operation, double outcomeDraw, double latencyDraw)` takes the random
+draws as explicit parameters rather than calling `Math.random()` itself, so `SandboxDecisionService` (an
+existing orchestration-layer bean, already the home of every other piece of I/O/randomness this service
+needs) owns the actual random source, and the engine remains exhaustively testable with plain boundary
+values exactly like every other branch in `DecisionEngineTest`.
+
+**Files created.** `engine/SimulatedAcquirerProperties.java` — `declineRate`/`errorRate`/
+`latencyMeanMs`/`latencyStdDevMs`, `@ConfigurationProperties(prefix = "paymentflow.simulated-acquirer")`.
+
+**Files modified.** `engine/DecisionEngine.java` — constructor now takes `SimulatedAcquirerProperties`;
+`decideLive` computes an outcome from `outcomeDraw` against the decline/error slices (`card_declined`/
+`processing_error` — reusing the platform's existing stable codes, not inventing new ones) and a latency
+from `latencyDraw` (a uniform spread around the configured mean, clamped to the same 10s platform-wide
+ceiling every other injected latency respects), always tagged `DecisionSource.ACQUIRER`.
+`service/SandboxDecisionService.java` — the live-mode branch of `evaluate()` now draws two `Random#
+nextDouble()` values and passes them through. `application.yaml` —
+`paymentflow.simulated-acquirer.{decline-rate=0.03, error-rate=0.01, latency-mean-ms=120,
+latency-std-dev-ms=40}`, small enough not to be a nuisance in local dev, real enough to be measurably
+different from test mode's default.
+
+**A real regression caught by re-running the suite, not by inspection.** `SandboxDecisionIntegrationTest`
+had one pre-existing M17.2 test (`liveModeIgnoresADecliningTokenAndApproves`) asserting the *placeholder*
+behaviour `decideLive` was always going to stop having — `source=MODE_DEFAULT` for live mode. Fixed by
+asserting the property that's actually now guaranteed (`source=ACQUIRER`, deterministically, regardless
+of any token) rather than the specific stochastic outcome, which is no longer deterministic and
+shouldn't be asserted as if it were. Every other `MODE_DEFAULT` assertion in that file was already
+correctly scoped to test-mode calls and needed no change.
+
+**Tests.** `DecisionEngineTest` (extended, no Spring context): decline/error/approve slice boundaries
+against explicit draws; latency centered on the configured mean and clamped within the configured
+spread; CAPTURE and REFUND share AUTHORIZE's distribution. `SandboxDecisionIntegrationTest` (extended):
+the fixed regression test above, plus a new statistical test —
+`liveModeProducesAMeasurablyDifferentOutcomeDistributionThanTestModesDeterministicApprove` — driving 300
+real live-mode decisions over HTTP and asserting every one carries `source=ACQUIRER` while at least one
+comes back non-`APPROVE` (with the configured 4% combined decline+error rate, the chance of zero
+non-approvals in 300 trials is roughly 1 in 80,000 — this is the completion criterion "Live mode's
+simulated acquirer produces a measurably different outcome distribution from test mode," asserted the
+way a genuinely non-deterministic property should be, not pinned to an exact count).
+
+**Verification.** `:sandbox-service:test` green (72 tests, full suite); `:payment-service:test` green
+and unaffected (M17.7 touches no payment-service file — `AuthorizationAdvisor`'s port-level mapping
+already handles any acquirer-shaped decline/error generically); gateway-service untouched, not
+re-verified. Full `./gradlew clean build` green across all 9 modules.
+
+**Decisions.** None new — D104 (already recorded) is what this milestone implements; no new
+architectural choice was made beyond it.
+
+**Remaining M17 work.** M17.8 — the decision-log query API, docs rendered from the test-card catalogue,
+full E2E validation, and milestone closure.
 
 ---
 

@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class DecisionEngineTest {
 
-    private final DecisionEngine engine = new DecisionEngine();
+    private final DecisionEngine engine = new DecisionEngine(new SimulatedAcquirerProperties(0.1, 0.05, 100, 50));
 
     // ── AUTHORIZE: no override ──────────────────────────────────────────────
 
@@ -248,24 +248,50 @@ class DecisionEngineTest {
         assertThat(decision.source()).isEqualTo(DecisionSource.MODE_DEFAULT);
     }
 
-    // ── LIVE: structurally cannot see card/override at all ──────────────────
+    // ── LIVE: structurally cannot see card/override at all, stochastic (D104/M17.7) ──
+    // Engine under test: declineRate=0.10, errorRate=0.05, latencyMean=100, latencyStdDev=50.
 
     @Test
-    void liveAuthorizeIsAlwaysModeDefault() {
-        EngineDecision decision = engine.decideLive(Operation.AUTHORIZE);
+    void liveDeclinesWhenTheOutcomeDrawFallsInTheDeclineSlice() {
+        EngineDecision decision = engine.decideLive(Operation.AUTHORIZE, 0.05, 0.5);
+
+        assertThat(decision.outcome()).isEqualTo(DecisionOutcome.DECLINE);
+        assertThat(decision.declineCode()).isEqualTo("card_declined");
+        assertThat(decision.source()).isEqualTo(DecisionSource.ACQUIRER);
+    }
+
+    @Test
+    void liveErrorsWhenTheOutcomeDrawFallsInTheErrorSlice() {
+        EngineDecision decision = engine.decideLive(Operation.AUTHORIZE, 0.12, 0.5);
+
+        assertThat(decision.outcome()).isEqualTo(DecisionOutcome.ERROR);
+        assertThat(decision.errorCode()).isEqualTo("processing_error");
+        assertThat(decision.source()).isEqualTo(DecisionSource.ACQUIRER);
+    }
+
+    @Test
+    void liveApprovesWhenTheOutcomeDrawFallsAboveBothSlices() {
+        EngineDecision decision = engine.decideLive(Operation.AUTHORIZE, 0.99, 0.5);
 
         assertThat(decision.outcome()).isEqualTo(DecisionOutcome.APPROVE);
-        assertThat(decision.source()).isEqualTo(DecisionSource.MODE_DEFAULT);
+        assertThat(decision.source()).isEqualTo(DecisionSource.ACQUIRER);
     }
 
     @Test
-    void liveCaptureIsAlwaysModeDefault() {
-        assertThat(engine.decideLive(Operation.CAPTURE).source()).isEqualTo(DecisionSource.MODE_DEFAULT);
+    void liveLatencyIsCenteredOnTheConfiguredMeanAtTheMidpointDraw() {
+        assertThat(engine.decideLive(Operation.AUTHORIZE, 0.99, 0.5).latencyMs()).isEqualTo(100);
     }
 
     @Test
-    void liveRefundIsAlwaysModeDefault() {
-        assertThat(engine.decideLive(Operation.REFUND).source()).isEqualTo(DecisionSource.MODE_DEFAULT);
+    void liveLatencyIsClampedWithinTheConfiguredSpread() {
+        assertThat(engine.decideLive(Operation.AUTHORIZE, 0.99, 0.0).latencyMs()).isEqualTo(50);
+        assertThat(engine.decideLive(Operation.AUTHORIZE, 0.99, 1.0).latencyMs()).isEqualTo(150);
+    }
+
+    @Test
+    void liveCaptureAndRefundUseTheSameDistributionAsAuthorize() {
+        assertThat(engine.decideLive(Operation.CAPTURE, 0.05, 0.5).outcome()).isEqualTo(DecisionOutcome.DECLINE);
+        assertThat(engine.decideLive(Operation.REFUND, 0.05, 0.5).outcome()).isEqualTo(DecisionOutcome.DECLINE);
     }
 
     private static TestCardProfile card(DecisionOutcome outcome, String declineCode, String errorCode, int latencyMs,

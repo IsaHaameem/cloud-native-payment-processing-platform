@@ -36,14 +36,50 @@ public class DecisionEngine {
     /** The platform-wide ceiling on injected latency (matches the schema-enforced bound on both test cards and overrides). */
     public static final int MAX_INJECTABLE_LATENCY_MS = 10_000;
 
+    private static final String ACQUIRER_DECLINE_CODE = "card_declined";
+    private static final String ACQUIRER_ERROR_CODE = "processing_error";
+
+    private final SimulatedAcquirerProperties simulatedAcquirerProperties;
+
+    public DecisionEngine(SimulatedAcquirerProperties simulatedAcquirerProperties) {
+        this.simulatedAcquirerProperties = simulatedAcquirerProperties;
+    }
+
     /**
-     * Live mode's decision (D104). Until M17.7 wires the simulated acquirer, this is
-     * the same deterministic approve every mode default is — the honest state of the
-     * system before that sub-milestone lands, not a placeholder pretending to be more
-     * than it is.
+     * Live mode's decision (D104, M17.7) — a small stochastic decline rate, a
+     * realistic latency distribution, and an occasional transient error, none of it
+     * developer-controllable (§7): unlike every {@link #decide} branch, this method has
+     * no card/override parameter at all, so there is structurally nothing for a
+     * merchant's own input to influence. {@code outcomeDraw}/{@code latencyDraw} are
+     * uniform {@code [0, 1)} values the caller supplies (D103/M17.2's "no I/O, no
+     * hidden state" charter extended here: the engine stays a pure function of its
+     * inputs even though live mode is stochastic — {@code SandboxDecisionService} owns
+     * the actual random source, this method owns only the distribution shape, so
+     * {@code decideLive(operation, 0.5, 0.5)} is exhaustively, deterministically
+     * testable exactly like every other branch in this class).
      */
-    public EngineDecision decideLive(Operation operation) {
-        return modeDefault();
+    public EngineDecision decideLive(Operation operation, double outcomeDraw, double latencyDraw) {
+        int latencyMs = sampleLatencyMs(latencyDraw);
+        if (outcomeDraw < simulatedAcquirerProperties.declineRate()) {
+            return EngineDecision.decline(ACQUIRER_DECLINE_CODE, DecisionSource.ACQUIRER, latencyMs);
+        }
+        if (outcomeDraw < simulatedAcquirerProperties.declineRate() + simulatedAcquirerProperties.errorRate()) {
+            return EngineDecision.error(ACQUIRER_ERROR_CODE, DecisionSource.ACQUIRER, latencyMs);
+        }
+        return EngineDecision.approve(DecisionSource.ACQUIRER, latencyMs);
+    }
+
+    /**
+     * A uniform spread of {@code [mean - stdDev, mean + stdDev]}, not a true Gaussian —
+     * "realistic" here means "a small, non-zero delay a real acquirer call would have,"
+     * not a statistically rigorous model, and a uniform spread keeps this exhaustively
+     * testable with plain boundary values (0.0/0.5/1.0) like the rest of this class.
+     * Clamped to the same platform-wide ceiling every injected latency respects.
+     */
+    private int sampleLatencyMs(double latencyDraw) {
+        int spread = (int) Math.round((latencyDraw - 0.5) * 2 * simulatedAcquirerProperties.latencyStdDevMs());
+        int latencyMs = simulatedAcquirerProperties.latencyMeanMs() + spread;
+        return Math.clamp(latencyMs, 0, MAX_INJECTABLE_LATENCY_MS);
     }
 
     public EngineDecision decide(Operation operation, Optional<TestCardProfile> card, Optional<OverrideSnapshot> override) {

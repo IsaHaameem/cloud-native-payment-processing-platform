@@ -22,9 +22,13 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -71,6 +75,9 @@ class SandboxDecisionIntegrationTest {
 
     @Autowired
     private ScheduledOutcomeRepository scheduledOutcomeRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     void missingInternalContextIsUnauthorized() throws Exception {
@@ -144,7 +151,14 @@ class SandboxDecisionIntegrationTest {
     }
 
     @Test
-    void liveModeIgnoresADecliningTokenAndApproves() throws Exception {
+    void liveModeIgnoresADecliningTokenAndSourcesFromTheAcquirer() throws Exception {
+        // M17.7/D104: live mode's source is deterministically ACQUIRER — never
+        // OVERRIDE/TEST_CARD/MODE_DEFAULT — regardless of what token a client sends;
+        // that is the actual, structural §7 guarantee this test proves. The *outcome*
+        // itself is the acquirer's own stochastic roll (declineRate+errorRate=4% in
+        // this environment) and deliberately not asserted here — see
+        // liveModeProducesAMeasurablyDifferentOutcomeDistributionThanTestModesDeterministicApprove
+        // for that behavior, asserted the way a non-deterministic outcome should be.
         UUID merchantId = UUID.randomUUID();
         performDecision(signedPost(merchantId, "live")
                         .content("""
@@ -152,8 +166,7 @@ class SandboxDecisionIntegrationTest {
                                  "paymentMethodToken":"pm_card_chargeDeclined","amountMinor":1000,"currency":"USD"}
                                 """.formatted(UUID.randomUUID(), UUID.randomUUID())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.outcome").value("APPROVE"))
-                .andExpect(jsonPath("$.source").value("MODE_DEFAULT"));
+                .andExpect(jsonPath("$.source").value("ACQUIRER"));
     }
 
     @Test
@@ -251,6 +264,38 @@ class SandboxDecisionIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.outcome").value("APPROVE"))
                 .andExpect(jsonPath("$.source").value("MODE_DEFAULT"));
+    }
+
+    @Test
+    void liveModeProducesAMeasurablyDifferentOutcomeDistributionThanTestModesDeterministicApprove()
+            throws Exception {
+        // Completion criterion (§5/M17): live mode's simulated acquirer (D104, M17.7)
+        // must be observably different from test mode's own default (a deterministic
+        // approve, unless a card/override says otherwise). Configured
+        // declineRate=0.03 + errorRate=0.01 over 300 trials makes "zero non-approvals"
+        // astronomically unlikely (~1 in 80,000) without asserting an exact rate, which
+        // would make this test flaky by design.
+        UUID merchantId = UUID.randomUUID();
+        Set<String> outcomesSeen = new HashSet<>();
+        Set<String> sourcesSeen = new HashSet<>();
+        int trials = 300;
+
+        for (int i = 0; i < trials; i++) {
+            String body = performDecision(signedPost(merchantId, "live")
+                            .content("""
+                                    {"decisionKey":"%s","paymentId":"%s","operation":"AUTHORIZE",
+                                     "amountMinor":1000,"currency":"USD"}
+                                    """.formatted(UUID.randomUUID(), UUID.randomUUID())))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            JsonNode node = objectMapper.readTree(body);
+            outcomesSeen.add(node.get("outcome").asString());
+            sourcesSeen.add(node.get("source").asString());
+        }
+
+        assertThat(sourcesSeen).containsExactly("ACQUIRER"); // never OVERRIDE/TEST_CARD/MODE_DEFAULT (§7)
+        assertThat(outcomesSeen).contains("APPROVE"); // the overwhelming majority
+        assertThat(outcomesSeen).anyMatch(o -> o.equals("DECLINE") || o.equals("ERROR"));
     }
 
     @Test

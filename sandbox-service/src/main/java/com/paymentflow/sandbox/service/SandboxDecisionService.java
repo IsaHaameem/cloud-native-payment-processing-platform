@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Random;
 import java.util.UUID;
 
 /**
@@ -38,6 +39,7 @@ public class SandboxDecisionService {
     private final DecisionEngine decisionEngine;
     private final OverrideService overrideService;
     private final ScheduledOutcomeService scheduledOutcomeService;
+    private final Random random = new Random();
 
     public SandboxDecisionService(DecisionLogRepository decisionLogRepository, TestCardService testCardService,
                                   DecisionEngine decisionEngine, OverrideService overrideService,
@@ -96,7 +98,7 @@ public class SandboxDecisionService {
     private Evaluation evaluate(UUID merchantId, String mode, Operation operation, UUID paymentId,
                                 String paymentMethodToken) {
         if (LIVE_MODE.equals(mode)) {
-            return new Evaluation(decisionEngine.decideLive(operation), null);
+            return new Evaluation(decisionEngine.decideLive(operation, random.nextDouble(), random.nextDouble()), null);
         }
         Optional<TestCardProfile> card = testCardService.findActive(paymentMethodToken).map(TestCardProfile::of);
         Optional<SimulationOverride> activeOverride = overrideService.findActive(merchantId, mode);
