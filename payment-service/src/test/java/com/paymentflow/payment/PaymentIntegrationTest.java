@@ -110,6 +110,28 @@ class PaymentIntegrationTest {
                 body.write(bytes);
             }
         });
+        stub.createContext("/internal/v1/sandbox/decisions", exchange -> {
+            String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            String outcome = "APPROVE";
+            String declineCode = "null";
+            String errorCode = "null";
+            if (requestBody.contains("\"paymentMethodToken\":\"pm_card_chargeDeclined\"")) {
+                outcome = "DECLINE";
+                declineCode = "\"card_declined\"";
+            } else if (requestBody.contains("\"paymentMethodToken\":\"pm_card_processingError\"")) {
+                outcome = "ERROR";
+                errorCode = "\"processing_error\"";
+            }
+            String body = "{\"outcome\":\"" + outcome + "\",\"declineCode\":" + declineCode + ",\"errorCode\":"
+                    + errorCode + ",\"latencyMs\":0,\"source\":\"TEST_CARD\",\"deferredOperation\":null,"
+                    + "\"deferredDelayMs\":null}";
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (var os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
+        });
         stub.createContext("/api/v1/merchants/me", exchange -> {
             String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
             String token = authHeader.substring("Bearer ".length());
@@ -150,6 +172,7 @@ class PaymentIntegrationTest {
         registry.add("spring.data.redis.password", () -> "");
         registry.add("paymentflow.services.identity.jwks-uri", () -> "http://localhost:" + stub.getAddress().getPort() + "/oauth2/jwks");
         registry.add("paymentflow.services.merchant.base-uri", () -> "http://localhost:" + stub.getAddress().getPort());
+        registry.add("paymentflow.services.sandbox.base-uri", () -> "http://localhost:" + stub.getAddress().getPort());
     }
 
     private static UUID merchantIdFor(String subject) {
@@ -225,6 +248,83 @@ class PaymentIntegrationTest {
                                 {"amountMinor":1000,"currency":"USD"}"""))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.paymentMethodToken").doesNotExist());
+    }
+
+    @Test
+    void authorizeFailsThePaymentWhenSandboxDeclines() throws Exception {
+        String token = signedJwt(UUID.randomUUID().toString());
+
+        String createBody = mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "decline-create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"amountMinor":1000,"currency":"USD","paymentMethodToken":"pm_card_chargeDeclined"}"""))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID paymentId = UUID.fromString(objectMapper.readTree(createBody).get("id").asString());
+
+        mockMvc.perform(post("/api/v1/payments/" + paymentId + "/authorize")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "decline-authorize"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.failureReason").value("card_declined"));
+
+        List<String> eventTypes = outboxEventRepository.findAll().stream()
+                .filter(e -> e.getAggregateId().equals(paymentId))
+                .map(com.paymentflow.payment.domain.OutboxEvent::getEventType)
+                .toList();
+        assertThat(eventTypes).containsExactlyInAnyOrder("PaymentCreated", "PaymentFailed");
+    }
+
+    @Test
+    void authorizeFailsThePaymentWhenSandboxErrors() throws Exception {
+        String token = signedJwt(UUID.randomUUID().toString());
+
+        String createBody = mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "error-create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"amountMinor":1000,"currency":"USD","paymentMethodToken":"pm_card_processingError"}"""))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID paymentId = UUID.fromString(objectMapper.readTree(createBody).get("id").asString());
+
+        mockMvc.perform(post("/api/v1/payments/" + paymentId + "/authorize")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "error-authorize"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.failureReason").value("processing_error"));
+    }
+
+    @Test
+    void authorizingAnAlreadyFailedPaymentIsRejectedWith409WithoutCallingSandboxAgain() throws Exception {
+        String token = signedJwt(UUID.randomUUID().toString());
+
+        String createBody = mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "refail-create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"amountMinor":1000,"currency":"USD","paymentMethodToken":"pm_card_chargeDeclined"}"""))
+                .andReturn().getResponse().getContentAsString();
+        UUID paymentId = UUID.fromString(objectMapper.readTree(createBody).get("id").asString());
+
+        mockMvc.perform(post("/api/v1/payments/" + paymentId + "/authorize")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "refail-authorize-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"));
+
+        // A NEW Idempotency-Key against the same now-FAILED payment: the fail-fast FSM
+        // check (D129) rejects it before ever reaching sandbox again.
+        mockMvc.perform(post("/api/v1/payments/" + paymentId + "/authorize")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "refail-authorize-2"))
+                .andExpect(status().isConflict());
     }
 
     @Test

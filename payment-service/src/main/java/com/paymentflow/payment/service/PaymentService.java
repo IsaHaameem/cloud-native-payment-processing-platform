@@ -3,12 +3,16 @@ package com.paymentflow.payment.service;
 import com.paymentflow.common.dto.page.PageResponse;
 import com.paymentflow.common.exception.BadRequestException;
 import com.paymentflow.common.exception.ResourceNotFoundException;
+import com.paymentflow.payment.authorization.AuthorizationAdvisor;
+import com.paymentflow.payment.authorization.AuthorizationDecision;
+import com.paymentflow.payment.authorization.AuthorizationRequest;
 import com.paymentflow.payment.domain.Payment;
 import com.paymentflow.payment.domain.PaymentStatus;
 import com.paymentflow.payment.dto.CreatePaymentRequest;
 import com.paymentflow.payment.dto.PaymentResponse;
 import com.paymentflow.payment.dto.RefundRequest;
 import com.paymentflow.payment.event.PaymentEventPublisher;
+import com.paymentflow.payment.exception.IllegalPaymentStateTransitionException;
 import com.paymentflow.payment.idempotency.IdempotencyService;
 import com.paymentflow.payment.mapper.PaymentMapper;
 import com.paymentflow.payment.merchant.MerchantResolver;
@@ -39,11 +43,12 @@ public class PaymentService {
     private final MerchantResolver merchantResolver;
     private final RequestModeResolver requestModeResolver;
     private final TransactionTemplate transactionTemplate;
+    private final AuthorizationAdvisor authorizationAdvisor;
 
     public PaymentService(PaymentRepository paymentRepository, PaymentMapper paymentMapper,
                           PaymentEventPublisher eventPublisher, IdempotencyService idempotencyService,
                           MerchantResolver merchantResolver, RequestModeResolver requestModeResolver,
-                          TransactionTemplate transactionTemplate) {
+                          TransactionTemplate transactionTemplate, AuthorizationAdvisor authorizationAdvisor) {
         this.paymentRepository = paymentRepository;
         this.paymentMapper = paymentMapper;
         this.eventPublisher = eventPublisher;
@@ -51,6 +56,7 @@ public class PaymentService {
         this.merchantResolver = merchantResolver;
         this.requestModeResolver = requestModeResolver;
         this.transactionTemplate = transactionTemplate;
+        this.authorizationAdvisor = authorizationAdvisor;
     }
 
     public PaymentResponse create(CreatePaymentRequest request, String idempotencyKey) {
@@ -72,11 +78,68 @@ public class PaymentService {
                 }));
     }
 
+    /**
+     * Unlike capture/void/refund below, authorize cannot use {@link #mutate}: the
+     * sandbox advisory call (M17.4, D129) must happen <em>before</em> any transaction
+     * opens — holding a pooled DB connection across a call that can legitimately run
+     * for seconds (a slow test card) risks exhausting the pool under load. The read
+     * here is advisory only: a fail-fast FSM check plus the immutable facts (token,
+     * amount, currency) the decision needs. Authority over the payment's actual state
+     * is re-established below, under optimistic locking, once the decision returns —
+     * never assumed from this earlier read.
+     */
     public PaymentResponse authorize(UUID paymentId, String idempotencyKey) {
-        return mutate(paymentId, idempotencyKey, "authorize", null, payment -> {
-            payment.authorize();
-            return new MutationOutcome("PaymentAuthorized", payment.getAmountMinor());
+        requireIdempotencyKey(idempotencyKey);
+        String mode = requestModeResolver.resolve();
+        MerchantSummary merchant = merchantResolver.resolveCallerMerchant();
+        UUID merchantId = merchant.id();
+        String fingerprint = idempotencyService.fingerprint("POST:/api/v1/payments/" + paymentId + "/authorize", null);
+
+        return idempotencyService.guarded(merchantId, mode, idempotencyKey, fingerprint, PaymentResponse.class, () -> {
+            Payment preview = getOwnedPayment(paymentId, merchantId, mode);
+            if (!preview.getStatus().canTransitionTo(PaymentStatus.AUTHORIZED)) {
+                throw new IllegalPaymentStateTransitionException(preview.getStatus(), PaymentStatus.AUTHORIZED);
+            }
+            AuthorizationDecision decision = authorizationAdvisor.advise(new AuthorizationRequest(
+                    preview.getId(), merchantId, mode, preview.getPaymentMethodToken(), preview.getAmountMinor(),
+                    preview.getCurrency()));
+
+            return transactionTemplate.execute(status -> {
+                Payment payment = getOwnedPayment(paymentId, merchantId, mode);
+                PaymentStatus previous = payment.getStatus();
+                MutationOutcome outcome = applyAuthorizationDecision(payment, decision);
+                eventPublisher.publish(payment, outcome.eventType(), previous, outcome.eventAmountMinor(), merchant);
+                PaymentResponse response = paymentMapper.toResponse(payment);
+                idempotencyService.record(merchantId, mode, idempotencyKey, fingerprint, 200, response);
+                return response;
+            });
         });
+    }
+
+    /**
+     * Translates the provider-neutral {@link AuthorizationDecision} into the payment's
+     * own state transition and lifecycle event (M17.4). A DECLINED/ERROR decision fails
+     * the payment outright — there is no intermediate FSM state for an authorization
+     * that requires further customer action; {@code SandboxAuthorizationAdvisor} already
+     * folds that case into DECLINED before it ever reaches here.
+     */
+    private static MutationOutcome applyAuthorizationDecision(Payment payment, AuthorizationDecision decision) {
+        return switch (decision.outcome()) {
+            case APPROVED -> {
+                payment.authorize();
+                yield new MutationOutcome("PaymentAuthorized", payment.getAmountMinor());
+            }
+            case DECLINED -> {
+                payment.fail(decision.declineCode());
+                yield new MutationOutcome("PaymentFailed", payment.getAmountMinor());
+            }
+            case ERROR -> {
+                payment.fail(decision.errorCode());
+                yield new MutationOutcome("PaymentFailed", payment.getAmountMinor());
+            }
+            case PENDING -> throw new IllegalStateException(
+                    "PENDING authorization outcomes are not produced by any adapter until M17.6.");
+        };
     }
 
     public PaymentResponse capture(UUID paymentId, String idempotencyKey) {

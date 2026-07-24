@@ -49,6 +49,8 @@ paymentflow:
       issuer: https://identity.paymentflow.local
     merchant:
       base-uri: http://localhost:8082
+    sandbox:
+      base-uri: http://localhost:8094
   outbox:
     relay-interval-ms: 2000
   internal-context:
@@ -71,6 +73,22 @@ paymentflow:
       retry-initial-interval-ms: 200
       retry-multiplier: 2.0
       retry-randomization-factor: 0.5
+    sandbox-service:
+      # Sized above the platform's currently-reachable maximum injected latency
+      # (pm_card_slow, ~5s, §8.1) with headroom — a legitimate simulation feature, not
+      # degradation, so the socket must not give up mid-call. Still comfortably under
+      # timelimiter.instances.sandboxService.timeout-duration below (same rationale as
+      # merchant-service's own timeouts: the socket gives up first in the common case).
+      connect-timeout-ms: 1000
+      read-timeout-ms: 7000
+      retry-initial-interval-ms: 200
+      retry-multiplier: 2.0
+      retry-randomization-factor: 0.5
+      # The fixed internal-context identity payment-service asserts on its own
+      # authority when calling sandbox-service (§7 barrier ①) — never a real API key,
+      # sandbox-service does not look it up, only includes it in the signed payload.
+      service-key-id: 00000000-0000-4000-8000-000000000001
+      service-scopes: internal:payment-service
 
 resilience4j:
   circuitbreaker:
@@ -107,6 +125,30 @@ resilience4j:
           - com.paymentflow.payment.exception.MerchantNotOnboardedException
           - feign.FeignException$FeignClientException
           - io.github.resilience4j.bulkhead.BulkheadFullException
+      sandboxService:
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        # Above pm_card_slow's ~5s injected latency (§8.1) — that latency is a
+        # deliberate simulation feature, not degradation, and must not erode the
+        # breaker's health signal the way a genuinely slow sandbox-service should.
+        slowCallDurationThreshold: 6s
+        slowCallRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        recordExceptions:
+          - feign.RetryableException
+          - feign.FeignException$FeignServerException
+          - java.util.concurrent.TimeoutException
+        # Same "a 4xx is a client-side outcome, not a health signal" rule as
+        # merchantService (D51); no sandbox-specific ignore-exception exists yet (no
+        # equivalent of MerchantNotOnboardedException on this call).
+        ignoreExceptions:
+          - feign.FeignException$FeignClientException
+          - io.github.resilience4j.bulkhead.BulkheadFullException
   retry:
     instances:
       merchantService:
@@ -127,9 +169,23 @@ resilience4j:
         ignoreExceptions:
           - com.paymentflow.payment.exception.MerchantNotOnboardedException
           - feign.FeignException$FeignClientException
+      sandboxService:
+        maxAttempts: 3
+        waitDuration: 200ms
+        retryExceptions:
+          - feign.RetryableException
+          - feign.FeignException$FeignServerException
+          - java.util.concurrent.TimeoutException
+        ignoreExceptions:
+          - feign.FeignException$FeignClientException
   thread-pool-bulkhead:
     instances:
       merchantService:
+        coreThreadPoolSize: 5
+        maxThreadPoolSize: 10
+        queueCapacity: 10
+        keepAliveDuration: 20ms
+      sandboxService:
         coreThreadPoolSize: 5
         maxThreadPoolSize: 10
         queueCapacity: 10
@@ -138,6 +194,12 @@ resilience4j:
     instances:
       merchantService:
         timeoutDuration: 2s
+        cancelRunningFuture: true
+      sandboxService:
+        # Comfortably above sandboxService's own read-timeout-ms (7s) above, which in
+        # turn is comfortably above pm_card_slow's ~5s (§8.1) — the socket gives up
+        # first in the common case, mirroring merchant-service's own layering.
+        timeoutDuration: 8s
         cancelRunningFuture: true
 
 management:

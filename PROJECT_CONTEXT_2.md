@@ -11,7 +11,7 @@
 > sub-milestones M16.1–M16.7 implemented, verified, committed, and E2E-validated on the
 > running docker-compose stack. **M17 (Sandbox Simulation Engine) — in progress**,
 > started 2026-07-23: architecture reviewed and approved (incl. the `AuthorizationAdvisor`
-> port, D127–D132), decomposed into M17.1–M17.8. **M17.1–M17.3 complete.**
+> port, D127–D132), decomposed into M17.1–M17.8. **M17.1–M17.4 complete.**
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
 > **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D132**.
 
@@ -3497,6 +3497,95 @@ just by intent.
 
 **Remaining M17 work.** M17.4 — the `AuthorizationAdvisor` port + `SandboxAuthorizationAdvisor` adapter
 wired into `authorize()`, with degradation (D129, D132).
+
+#### M17.4 — `AuthorizationAdvisor` port, `SandboxAuthorizationAdvisor` adapter, wired into authorize ✅ (2026-07-24)
+
+**Summary.** `PaymentService.authorize()` now obtains a real authorization decision from sandbox-service
+instead of unconditionally transitioning to `AUTHORIZED`. Exactly as D132 specified: payment-service
+depends only on a one-method `AuthorizationAdvisor` port and two acquirer-neutral records
+(`AuthorizationRequest`/`AuthorizationDecision`); `SandboxAuthorizationAdvisor` is the one adapter behind
+it, and every sandbox-specific concept (`source`, `latencyMs`, the raw `REQUIRE_ACTION` outcome, the
+decision key) is translated or discarded inside that adapter — nothing beyond
+`APPROVED`/`DECLINED`/`ERROR`/`PENDING` and a decline/error code ever reaches `PaymentService`. No
+provider-selection strategy, multi-provider config, or feature flag exists or was introduced (D132's
+explicit non-goal).
+
+**The sandbox call happens before any transaction opens (D129).** `authorize()` no longer goes through
+the shared `mutate()` helper (capture/void/refund still do): it reads the payment once outside a
+transaction — a fail-fast FSM check (rejecting an already-authorized/voided/failed payment before ever
+calling sandbox) plus the immutable facts (`paymentMethodToken`, `amountMinor`, `currency`) the decision
+needs — calls `authorizationAdvisor.advise(...)`, then opens a transaction, re-loads the payment under
+optimistic locking, and applies the decision. Authority over the payment's actual state is
+re-established at that reload, never assumed from the earlier read.
+
+**REQUIRE_ACTION decision (confirmed with Isa 2026-07-24).** `pm_card_authRequired` is a currently-seeded,
+reachable test card with no equivalent in the port's `APPROVED/DECLINED/ERROR/PENDING` vocabulary, and
+payment-service has no "requires further customer action" FSM state — genuinely undecomposed anywhere in
+M17.1–M17.8. Resolved: fold `REQUIRE_ACTION` into `DECLINED` with `declineCode="authentication_required"`
+rather than add a fifth port-level outcome, since `PaymentService` has no FSM state to do anything
+different with it in M17.4 either way; revisit only if a real step-up-auth flow is ever scoped.
+
+**A design finding, not a new decision.** `FeignAuthorizationForwardingConfig`'s `RequestInterceptor`
+(M8) is a global Spring bean, not scoped to `MerchantClient` — it forwards the caller's JWT to *every*
+Feign client, including the new `SandboxClient`. Harmless (sandbox-service has no OAuth2 resource server
+and `InternalContextFilter` only reads `X-PF-Internal-*` headers, so an incidental `Authorization` header
+is simply ignored) but worth recording rather than leaving as an unexplained header in a request trace.
+
+**Files created.** **Port** (`authorization/`): `AuthorizationAdvisor.java` (the one-method interface),
+`AuthorizationRequest.java` (`paymentId`/`merchantId`/`mode`/`paymentMethodToken`/`amountMinor`/
+`currency` — no decision key, no provider concept), `AuthorizationDecision.java` (outcome +
+decline/error code, with `approved()`/`declined(code)`/`error(code)` factories), `AuthorizationOutcome.java`
+(`APPROVED|DECLINED|ERROR|PENDING` — `PENDING` is part of the contract per D132 but produced by no
+adapter until M17.6). **Adapter** (`authorization/sandbox/`): `SandboxAuthorizationAdvisor.java` (the
+Retry → CircuitBreaker → TimeLimiter → ThreadPoolBulkhead chain around the call, composed
+programmatically exactly like `MerchantResolver`, D49 — minus the `RequestAttributes` hand-off, since
+this call forwards no caller JWT and has no thread-affinity requirement to work around), `SandboxClient.java`
+(Feign interface; internal-context headers passed as explicit `@RequestHeader` params per call, not a
+shared interceptor), `SandboxDecisionRequest.java`/`SandboxDecisionResponse.java` (payment-service-local
+projections of sandbox's wire shape, D4's schema-per-service philosophy applied to REST contracts —
+mirrors `MerchantSummary`'s precedent), `SandboxFeignClientConfig.java` (hard socket timeouts, mirrors
+`FeignClientConfig`), `SandboxResilienceProperties.java` (timeouts/backoff plus the fixed internal-context
+identity — `serviceKeyId`/`serviceScopes` — payment-service asserts on its own authority when calling
+sandbox), `SandboxResilienceConfig.java` (retry backoff-with-jitter customizer; reuses
+`MerchantResilienceConfig`'s existing shared `ScheduledExecutorService` bean rather than declaring a
+second one, since that pool's job is already generic). `exception/SandboxServiceUnavailableException.java`
+(mirrors `MerchantServiceUnavailableException`, maps to 503).
+
+**Files modified.** `service/PaymentService.java` (`authorize()` rewritten per D129 above;
+`applyAuthorizationDecision` translates the neutral decision into the payment's transition —
+`APPROVED` → `payment.authorize()` / `PaymentAuthorized`, `DECLINED`/`ERROR` → `payment.fail(code)` /
+`PaymentFailed`). `application.yaml` (+`paymentflow.services.sandbox.base-uri`;
++`paymentflow.resilience.sandbox-service.*`; +`resilience4j.*.instances.sandboxService.*` — sized above
+the platform's currently-reachable maximum injected latency, `pm_card_slow`'s ~5s, with headroom: 7s
+socket read timeout, 8s TimeLimiter budget, 6s `slowCallDurationThreshold` so a deliberate simulation
+feature doesn't erode the circuit breaker's health signal the way genuine sandbox-service slowness
+should). `docker-compose.yml` (+`PAYMENTFLOW_SERVICES_SANDBOX_BASE_URI`; sandbox-service deliberately not
+added to payment-service's `depends_on`, same rationale as merchant-service, D8-era M8 precedent).
+
+**Tests.** `PaymentServiceTest` (unit, Mockito): `authorizeFailsThePaymentOnADeclinedDecision`,
+`authorizeFailsThePaymentOnAnErrorDecision`, `authorizeNeverCallsTheAdvisorWhenThePaymentCannotBeAuthorized`
+(fail-fast pre-check verified via `verifyNoInteractions(authorizationAdvisor)`) alongside the existing
+approve-path test, now driven by a mocked `AuthorizationAdvisor`. `PaymentIntegrationTest` (Testcontainers):
+extended its shared JDK `HttpServer` stub with `/internal/v1/sandbox/decisions` (approve-by-default,
+decline/error keyed off `pm_card_chargeDeclined`/`pm_card_processingError` in the request body) and added
+`authorizeFailsThePaymentWhenSandboxDeclines`, `authorizeFailsThePaymentWhenSandboxErrors`,
+`authorizingAnAlreadyFailedPaymentIsRejectedWith409WithoutCallingSandboxAgain` — full HTTP-level proof of
+the fail-fast FSM check. New `SandboxResilienceIntegrationTest` (Testcontainers), mirroring
+`MerchantResilienceIntegrationTest`'s structure exactly but scoped to the `sandboxService` instance and
+`POST /authorize`: a healthy sandbox approves; sandbox down surfaces 503 without mutating the payment (a
+retry under a new Idempotency-Key against the now-healthy sandbox then succeeds); sandbox too slow fails
+fast via TimeLimiter rather than hanging the request thread; repeated failures open the circuit, which
+then recovers through half-open to closed.
+
+**Verification.** `PaymentServiceTest`, `PaymentIntegrationTest`, and `SandboxResilienceIntegrationTest`
+all green in isolation; `:payment-service:test` green (full suite, real Postgres/Kafka/Redis via
+Testcontainers); `:sandbox-service:test` green and unaffected (M17.4 touches only payment-service). Full
+`./gradlew clean build` green across all 9 modules.
+
+**Decisions.** None new beyond D127–D132 (already recorded) and the REQUIRE_ACTION resolution above,
+which is a scoping call within M17.4's own boundary, not a new architectural decision.
+
+**Remaining M17 work.** M17.5 — simulation overrides + control API + live-mode rejection.
 
 ---
 

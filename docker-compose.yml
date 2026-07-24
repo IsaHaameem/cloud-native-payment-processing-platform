@@ -117,6 +117,7 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI: http://identity-service:8081/oauth2/jwks
       PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI: http://merchant-service:8082
+      PAYMENTFLOW_SERVICES_SANDBOX_BASE_URI: http://sandbox-service:8094
       PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
@@ -130,11 +131,11 @@ services:
         condition: service_healthy
       identity-service:
         condition: service_healthy
-      # Deliberately NOT merchant-service: M8's Resilience4j chain (circuit breaker/
-      # retry/timeout/bulkhead around MerchantResolver) exists precisely so
-      # payment-service tolerates merchant-service being slow/unavailable at
-      # runtime — coupling its own container startup to merchant-service's health
-      # would undercut the thing M8 was built to demonstrate.
+      # Deliberately NOT merchant-service or sandbox-service: the Resilience4j chain
+      # around each (M8; M17.4 for sandbox) exists precisely so payment-service
+      # tolerates either being slow/unavailable at runtime — coupling its own
+      # container startup to their health would undercut the thing that chain was
+      # built to demonstrate.
     networks:
       - paymentflow
 

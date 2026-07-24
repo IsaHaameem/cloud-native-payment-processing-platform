@@ -3,12 +3,15 @@ package com.paymentflow.payment.service;
 import com.paymentflow.common.dto.page.PageResponse;
 import com.paymentflow.common.exception.BadRequestException;
 import com.paymentflow.common.exception.ResourceNotFoundException;
+import com.paymentflow.payment.authorization.AuthorizationAdvisor;
+import com.paymentflow.payment.authorization.AuthorizationDecision;
 import com.paymentflow.payment.domain.Payment;
 import com.paymentflow.payment.domain.PaymentStatus;
 import com.paymentflow.payment.dto.CreatePaymentRequest;
 import com.paymentflow.payment.dto.PaymentResponse;
 import com.paymentflow.payment.dto.RefundRequest;
 import com.paymentflow.payment.event.PaymentEventPublisher;
+import com.paymentflow.payment.exception.IllegalPaymentStateTransitionException;
 import com.paymentflow.payment.idempotency.IdempotencyService;
 import com.paymentflow.payment.mapper.PaymentMapper;
 import com.paymentflow.payment.merchant.MerchantResolver;
@@ -38,6 +41,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -57,6 +61,8 @@ class PaymentServiceTest {
     private RequestModeResolver requestModeResolver;
     @Mock
     private TransactionTemplate transactionTemplate;
+    @Mock
+    private AuthorizationAdvisor authorizationAdvisor;
 
     @InjectMocks
     private PaymentService paymentService;
@@ -77,6 +83,7 @@ class PaymentServiceTest {
         lenient().when(merchantResolver.resolveCallerMerchant()).thenReturn(merchant);
         lenient().when(requestModeResolver.resolve()).thenReturn("test");
         lenient().when(idempotencyService.fingerprint(any(), any())).thenReturn("fingerprint");
+        lenient().when(authorizationAdvisor.advise(any())).thenReturn(AuthorizationDecision.approved());
     }
 
     @Test
@@ -110,6 +117,47 @@ class PaymentServiceTest {
 
         assertThat(response.status()).isEqualTo("AUTHORIZED");
         verify(eventPublisher).publish(payment, "PaymentAuthorized", PaymentStatus.CREATED, 5000L, merchant);
+    }
+
+    @Test
+    void authorizeFailsThePaymentOnADeclinedDecision() {
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", "pm_card_chargeDeclined", null);
+        when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
+                .thenReturn(Optional.of(payment));
+        when(authorizationAdvisor.advise(any())).thenReturn(AuthorizationDecision.declined("card_declined"));
+
+        PaymentResponse response = paymentService.authorize(UUID.randomUUID(), "key-declined");
+
+        assertThat(response.status()).isEqualTo("FAILED");
+        assertThat(response.failureReason()).isEqualTo("card_declined");
+        verify(eventPublisher).publish(payment, "PaymentFailed", PaymentStatus.CREATED, 5000L, merchant);
+    }
+
+    @Test
+    void authorizeFailsThePaymentOnAnErrorDecision() {
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", "pm_card_processingError", null);
+        when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
+                .thenReturn(Optional.of(payment));
+        when(authorizationAdvisor.advise(any())).thenReturn(AuthorizationDecision.error("processing_error"));
+
+        PaymentResponse response = paymentService.authorize(UUID.randomUUID(), "key-error");
+
+        assertThat(response.status()).isEqualTo("FAILED");
+        assertThat(response.failureReason()).isEqualTo("processing_error");
+        verify(eventPublisher).publish(payment, "PaymentFailed", PaymentStatus.CREATED, 5000L, merchant);
+    }
+
+    @Test
+    void authorizeNeverCallsTheAdvisorWhenThePaymentCannotBeAuthorized() {
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null);
+        payment.authorize();
+        when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
+                .thenReturn(Optional.of(payment));
+
+        assertThatThrownBy(() -> paymentService.authorize(UUID.randomUUID(), "key-illegal"))
+                .isInstanceOf(IllegalPaymentStateTransitionException.class);
+
+        verifyNoInteractions(authorizationAdvisor);
     }
 
     @Test
