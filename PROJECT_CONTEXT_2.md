@@ -11,7 +11,9 @@
 > sub-milestones M16.1–M16.7 implemented, verified, committed, and E2E-validated on the
 > running docker-compose stack. **M17 (Sandbox Simulation Engine) — in progress**,
 > started 2026-07-23: architecture reviewed and approved (incl. the `AuthorizationAdvisor`
-> port, D127–D132), decomposed into M17.1–M17.8. **M17.1–M17.7 complete.**
+> port, D127–D132), decomposed into M17.1–M17.8. **M17 (Sandbox Simulation Engine) —
+> complete** (2026-07-24): all sub-milestones M17.1–M17.8 implemented, verified,
+> committed, and E2E-validated on the running docker-compose stack.
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
 > **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D132**.
 
@@ -3270,7 +3272,7 @@ key-bound and non-forgeable; JWT/dashboard mode is a caller-owned `X-PF-Mode` se
 merchant-scoped payment/ledger/analytics row is partitioned by mode; audit and notification record it
 verbatim (D126); and legacy mode-less events remain correct.
 
-### M17 — Sandbox Simulation Engine 🚧 (in progress, started 2026-07-23)
+### M17 — Sandbox Simulation Engine ✅ (complete, 2026-07-23 – 2026-07-24)
 
 **Objective.** Per §5/M17: introduce `sandbox-service`, route authorization decisions through it,
 make failure requestable and deterministic for test mode while D104's simulated acquirer keeps live
@@ -3859,6 +3861,119 @@ architectural choice was made beyond it.
 
 **Remaining M17 work.** M17.8 — the decision-log query API, docs rendered from the test-card catalogue,
 full E2E validation, and milestone closure.
+
+---
+
+#### M17.8 — Decision-log query API, docs wiring, full production-style validation, M17 closure ✅ (2026-07-24)
+
+**Summary.** Merchants can now retrieve *why* a decision was made, not just its verdict:
+`GET /v1/test/decisions` (paginated, newest first) and `GET /v1/test/decisions/payments/{paymentId}`,
+both scoped to the caller's own `merchantId`/`mode` from the verified internal context — the same
+signed-header mechanism `SimulationController` (M17.5) already uses, no new auth pattern. Closes M17
+with a full production-style validation pass: all 9 images rebuilt, the whole compose stack brought up
+and exercised end-to-end, every downstream propagation path (ledger, audit, analytics, notification)
+inspected directly in Postgres, not just asserted by a green test suite.
+
+**Files created.** `repository/DecisionLogRepository.java` (two new derived-query methods —
+`findByMerchantIdAndModeOrderByCreatedAtDesc` paginated, `findByMerchantIdAndModeAndPaymentIdOrderBy
+CreatedAtDesc` for the single-payment view) — added to the existing M17.2 repository, not a new one.
+`dto/DecisionLogEntryResponse.java`, `mapper/DecisionLogMapper.java`, `service/DecisionLogQueryService.java`,
+`web/DecisionLogController.java` (`@RequestMapping("/v1/test/decisions")`).
+
+**Files modified.** `gateway-service/application.yaml` — two new route entries, kept independent of
+M17.5's own route (`sandbox-service-decisions` for the query API; `sandbox-service-test-cards` for the
+catalogue, see below) rather than broadening an existing predicate. `gateway-service/SecurityConfig.java`
+— one `permitAll()` added to chain #1's `authorizeExchange`, scoped to `GET /v1/test/cards/**` only.
+
+**A real gap found and closed: the test-card catalogue had no path to the outside world.**
+`TestCardController` (`GET /v1/test/cards`, M17.1) was built with its own javadoc already declaring it
+"the single source the documentation (M17.8) renders from" — but no gateway route ever existed for it,
+and chain #1's `anyExchange().authenticated()` would have 401'd it even if a route had. Since M17.8's own
+scope is exactly "docs rendered from the catalogue," leaving the catalogue unreachable from outside the
+docker network would have left that scope item undone in substance while appearing done on paper. Fixed
+with the new route + a narrowly-scoped `permitAll()` (GET only, that one path only — every other `/v1/**`
+path still requires authentication). This *is* new M17.8 work, not a redesign of M17.1: M17.1 built the
+data and endpoint, M17.8 (per its own original scope) is what was always supposed to wire it externally.
+Verified end-to-end: `curl http://localhost:8080/v1/test/cards` with **no** `Authorization` header at all
+returns the full 17-card catalogue through the gateway.
+
+**A genuine pre-existing regression found and fixed: the root `Dockerfile` never learned about
+`sandbox-service`.** `docker compose build` failed outright — "Configuring project ':sandbox-service'
+without an existing directory is not allowed" — because the Dockerfile's builder-stage `COPY
+<module>/build.gradle.kts` list (added once per module, M9) was never updated when `sandbox-service` was
+added in M17.1. This had gone undetected for M17.1 through M17.7 because none of those milestones actually
+ran a Docker build — all verification until now was `./gradlew test`/`build` only. Fixed with one line
+(`COPY sandbox-service/build.gradle.kts sandbox-service/build.gradle.kts`, alongside the other eight).
+This is a V1-pattern (M9) file shared by every service, not sandbox-specific machinery — but M9's own
+work was correct for the V1 service set at the time; the gap was introduced when M17.1 (V2) added a ninth
+module without updating the shared file, and is fixed here as ordinary V2 bugfix work. No PROJECT_CONTEXT.md
+change follows from this: nothing about M9's historical description became inaccurate, so touching that
+frozen file would violate the pointer-note-only invariant confirmed during M17.5's own doc-consistency
+check, for no actual architectural-consistency gain.
+
+**Tests.** `DecisionLogControllerIntegrationTest` (new, Testcontainers Postgres, real HTTP via MockMvc,
+signed internal-context headers): newest-first ordering, merchant/mode scoping (a merchant cannot see
+another merchant's decisions, nor another mode's), single-payment lookup, a declined decision exposing
+its code/source, and a missing-context request rejected 401. `ApiKeyAuthenticationIntegrationTest`
+(gateway-service, extended): `aValidSecretKeyReachesTheDecisionLogQueryApiWithASignedInternalContext`
+(the query API route resolves independently of M17.5's route) and
+`theTestCardCatalogueIsReachableWithNoAuthorizationHeaderAtAll` (the new permitAll rule actually took
+effect, not just that the route predicate matches — asserted with zero `Authorization` header at all).
+
+**Full production-style validation (live docker-compose stack, not just the test suite).**
+- All 9 service images rebuilt clean from source (`docker compose build`), including the Dockerfile fix;
+  all 13 containers (`postgres`, `redis`, `kafka`, `kafka-ui`, and all 9 services) reported `healthy`.
+- Full gateway E2E flow driven over real HTTP against the running stack, using a freshly-registered user,
+  merchant, and the merchant's own onboarding-issued `sk_test_`/`sk_live_` keys (no test-only bypass):
+  - **Synchronous authorization** — `pm_card_visa` created → authorized → `AUTHORIZED` immediately.
+  - **Deferred authorization** — `pm_card_delayedSettlement` authorized → `AUTHORIZED` immediately, then
+    self-transitioned to `CAPTURED` (`capturedAmountMinor` populated) ~5s later with no further client
+    call, confirming the M17.6 scheduler → Kafka → payment-service consumer chain end-to-end.
+  - **Simulation overrides** — a `FORCE_DECLINE` override (`insufficient_funds`, `remainingCount=1`)
+    correctly overrode `pm_card_visa`'s normal approve outcome; `remaining_count` decremented 1→0
+    (D127's atomic conditional update, confirmed directly in Postgres).
+  - **Replay/idempotency** — both the create and authorize calls replayed with identical
+    `Idempotency-Key`s returned byte-identical responses (same id, timestamps, terminal state); the
+    decision log confirmed only 3 decisions exist for 3 distinct payments — the replayed authorize did
+    **not** produce a second `decision_log` row, confirming D128's decision-key idempotency held under
+    a real replay, not just a unit test.
+  - **Decision-log API** — both endpoints queried live; entries correctly carry `source` (`TEST_CARD`/
+    `OVERRIDE`/`ACQUIRER`), `declineCode`, and `overrideId` where applicable.
+  - **Live-mode rejection** — `sk_live_` attempting `POST /v1/test/simulations` correctly 403'd
+    ("Simulation overrides are only available in test mode"); by contrast, `GET /v1/test/decisions` with
+    the same live key correctly returned **200** with that mode's own decisions (empty until a live
+    payment existed, then one entry after — confirming the query API scopes by mode rather than
+    rejecting live mode outright, which is the correct behaviour: only *overrides* are test-only, per §7,
+    not the ability to see live decisions).
+  - **D104 spot-check** — one live-mode `pm_card_visa` authorization logged `source=ACQUIRER` with a
+    non-zero injected latency (151ms), distinct from test mode's `latencyMs=0`.
+- **Postgres inspection** (`docker exec` into `paymentflow-postgres`): all 35 expected tables present
+  across all 9 schemas; `payment.payments`, `sandbox.decision_log`, `sandbox.scheduled_outcomes`,
+  `payment.processed_events`, and `sandbox.simulation_overrides` all held exactly the rows the E2E flow
+  above should have produced, with no extras and no gaps.
+- **Event propagation confirmed directly in Postgres**, not inferred from application logs:
+  `transaction.ledger_transactions` recorded `PaymentAuthorized`/`PaymentCaptured` entries (including for
+  the *deferred* capture — proving the Kafka-triggered capture publishes a real outbox event
+  indistinguishable from a synchronous one); `audit.audit_log` recorded every lifecycle event for all
+  4 test payments; `analytics.merchant_payment_stats` showed correct per-mode counts (`test`:
+  created=3/authorized=2/captured=1, `live`: created=1/authorized=1) and `total_captured_amount_minor`;
+  `notification.email_log` recorded a `Payment update: <EventType>` entry for every lifecycle event, all
+  correctly `mode`-tagged.
+- Stack torn down to rebuilt-image state after the Dockerfile/gateway fixes (not the pre-fix images);
+  re-verified healthy and re-ran the decision-log query against the fresh containers — data survived the
+  restart correctly (Postgres-backed, as expected).
+- Full `./gradlew clean build` green across all 9 modules (zero test failures, confirmed both from the
+  Gradle task summary and by scanning every module's JUnit XML output directly).
+
+**Decisions.** None new — the gateway route/permitAll addition and the Dockerfile fix are both completions
+of already-decided scope (M17.1's own javadoc for the former; M9's established per-module COPY pattern for
+the latter), not new architectural choices.
+
+**M17 status: complete.** All eight sub-milestones (M17.1–M17.8) implemented, verified independently, and
+validated together on a live, freshly-rebuilt docker-compose stack. `AuthorizationAdvisor` (D132) needed
+zero changes across M17.5–M17.8, confirming the abstraction held exactly as designed. No known regressions
+in V1 or M15/M16 behaviour — the full E2E flow above re-exercises the create → authorize → capture/fail
+lifecycle (V1's own core path) alongside every M17-specific capability.
 
 ---
 

@@ -90,15 +90,27 @@ class ApiKeyAuthenticationIntegrationTest {
 
         sandboxStub = HttpServer.create()
                 .port(0)
-                .route(routes -> routes.post("/v1/test/simulations", (req, res) -> {
-                    lastSandboxReceivedInternalMerchantId.set(req.requestHeaders().get(InternalContextHeaders.MERCHANT_ID));
-                    lastSandboxReceivedInternalMode.set(req.requestHeaders().get(InternalContextHeaders.MODE));
-                    return res.status(201).header("Content-Type", "application/json")
-                            .sendString(Mono.just("""
-                                    {"id":"%s","scenario":"FORCE_RATE_LIMIT","declineCode":null,"errorCode":null,
-                                     "latencyMs":null,"remainingCount":3,"expiresAt":null,"enactedFrom":null}
-                                    """.formatted(UUID.randomUUID())));
-                }))
+                .route(routes -> routes
+                        .post("/v1/test/simulations", (req, res) -> {
+                            lastSandboxReceivedInternalMerchantId.set(req.requestHeaders().get(InternalContextHeaders.MERCHANT_ID));
+                            lastSandboxReceivedInternalMode.set(req.requestHeaders().get(InternalContextHeaders.MODE));
+                            return res.status(201).header("Content-Type", "application/json")
+                                    .sendString(Mono.just("""
+                                            {"id":"%s","scenario":"FORCE_RATE_LIMIT","declineCode":null,"errorCode":null,
+                                             "latencyMs":null,"remainingCount":3,"expiresAt":null,"enactedFrom":null}
+                                            """.formatted(UUID.randomUUID())));
+                        })
+                        .get("/v1/test/decisions", (req, res) -> {
+                            lastSandboxReceivedInternalMerchantId.set(req.requestHeaders().get(InternalContextHeaders.MERCHANT_ID));
+                            lastSandboxReceivedInternalMode.set(req.requestHeaders().get(InternalContextHeaders.MODE));
+                            return res.status(200).header("Content-Type", "application/json")
+                                    .sendString(Mono.just(
+                                            "{\"content\":[],\"page\":0,\"size\":20,\"totalElements\":0,"
+                                                    + "\"totalPages\":0,\"first\":true,\"last\":true}"));
+                        })
+                        .get("/v1/test/cards", (req, res) -> res.status(200)
+                                .header("Content-Type", "application/json")
+                                .sendString(Mono.just("[]"))))
                 .bindNow();
     }
 
@@ -230,5 +242,29 @@ class ApiKeyAuthenticationIntegrationTest {
 
         assertThat(lastSandboxReceivedInternalMerchantId.get()).isEqualTo(VALID_MERCHANT_ID.toString());
         assertThat(lastSandboxReceivedInternalMode.get()).isEqualToIgnoringCase("TEST");
+    }
+
+    @Test
+    void aValidSecretKeyReachesTheDecisionLogQueryApiWithASignedInternalContext() {
+        // M17.8: a second, independent route entry (not a broadened M17.5 predicate) —
+        // proving it resolves on its own confirms both routes coexist correctly.
+        client().get().uri("/v1/test/decisions")
+                .header("Authorization", "Bearer " + VALID_SECRET_KEY)
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(lastSandboxReceivedInternalMerchantId.get()).isEqualTo(VALID_MERCHANT_ID.toString());
+        assertThat(lastSandboxReceivedInternalMode.get()).isEqualToIgnoringCase("TEST");
+    }
+
+    @Test
+    void theTestCardCatalogueIsReachableWithNoAuthorizationHeaderAtAll() {
+        // M17.8: unlike every other /v1/** route, the catalogue carries no merchant/mode
+        // context and is deliberately public (TestCardController's own M17.1 javadoc) —
+        // proving it resolves with zero Authorization header confirms chain #1's permitAll
+        // actually took effect, not just that the route predicate matches.
+        client().get().uri("/v1/test/cards")
+                .exchange()
+                .expectStatus().isOk();
     }
 }

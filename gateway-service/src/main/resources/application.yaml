@@ -69,6 +69,24 @@ spring:
               uri: ${paymentflow.services.sandbox.base-uri}
               predicates:
                 - Path=/v1/test/simulations/**
+            # M17.8: the decision-log query API — same route shape as the M17.5 entry
+            # above (direct passthrough, signed API-key context), added as its own
+            # entry rather than broadening that one's predicate, so M17.5's own route
+            # stays untouched.
+            - id: sandbox-service-decisions
+              uri: ${paymentflow.services.sandbox.base-uri}
+              predicates:
+                - Path=/v1/test/decisions/**
+            # M17.8: the test-card catalogue — TestCardController's own M17.1 javadoc already
+            # designated this as "the single source the documentation (M17.8) renders from,"
+            # but the route to reach it externally was never added until now. Unlike the two
+            # routes above, this one is deliberately public: the catalogue carries no merchant
+            # or mode context (identical for every caller), so it needs no signed internal
+            # context and is permitted unauthenticated in SecurityConfig's chain #1.
+            - id: sandbox-service-test-cards
+              uri: ${paymentflow.services.sandbox.base-uri}
+              predicates:
+                - Path=/v1/test/cards/**
           # V1 known issue #7 (M15 fix, D-noted): the gateway now sits behind an ALB in
           # AWS, so X-Forwarded-* must be honored for scheme-dependent behavior (HSTS
           # etc.) to see the real, not the internal-hop, scheme. Trusts only the ALB/

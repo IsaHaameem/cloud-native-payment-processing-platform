@@ -64,6 +64,11 @@ public class SecurityConfig {
                 .headers(securityHeaders())
                 .authorizeExchange(exchange -> exchange
                         .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        // M17.8: the test-card catalogue is public reference data — no
+                        // merchant/mode context, same for every caller (TestCardController's
+                        // own M17.1 javadoc) — so it's the one /v1/** path that skips
+                        // ApiKeyAuthenticationWebFilter's pre-populated SecurityContext.
+                        .pathMatchers(HttpMethod.GET, "/v1/test/cards/**").permitAll()
                         .anyExchange().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(authenticationEntryPoint)
