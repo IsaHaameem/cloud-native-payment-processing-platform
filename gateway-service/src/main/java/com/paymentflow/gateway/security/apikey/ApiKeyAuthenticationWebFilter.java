@@ -42,8 +42,11 @@ import java.util.Set;
 public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
 
     private static final String PAYMENTS_PATH_PREFIX = "/v1/payments";
+    private static final String WEBHOOK_ENDPOINTS_PATH_PREFIX = "/v1/webhook_endpoints";
+    private static final String WEBHOOK_DELIVERIES_PATH_PREFIX = "/v1/webhook_deliveries";
     private static final String SCOPE_PAYMENTS_READ = "payments:read";
     private static final String SCOPE_PAYMENTS_WRITE = "payments:write";
+    private static final String SCOPE_WEBHOOKS_MANAGE = "webhooks:manage";
     private static final String ERROR_CODE_INSUFFICIENT_SCOPE = "INSUFFICIENT_SCOPE";
 
     private final ApiKeyCacheService cacheService;
@@ -150,8 +153,24 @@ public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
                 .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication));
     }
 
-    /** {@code null} means "no specific scope required" — every {@code /v1} route today is under payments. */
+    /**
+     * {@code null} means "no specific scope required" — the sandbox {@code /v1/test/*}
+     * routes are the current example, since simulation controls are already confined to
+     * test mode by sandbox-service itself and the card catalogue is public.
+     *
+     * <p>M18.2 adds the first non-payments entry, closing the first case of the V2 known
+     * issue that "no scope beyond {@code payments:read}/{@code payments:write} is
+     * enforced anywhere" (§14), which anticipated exactly this: each milestone that adds
+     * a {@code /v1} route extends this mapping. Webhook management requires
+     * {@code webhooks:manage} for reads as well as writes — the endpoint list exposes
+     * which URLs a merchant sends events to, which is configuration rather than payment
+     * data, and §4.9's scope vocabulary deliberately has no {@code webhooks:read} to
+     * split it with.
+     */
     private static String requiredScopeFor(HttpMethod method, String path) {
+        if (path.startsWith(WEBHOOK_ENDPOINTS_PATH_PREFIX) || path.startsWith(WEBHOOK_DELIVERIES_PATH_PREFIX)) {
+            return SCOPE_WEBHOOKS_MANAGE;
+        }
         if (!path.startsWith(PAYMENTS_PATH_PREFIX)) {
             return null;
         }

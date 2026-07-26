@@ -45,15 +45,20 @@ class ApiKeyAuthenticationIntegrationTest {
     private static DisposableServer merchantStub;
     private static DisposableServer paymentStub;
     private static DisposableServer sandboxStub;
+    private static DisposableServer notificationStub;
     private static final AtomicReference<String> lastReceivedInternalMerchantId = new AtomicReference<>();
     private static final AtomicReference<String> lastReceivedAuthorization = new AtomicReference<>();
     private static final AtomicReference<String> lastSandboxReceivedInternalMerchantId = new AtomicReference<>();
     private static final AtomicReference<String> lastSandboxReceivedInternalMode = new AtomicReference<>();
+    private static final AtomicReference<String> lastNotificationReceivedInternalMerchantId = new AtomicReference<>();
+    private static final AtomicReference<String> lastNotificationReceivedInternalMode = new AtomicReference<>();
 
     private static final UUID VALID_MERCHANT_ID = UUID.randomUUID();
     private static final UUID VALID_KEY_ID = UUID.randomUUID();
     private static final String VALID_SECRET_KEY = "sk_test_validkeyforthistestonly";
     private static final String PUBLISHABLE_KEY = "pk_test_publishablekeyforthis";
+    /** M18.2: a key scoped to webhooks:manage and nothing else — the first non-payments scope (§14). */
+    private static final String WEBHOOKS_SECRET_KEY = "sk_test_webhooksmanagekeyonly";
 
     @LocalServerPort
     private int gatewayPort;
@@ -67,12 +72,12 @@ class ApiKeyAuthenticationIntegrationTest {
                 .route(routes -> routes.post("/internal/v1/api-keys/verify", (req, res) -> req.receive().aggregate()
                         .asString()
                         .flatMap(body -> {
-                            if (body.contains(VALID_SECRET_KEY) || body.contains(PUBLISHABLE_KEY)) {
+                            if (body.contains(VALID_SECRET_KEY) || body.contains(PUBLISHABLE_KEY)
+                                    || body.contains(WEBHOOKS_SECRET_KEY)) {
                                 return res.header("Content-Type", "application/json").sendString(Mono.just("""
                                         {"merchantId":"%s","keyId":"%s","mode":"TEST",
                                          "scopes":["%s"],"contactEmail":"billing@acme.test","webhookUrl":null}
-                                        """.formatted(VALID_MERCHANT_ID, VALID_KEY_ID,
-                                        body.contains(PUBLISHABLE_KEY) ? "payments:read" : "payments:write")))
+                                        """.formatted(VALID_MERCHANT_ID, VALID_KEY_ID, scopeFor(body))))
                                         .then();
                             }
                             return res.status(404).sendString(Mono.just("{\"code\":\"NOT_FOUND\"}")).then();
@@ -112,6 +117,39 @@ class ApiKeyAuthenticationIntegrationTest {
                                 .header("Content-Type", "application/json")
                                 .sendString(Mono.just("[]"))))
                 .bindNow();
+
+        // M18.2: notification-service's first public route. Registered for both the bare
+        // path and /** for the same Reactor-Netty path-matching reason the payment stub
+        // documents below.
+        notificationStub = HttpServer.create()
+                .port(0)
+                .route(routes -> routes
+                        .get("/v1/webhook_endpoints",
+                                ApiKeyAuthenticationIntegrationTest::notificationStubResponse)
+                        .get("/v1/webhook_endpoints/**",
+                                ApiKeyAuthenticationIntegrationTest::notificationStubResponse)
+                        .post("/v1/webhook_endpoints",
+                                ApiKeyAuthenticationIntegrationTest::notificationStubResponse)
+                        .post("/v1/webhook_endpoints/**",
+                                ApiKeyAuthenticationIntegrationTest::notificationStubResponse))
+                .bindNow();
+    }
+
+    /** The scope the stubbed merchant-service reports for whichever key is being verified. */
+    private static String scopeFor(String verifyRequestBody) {
+        if (verifyRequestBody.contains(PUBLISHABLE_KEY)) {
+            return "payments:read";
+        }
+        if (verifyRequestBody.contains(WEBHOOKS_SECRET_KEY)) {
+            return "webhooks:manage";
+        }
+        return "payments:write";
+    }
+
+    private static Publisher<Void> notificationStubResponse(HttpServerRequest req, HttpServerResponse res) {
+        lastNotificationReceivedInternalMerchantId.set(req.requestHeaders().get(InternalContextHeaders.MERCHANT_ID));
+        lastNotificationReceivedInternalMode.set(req.requestHeaders().get(InternalContextHeaders.MODE));
+        return res.header("Content-Type", "application/json").sendString(Mono.just("[]"));
     }
 
     /** Registered for both the bare path and {@code /**} — Reactor Netty's own path matcher, unlike Spring's
@@ -134,6 +172,9 @@ class ApiKeyAuthenticationIntegrationTest {
         if (sandboxStub != null) {
             sandboxStub.disposeNow();
         }
+        if (notificationStub != null) {
+            notificationStub.disposeNow();
+        }
     }
 
     @AfterEach
@@ -142,6 +183,8 @@ class ApiKeyAuthenticationIntegrationTest {
         lastReceivedAuthorization.set(null);
         lastSandboxReceivedInternalMerchantId.set(null);
         lastSandboxReceivedInternalMode.set(null);
+        lastNotificationReceivedInternalMerchantId.set(null);
+        lastNotificationReceivedInternalMode.set(null);
     }
 
     @DynamicPropertySource
@@ -152,6 +195,8 @@ class ApiKeyAuthenticationIntegrationTest {
         registry.add("paymentflow.services.merchant.base-uri", () -> "http://localhost:" + merchantStub.port());
         registry.add("paymentflow.services.payment.base-uri", () -> "http://localhost:" + paymentStub.port());
         registry.add("paymentflow.services.sandbox.base-uri", () -> "http://localhost:" + sandboxStub.port());
+        registry.add("paymentflow.services.notification.base-uri",
+                () -> "http://localhost:" + notificationStub.port());
     }
 
     private WebTestClient client() {
@@ -266,5 +311,57 @@ class ApiKeyAuthenticationIntegrationTest {
         client().get().uri("/v1/test/cards")
                 .exchange()
                 .expectStatus().isOk();
+    }
+
+    @Test
+    void aKeyWithWebhooksManageReachesTheWebhookEndpointApiWithASignedInternalContext() {
+        // M18.2: the first route to notification-service, which had no HTTP surface at
+        // all before this milestone. The bare path (no trailing segment) is the one a
+        // real client calls to list or register, and is exactly the case M15's
+        // /v1/payments RewritePath bug was caught on — asserted explicitly here.
+        client().get().uri("/v1/webhook_endpoints")
+                .header("Authorization", "Bearer " + WEBHOOKS_SECRET_KEY)
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(lastNotificationReceivedInternalMerchantId.get()).isEqualTo(VALID_MERCHANT_ID.toString());
+        assertThat(lastNotificationReceivedInternalMode.get()).isEqualToIgnoringCase("TEST");
+    }
+
+    @Test
+    void aNestedWebhookEndpointPathAlsoResolves() {
+        client().post().uri("/v1/webhook_endpoints/" + UUID.randomUUID() + "/rotate_secret")
+                .header("Authorization", "Bearer " + WEBHOOKS_SECRET_KEY)
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(lastNotificationReceivedInternalMerchantId.get()).isEqualTo(VALID_MERCHANT_ID.toString());
+    }
+
+    @Test
+    void aPaymentsOnlyKeyCannotManageWebhookEndpoints() {
+        // The first real proof that scope enforcement discriminates between two scopes
+        // rather than merely existing: this key authenticates fine and is allowed to
+        // write payments, and is still refused here.
+        client().get().uri("/v1/webhook_endpoints")
+                .header("Authorization", "Bearer " + VALID_SECRET_KEY)
+                .exchange()
+                .expectStatus().isForbidden()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("INSUFFICIENT_SCOPE");
+
+        assertThat(lastNotificationReceivedInternalMerchantId.get()).isNull();
+    }
+
+    @Test
+    void aWebhooksOnlyKeyCannotReachPayments() {
+        // The converse direction, so the mapping is proven to be a real per-route
+        // decision and not a check that happens to pass for whichever key is tried first.
+        client().get().uri("/v1/payments")
+                .header("Authorization", "Bearer " + WEBHOOKS_SECRET_KEY)
+                .exchange()
+                .expectStatus().isForbidden()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("INSUFFICIENT_SCOPE");
     }
 }

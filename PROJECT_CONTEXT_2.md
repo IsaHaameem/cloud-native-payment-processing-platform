@@ -9,13 +9,18 @@
 > (2026-07-21). Post-M15 repository stabilization phase (8 fixes, §17) — **complete**
 > (2026-07-22). **M16 (Test/Live Mode Isolation) — complete** (2026-07-22): all
 > sub-milestones M16.1–M16.7 implemented, verified, committed, and E2E-validated on the
-> running docker-compose stack. **M17 (Sandbox Simulation Engine) — in progress**,
-> started 2026-07-23: architecture reviewed and approved (incl. the `AuthorizationAdvisor`
-> port, D127–D132), decomposed into M17.1–M17.8. **M17 (Sandbox Simulation Engine) —
-> complete** (2026-07-24): all sub-milestones M17.1–M17.8 implemented, verified,
-> committed, and E2E-validated on the running docker-compose stack.
+> running docker-compose stack. **M17 (Sandbox Simulation Engine) — complete**
+> (2026-07-23 – 2026-07-24): architecture reviewed and approved (incl. the
+> `AuthorizationAdvisor` port, D127–D132), decomposed into M17.1–M17.8; all eight
+> sub-milestones implemented, verified independently, and E2E-validated together on the
+> running docker-compose stack. **M18 (Webhooks as a Product) — complete** (2026-07-25):
+> repository reviewed, four planning decisions confirmed with the user (D133–D136),
+> decomposed into M18.1–M18.9; all nine sub-milestones implemented, verified independently,
+> and E2E-validated together on the running docker-compose stack against real
+> signature-verifying receivers. Closes V1 known issue #2 (unsigned webhooks).
+> **M19 is the next milestone.**
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D132**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D137**.
 
 ---
 
@@ -362,11 +367,31 @@ partitioning, merchant scoping, and cursor pagination over an append-only log.
 **Schema (`notification`):** `processed_events`, `email_log`, `webhook_deliveries`
 (`event_id` unique, `status` PENDING/DELIVERED/DEAD_LETTERED, `attempt_count`, `version`).
 
-**→ V2.** Widened charter in M18: from "deliver the merchant's one webhook URL" to a
-**webhook subsystem** — many endpoints, event-type subscriptions, per-endpoint signing
-secrets, HMAC signatures, a delivery log API, manual replay, and endpoint auto-disable.
-Closes the V1 known issue that "a receiving merchant endpoint can't cryptographically
-verify a webhook actually came from this platform."
+**→ V2. Delivered in M18** (2026-07-25). The charter widened from "deliver the merchant's
+one webhook URL" to a full **webhook subsystem**, and the service changed shape more than
+any service has since M5:
+
+- **No longer Kafka-only.** It now hosts a public, key-authenticated API
+  (`/v1/webhook_endpoints`, `/v1/webhook_deliveries`) behind Spring Security with
+  `InternalContextFilter` as its sole authentication mechanism — no OAuth2 resource
+  server, since it never sees a JWT (D133).
+- **Schema (`notification`) gains** `webhook_endpoints`, `webhook_subscriptions`,
+  `webhook_events`, `webhook_delivery_attempts`; `webhook_deliveries` is retained and
+  re-grained from one row per event to one per `(event, endpoint)`.
+- **Kafka**: produces and consumes `webhook.deliveries[.retry|.dlq]` (D106), so webhook
+  traffic no longer shares `payment.events.retry`.
+- **Delivery** is fanned out to every subscribed, enabled endpoint; signed
+  (`PaymentFlow-Signature`, D105); egress-filtered against SSRF; retried on a published
+  8-attempt schedule; dead-lettered; and the endpoint auto-disabled after 20 consecutive
+  failures.
+- **Outbound dependency**: one, on sandbox-service, and deliberately ignorable — every
+  failure resolves to "behave normally" (D131 enactment).
+- **Deliberately still not done**: no real email transport (D45/Q5 unchanged); no
+  `/api/v1` dashboard mirror until M23 (D133); no cursor pagination until M19 (D107).
+
+Closes V1 known issue #2 — a receiving endpoint can now cryptographically verify a webhook
+came from this platform, with the algorithm published and independently implemented in two
+other languages.
 
 ### 2.8 analytics-service (`:8093`)
 
@@ -429,7 +454,7 @@ lingering note:
 | # | Gap (from V1 §11 Known Issues) | Closed by |
 |---|---|---|
 | 1 | API keys are issued but authenticate nothing; payment creation is JWT-only (D31/D32) | **M15** |
-| 2 | Webhooks are unsigned — merchants cannot verify authenticity | **M18** |
+| 2 | Webhooks are unsigned — merchants cannot verify authenticity | **M18 ✅ closed** (2026-07-25) |
 | 3 | transaction-service has no query API; ledger state needs `psql` (D42) | **M19** |
 | 4 | audit-service and analytics-service have no query APIs | **M19** |
 | 5 | `springdoc` is in the tech-stack table but is not a dependency of any module | **M21** |
@@ -2596,6 +2621,11 @@ decisions are appended as milestones are implemented.
 | D130 | (M17) `payments.payment_method_token` is a nullable column with no backfill; a token-less payment resolves to the mode default (test → auto-approve, live → the simulated acquirer) | Require a token on every payment; add a synthetic default token | Keeps M17 additive to M16/M5: every existing integration test and every existing caller that never sends a token continues to behave exactly as before. This is the property that lets M17 introduce a payment-method concept without touching a single M16.2 test |
 | D131 | (M17) Webhook-path simulation scenarios (`duplicate_webhooks`, `webhook_failure`, delayed/out-of-order delivery) are **defined** in M17's override vocabulary and schema, but **enacted** by M18 (which reads the active override during delivery) | Reject these scenarios until M18 ships; or pull webhook-delivery machinery forward into M17 | Builds the schema and control API once rather than extending them again in M18. Accepted trade-off: between M17 and M18, setting one of these overrides returns 200 with an explicit `enactedFrom: "M18"` marker rather than doing anything — an honest no-op, not a silent one |
 | D132 | (M17) payment-service depends on an `AuthorizationAdvisor` **port** (an acquirer-neutral decision contract); `SandboxAuthorizationAdvisor` is the one adapter behind it. No provider-selection strategy, multi-provider config, or separate adapter service is introduced | (a) A concrete `SandboxAdvisor` with no interface, matching `MerchantResolver`'s precedent; (b) a full routing/strategy abstraction for provider selection | (a) risks sandbox-specific vocabulary (`source`, `latencyMs`, test-card identity) leaking into `PaymentResponse`/`PaymentEventPayload` before M21 freezes the public contract — cheap to fix now, a versioned-contract migration to fix after. (b) encodes a guess about a selection axis with zero real-PSP experience; real PSP integration is explicitly beyond V2 (§15). The port's job is to make any such leak an explicit, reviewable diff, not to enable a swap that costs nothing to make either way |
+| D133 | (M18) The `/api/v1/webhook_endpoints` dashboard mirror named in §5/M18 task 2 is **deferred to M23**; M18 builds only the key-authenticated `/v1/webhook_endpoints` surface, and notification-service gains **no OAuth2 resource server at all** — `InternalContextFilter` is its sole authentication mechanism, exactly as sandbox-service's (M17.2) | Build both surfaces in M18 as the task list literally specifies | Confirmed with the user before implementing. The mirror's only consumer is the developer portal, which does not exist until M23; shipping it now means a second `SecurityFilterChain`, a JWKS dependency, and a JWT decoder in a service no browser will call for five milestones — carried, maintained, and regression-tested across M18.3–M18.9 for nothing. This is the same YAGNI-with-a-recorded-reason discipline that produced D14/D31/D42/D61, and M23 is the milestone whose own scope already includes wiring every dashboard surface. The `/v1` surface is the one that is a public promise; deferring the *undocumented, freely-changeable* tier (D98) costs nothing that D98 does not explicitly permit |
+| D134 | (M18) The **first** delivery attempt is dispatched through the `webhook.deliveries` topic (§4.7) rather than made inline post-commit as V1 does (D46); one consumed `payment.events` message writes the canonical event plus N delivery rows and publishes N dispatch messages | Keep V1's inline first attempt and add only `.retry`/`.dlq`, as §5/M18 task 7 alone would imply | Confirmed with the user before implementing. V1's inline attempt was correct when a merchant had exactly one URL: one HTTP call, one thread, bounded. Fan-out changes the arithmetic — N endpoints × the per-attempt timeout, on a `payment.events` listener thread shared with every other merchant — which is precisely the "a slow endpoint starves delivery for everyone" risk M18's own risk table names, arriving on the *first* attempt rather than a retry. Routing dispatch through a topic keeps the `payment.events` consumer's work bounded regardless of endpoint count, gives per-endpoint bulkheads somewhere natural to live, and reconciles §4.7's three-topic table with task 7's two. Cost: one Kafka hop of latency before the first attempt, which is invisible against an 8-attempt/24-hour schedule |
+| D135 | (M18) V1's `merchants.webhook_url` is adopted into a real `webhook_endpoints` row **lazily, from the payment event payload**, the first time an event arrives for a merchant that has a URL but no registered endpoint — flagged `migrated_from_legacy` | (a) A one-off operational backfill script reading both schemas at M18.9; (b) merchant-service publishes an adoption event on `merchant.events` and notification-service consumes it | Confirmed with the user before implementing. §5/M18 task 10 describes this as a migration, but `merchants` lives in merchant-service's schema: notification-service cannot read it (D4, schema-per-service) and deliberately never calls merchant-service (D43 — the URL already rides on every payment event). (a) puts a cross-schema step outside the migration system and outside CI, exactly the class of manual operation that is correct once and forgotten thereafter; (b) is the cleanest long-term shape but pulls merchant-service changes, a new topic consumer, and a new listener into a milestone that already changes notification-service's charter more than any milestone has changed a service since M5. Lazy adoption needs no new dependency, no new schema access, and no downtime, and it is self-healing: a merchant who sets a URL after M18 ships is adopted on their next event rather than missed by a script that already ran. Per §13-Q9 the column itself is kept and marked deprecated, not dropped |
+| D137 | (M18.6) Webhook signing secrets are stored **encrypted** (AES-256-GCM, key from configuration), not SHA-256 hashed — the one exception to §4.9's "every secret is stored only as SHA-256" | (a) Keep the hash, as §4.9 and M18.2 originally implemented; (b) derive each endpoint's secret deterministically from a platform master key plus endpoint id and a rotation counter (HKDF), storing no secret material at all | **A defect found in this milestone's own M18.2 work, not a preference.** §4.9's rule is correct for `sk_` keys and refresh tokens because the platform only ever *verifies* those: hash what the caller presented, compare digests. A webhook signing secret is *used* — it is the HMAC key for every outbound delivery — and a one-way digest cannot produce a signature the merchant, who holds the original, could reproduce. (a) is therefore not "less secure", it is **non-functional**: every delivery would have carried a signature no receiver on earth could verify, and the failure would have surfaced as integrators reporting that verification "just doesn't work" rather than as a red test. (b) is genuinely elegant — no secret material at rest at all — but makes every secret re-derivable forever by anyone holding the master key and the row, which quietly weakens the "revealed exactly once" property into "re-derivable on demand", and adds a rotation-counter concept to a schema that already models rotation with an explicit previous-secret column. Encryption is what comparable platforms do, keeps "shown once" strictly true, and fails loudly (GCM is authenticated, so a tampered ciphertext raises rather than silently yielding a wrong key). The key is handled exactly like the internal-context HMAC secret (D18/D73) and inherits its known issue: an insecure local default, with Secrets Manager wiring owned by M29 |
+| D136 | (M18) The webhook signature is proved cross-language by **committed test vectors plus small `verify.js`/`verify.py` scripts run manually**, with the recorded output going in this log — not by a Gradle task that shells out to Node and Python | (a) Commit vectors and the written spec only, deferring real cross-language execution to M22; (b) wire the scripts into the build as a verification task | Confirmed with the user before implementing. M18's own risk table calls the signature scheme "subtly wrong and only discovered by an integrator" the failure mode worth spending a milestone's effort on, and (a) leaves that criterion asserted rather than demonstrated — the exact gap §14 already records for M17's test-card catalogue. (b) makes `node` and `python` build prerequisites for a Java monorepo, so a contributor with neither cannot build at all, to guard a constant that changes roughly never. Committed vectors give M22's four SDKs a shared fixture to test against, which is where the compatibility guarantee actually needs to live; running them by hand once, here, is what converts the guarantee from claimed to observed |
 
 ---
 
@@ -2654,6 +2684,12 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **`api_key_issued_total`/`api_key_revoked_total`/`api_key_rotated_total`/`email_logged_total` (generalized) are the only new M15 metrics** — no Grafana panel or alert rule was added for any of them (M13's dashboards predate M15). A future observability pass should decide whether these belong on an existing dashboard or a new "developer platform" one.
 - **`modules/ecs-service`'s explicit `launch_type` silently defeats the cluster's `FARGATE_SPOT` default — the entire V1 deployment billed at on-demand rates.** Found during the post-M16 teardown (2026-07-23), not during the deployment itself. `modules/ecs-cluster` sets `default_capacity_provider_strategy { capacity_provider = "FARGATE_SPOT" }` and the live cluster genuinely carried that strategy — but `modules/ecs-service` creates every service with an explicit `launch_type = "FARGATE"`, and **an explicit launch type bypasses the cluster's default capacity provider entirely**. Confirmed against the live estate before teardown: every service reported `launchType: FARGATE` with `capacityProviderName: null`, and so did the running tasks. The cluster-level setting was inert for the full deployment window (2026-07-19 → 2026-07-23); all nine tasks ran on-demand, roughly $90/month of a ~$165/month estate, where Spot would have cut that line item by ~60–70%. **The trap is that the cluster configuration reads as correct** — `describe-clusters` returns `FARGATE_SPOT`, and only `describe-tasks` reveals what capacity actually served the workload. Owned by M29 as a pre-apply task (§5), deliberately not fixed now: V2 is local-first (D113), so there is no live ECS service to fix against until M29 re-applies. The fix is to drop `launch_type` from `modules/ecs-service` and either inherit the cluster default or set an explicit per-service `capacity_provider_strategy`.
 - **`modules/ecr` has no `force_delete`, so `terraform destroy` cannot complete while images exist.** V1's teardown (2026-07-23) destroyed 106 of 114 resources and failed on all 8 ECR repositories with `RepositoryNotEmptyException` — each held 3 images (3.30 GB total). Everything billable was destroyed successfully because ECR sits in its own corner of the dependency graph, so the practical impact was an incomplete teardown rather than continued cost (~$0.33/month retained). The repositories were kept deliberately after the fact, since M29 will need them again. M29's teardown runbook must either set `force_delete = true` or purge images as a documented first step.
+- **`whsec_` signing secrets are encrypted, not hashed — §4.9's blanket "every secret is stored only as SHA-256" is now inaccurate as written.** D137 records why (a webhook secret is *used* as an HMAC key, so it cannot be one-way hashed), and `WebhookSecretCipher`/`WebhookEndpoint` both state it, but §4.9's prose still asserts the general rule without the exception. Left as-is deliberately rather than editing §4.9: that section is the V2 *plan*, and the plan genuinely said this; the decision log is where a plan is corrected by implementation, which is exactly what D137 does. Flagged here so nobody reads §4.9 in isolation and reintroduces hashing.
+- **The webhook secret-encryption key is `.env`-only** (`PAYMENTFLOW_WEBHOOK_SECRET_ENCRYPTION_KEY`), with a clearly-insecure local default baked into `application.yaml` and `docker-compose.yml` — the same shape, and the same M29-owned gap, as the internal-context HMAC secret. Additionally: **there is no key-rotation path.** Rotating it would make every stored signing secret undecryptable, silently breaking every merchant's webhook verification at once. A real re-encryption procedure (decrypt-with-old, encrypt-with-new, versioned key id on the row) is needed before this key is ever rotated in a deployed environment. No milestone owns it; M29 is the natural home.
+- **`payment.events.retry`/`.dlq` and V1's `WebhookDeliveryService`/`WebhookRetryListener` are now dormant.** M18.6 stopped creating V1-shaped delivery rows, so nothing new ever lands on those topics; the listener and service remain only to drain rows that predate the cutover. They are kept (with their tests) rather than deleted because deleting them would strand any in-flight legacy row, and because their tests still document V1's behaviour. They should be removed once no pre-M18.6 `webhook_deliveries` row with a null `webhook_event_id` remains — a cleanup with no owner yet.
+- **`webhook_delivery_attempts` has no retention policy.** It grows with (events × endpoints × attempts) and stores the full request and response body per attempt, which is by far the highest write volume M18 introduces. D116 established that a high-volume log table shipped without a pruner is a scheduled outage, and applied that reasoning to `api_request_log` in M20 — the same argument applies here and was not acted on. M20 is the natural place to fix it alongside its own pruner; recorded now rather than discovered under storage pressure.
+- **The Redis endpoint-list cache specified in §4.8/§5-M18 task 4 was not built.** Fan-out reads endpoints and subscriptions from Postgres on every event (two indexed queries, one of them batched). It is correct and, at current volumes, fast; the cache is a performance optimisation whose absence is invisible until measured. Deliberately left for **M28** to measure before adding, rather than adding a cache-invalidation surface on a guess — but it *is* a documented deliverable that this milestone did not deliver, so it is recorded as a gap rather than silently dropped.
+- **Not every published test card is driven through a real authorize call by an automated test** (M17, §5's completion criteria). `DecisionEngine` is data-driven with no per-token special-casing, so the risk this leaves open is narrow — a bad seed row (wrong `outcome`/`declineCode`/`captureBehaviour` in the `test_cards` migration) rather than a bad engine — but it is a real gap between the roadmap's literal completion criterion and what M17.8's test suite actually asserts. `TestCardCatalogueIntegrationTest` checks all 17 rows exist with correct metadata for 9 of them; only 4 tokens are additionally exercised through a real `decide()`/authorize call anywhere in the suite. No milestone currently owns closing this; a cheap fix would be a single parameterized integration test iterating every seeded token through `POST /internal/v1/sandbox/authorize` and asserting the response matches the catalogue's own advertised outcome for that token.
 
 ---
 
@@ -2961,7 +2997,7 @@ and a full `./gradlew clean build` — all green throughout. Fix #8 additionally
 8 Docker images from scratch (`--no-cache`) and confirmed zero Foojay/toolchain-download
 activity in any build log.
 
-### M16 — Test/Live Mode Isolation 🚧 (in progress, started 2026-07-22)
+### M16 — Test/Live Mode Isolation ✅ (complete, 2026-07-22)
 
 **Objectives.** Make `mode` (`test`/`live`) a *structural* isolation boundary across the
 data plane (§4.4), not a filter queries remember to apply. M15 already resolves mode from
@@ -3974,6 +4010,864 @@ validated together on a live, freshly-rebuilt docker-compose stack. `Authorizati
 zero changes across M17.5–M17.8, confirming the abstraction held exactly as designed. No known regressions
 in V1 or M15/M16 behaviour — the full E2E flow above re-exercises the create → authorize → capture/fail
 lifecycle (V1's own core path) alongside every M17-specific capability.
+
+---
+
+### M18 — Webhooks as a Product ✅ (complete, 2026-07-25)
+
+**Objective.** Per §5/M18: evolve notification-service from "POST the merchant's one URL" into a real
+webhook subsystem — many endpoints, event-type subscriptions, HMAC-signed payloads, an explicit retry
+schedule, a complete delivery log, manual replay, endpoint auto-disable, and SSRF defence. Closes V1
+known issue #2 (§2.11): a merchant cannot cryptographically verify a webhook came from this platform.
+
+**Repository review (2026-07-25).** A full read of the codebase before any code was written, per this
+project's standing "understand before modifying" discipline. Eight places where §5/M18's task list
+differs from the repository as it actually stands were found and resolved rather than assumed away:
+
+1. **Migration numbering.** Task 1 names `V2__webhooks.sql`, written when `notification` was still at
+   V1; it has since gained V2 (M15's `email_log` generalisation) and V3 (M16.6's mode columns). This
+   milestone's migration is **`V4__webhooks.sql`** — a Flyway ordering fact, not a design change.
+2. **Task 10's "migration" is not a migration.** `merchants.webhook_url` lives in merchant-service's
+   schema, which notification-service cannot read (D4) and deliberately never asks for (D43). Resolved
+   as **D135** (lazy adoption from the event payload).
+3. **The `/api/v1` mirror has no consumer until M23.** Resolved as **D133** (deferred; no OAuth2
+   resource server in notification-service).
+4. **§4.7 lists three topics; task 7 names two.** Resolved as **D134** (`webhook.deliveries` carries
+   the first dispatch, replacing V1's inline post-commit attempt).
+5. **Cross-language signature verification has no tooling in this repository.** Resolved as **D136**.
+6. **Redis is a new dependency for notification-service** — task 4's endpoint-list cache. Additive,
+   following merchant-service's `CacheConfig` precedent (D30/D38: cache immutable DTOs, never
+   entities, with a type-aware serializer).
+7. **"HTTPS-only" endpoints would break every existing local and test webhook sink**, all of which are
+   `http://localhost:…`. Gated on a configuration property (default-secure, relaxed in the test/local
+   profiles) and documented alongside the SSRF allow-list rather than silently exempted.
+8. **D131's webhook-path scenarios are assigned to M18 by the decision log but appear nowhere in
+   M18's task list.** `duplicate_webhooks`/`webhook_failure` are already validated, constrained, and
+   persisted by sandbox-service (M17.5) with `toEngineScenario()` deliberately returning empty for
+   both. Enacting them requires notification-service → sandbox-service, an edge that does not exist
+   today. Included in M18.8 rather than left as a silent no-op past its own stated milestone.
+
+**Architectural note: this milestone changes notification-service's charter more than any milestone
+has changed a service since M5.** It goes from Kafka-only — no REST layer, no Spring Security, no
+Redis, no outbound dependency beyond one HTTP POST — to a service with a public API, an authentication
+layer, a cache, a hostile-input threat surface, and a synchronous dependency on sandbox-service. That
+is four new failure domains, which is why the decomposition isolates each one and why V1's delivery
+path stays live and unmodified through M18.5.
+
+**Decomposition.** Nine independently-committable sub-milestones: **M18.1** schema + domain model (no
+behaviour change at all); **M18.2** notification-service's web/security layer + the endpoint management
+API + gateway route and `webhooks:manage` scope; **M18.3** `WebhookEventFactory` and the canonical
+`evt_` object, written alongside V1's delivery rather than replacing it; **M18.4** `WebhookSigner`,
+the signature specification, and cross-language vectors (D136); **M18.5** the SSRF guard and hardened
+HTTP client; **M18.6** fan-out, the delivery executor, and the cutover off V1's single-URL path;
+**M18.7** the explicit retry schedule, `.retry`/`.dlq`, and auto-disable; **M18.8** replay API,
+delivery-log query API, and D131 enactment; **M18.9** legacy-URL adoption, the webhook guide (§9.4),
+full docker-compose E2E, and milestone closure. Ordering rationale: schema → API → object shape →
+crypto → safety → delivery → durability → visibility → closure, so every dependency points backwards
+and the one irreversible step (M18.6's cutover) happens only after all five of its inputs are
+independently proven. The two decisions that later milestones inherit permanently — the `evt_` event
+vocabulary (M18.3, which M19's Events API projects into) and the signature scheme (M18.4, which M22's
+SDKs implement) — each get their own gate ahead of any code that consumes them.
+
+#### M18.1 — Webhook schema and domain model ✅ (2026-07-25)
+
+**Summary.** The `notification` schema gains the four tables §4.5/§4.6 specify, with their entities and
+repositories. Deliberately zero behaviour change: nothing reads or writes the new tables yet, V1's
+single-URL delivery path is untouched, and `NotificationIntegrationTest` — the test that exercises that
+path against a real broker — passes unmodified. This sub-milestone exists so the table shape is
+reviewable on its own, while changing it is still free; after M18.6 cuts over, it would be a migration
+against live delivery state.
+
+**Files created.** Migration: `notification/V4__webhooks.sql`. **Domain:**
+`domain/WebhookEndpoint.java`, `domain/WebhookSubscription.java`, `domain/WebhookEvent.java`,
+`domain/WebhookDeliveryAttempt.java`, `domain/EndpointDisableReason.java`, `domain/AttemptOutcome.java`.
+**Data access:** `repository/WebhookEndpointRepository.java`, `repository/WebhookSubscriptionRepository.java`,
+`repository/WebhookEventRepository.java`, `repository/WebhookDeliveryAttemptRepository.java`.
+
+**Files modified.** None. No existing source file, configuration file, or migration was touched — the
+property that makes this sub-milestone's regression claim checkable rather than asserted.
+
+**DB.** `V4__webhooks.sql` creates `webhook_endpoints`, `webhook_subscriptions`, `webhook_events`, and
+`webhook_delivery_attempts`. Design points worth recording:
+
+- **`webhook_deliveries` is retained and evolved, not replaced.** §4.5 lists four *new* tables, but M18
+  still needs per-`(event, endpoint)` delivery state — status, attempt count, optimistic-lock version —
+  which is exactly what V1's `webhook_deliveries` already models. Reusing it keeps M18.7's retry/DLQ
+  work on M7's proven shape instead of standing up a parallel concept, and keeps V1's existing DLQ
+  regression tests meaningful. `webhook_delivery_attempts` is its per-attempt child. The columns that
+  turn it into a fan-out target (`webhook_event_id`, `endpoint_id`, and dropping
+  `uq_webhook_deliveries_event_id`) land in **M18.6**, with the writer that needs them — not here,
+  where they would break V1's `findByEventId` returning an `Optional`.
+- **`mode` is NOT NULL on `webhook_endpoints` and `webhook_events`**, deliberately unlike the nullable,
+  never-coerced `mode` on `email_log` and `webhook_deliveries` (D126). Those are *recorders*, faithfully
+  writing back whatever an event declared including nothing. These two are *partitions* in M16.2–16.4's
+  sense — a test endpoint receiving a live event is the exact isolation failure M16 exists to prevent,
+  and a table queried *by* mode makes a null unqueryable rather than merely unknown. `webhook_events`
+  resolves an absent envelope mode to `live` at write time, which is D125's stated consumer semantics.
+- **`event_ref` is derived, not random.** The public identifier is `"evt_"` plus the source envelope
+  `eventId`'s 32 hex digits. The determinism is load-bearing for M19: audit-service stores the same
+  envelope id and must project its rows into this exact shape, and a derived id lets it do so with no
+  shared sequence, no coordination, and no lookup back into the `notification` schema.
+- **The request is stored verbatim on every attempt** rather than referenced from `webhook_events.data`.
+  A retry re-signs with a fresh timestamp and a replay may use a rotated secret, so the bytes genuinely
+  differ between attempts; a shared reference would show a merchant something they were never sent.
+- **`BLOCKED` is a first-class attempt outcome**, distinct from `FAILED_TRANSPORT`. A merchant whose
+  endpoint the egress guard (M18.5) never contacted must be told exactly that, not shown a connection
+  error implying we tried.
+- **Constraints carry the invariants, not just the entities**: `chk_webhook_endpoints_previous_secret_shape`
+  (a rotation window with a secret but no expiry would never lapse),
+  `chk_webhook_endpoints_disabled_shape` (an auto-disabled endpoint that is still enabled is a
+  contradiction), `chk_webhook_delivery_attempts_status_shape` (a recorded status only makes sense when
+  the endpoint actually answered), and `uq_webhook_endpoints_merchant_mode_url` (a second registration
+  of the same URL would silently double every delivery — a duplicate-webhook bug the merchant would
+  diagnose as a platform fault). The same coherent-shape discipline `V1__init_sandbox.sql` and
+  `V4__simulation_overrides.sql` apply, extended to this schema.
+
+**API / Kafka / Redis / infra.** None. No endpoint, topic, cache, compose entry, or Gradle dependency
+changed in this sub-milestone.
+
+**Tests.** 14 new, 43 green in the module.
+- *Unit, no Spring:* `WebhookEndpointTest` (6) — the dual-secret grace window is usable one second
+  before expiry and unusable at it (D120's read-time-comparison shape, no scheduler); a success resets
+  the consecutive-failure streak, without which a merely flaky endpoint would eventually be
+  auto-disabled as if it were dead; a platform auto-disable records its reason while a merchant disable
+  does not; re-enabling clears both the annotations and the streak. `WebhookEventTest` (4) — the public
+  id is derived deterministically and stably from the source event id, and an absent envelope mode is
+  read as `live` (D125). `WebhookSubscriptionTest` (3) — wildcard matches everything including event
+  types that do not exist yet (§4.10: additive changes are never breaking), and matching is exact
+  rather than prefix-based, so a `payment.authorized` subscription never leaks `payment.captured`.
+- *Integration, Testcontainers Postgres:* `WebhookSchemaIntegrationTest` (8) — the migration applies on
+  top of the existing three and all four entities validate against it (Hibernate runs `ddl-auto:
+  validate`, so a mapping mismatch would fail context startup); endpoints resolve only within their own
+  merchant *and* mode, with a real id from the other mode returning empty so callers surface 404 not 403
+  (D102); the same URL is registrable in both modes but not twice within one; deleting an endpoint
+  cascades to its subscriptions at the FK rather than in application code; one internal event yields at
+  most one canonical event (D2's dedup gate, enforced by the database); attempts round-trip with their
+  jsonb request/response intact and in attempt order; and — via raw SQL, bypassing the entities
+  entirely — the schema rejects a bad mode, an enabled-but-auto-disabled row, an unexpiring rotation
+  window, and an attempt whose outcome and status disagree, proving the database is a real backstop and
+  not merely a mirror of the Java guards.
+- Postgres only, with `spring.kafka.listener.auto-startup=false`: this sub-milestone adds no messaging,
+  and standing up a broker to test a schema would buy nothing but runtime. `NotificationIntegrationTest`
+  remains the test that exercises the real Kafka pipeline and is deliberately left untouched.
+
+**Verification.** What was actually run, in order:
+1. `.\gradlew.bat :notification-service:test` — **43 tests, all passing**, including the 6 pre-existing
+   `NotificationIntegrationTest` cases (real Kafka + real Postgres + a real HTTP sink) that constitute
+   V1's delivery-path regression gate.
+2. `.\gradlew.bat clean build` — `BUILD SUCCESSFUL`, but **not** an honest regression signal on its own:
+   Gradle's build cache (`org.gradle.caching=true`) restored the unchanged modules' test results rather
+   than re-executing them, so nothing outside notification-service actually ran. Recorded because
+   reporting a cache-restored green as an executed green is exactly the kind of claim this project's
+   "verify, never assume" rule exists to prevent.
+3. `.\gradlew.bat test --rerun-tasks` — forced genuine re-execution. Failed, but **not on this
+   milestone's code**: `gateway-service` and `analytics-service` both raised
+   `IllegalStateException at DockerClientProviderStrategy` — Testcontainers could not obtain a Docker
+   client. Root cause was host contention, not a regression: `docker ps` showed 20 running containers
+   (this platform's full 13-container compose stack, plus two unrelated projects' stacks), and Gradle's
+   `org.gradle.parallel=true` had several Testcontainers-backed modules competing for the daemon at once.
+4. `.\gradlew.bat :gateway-service:test :analytics-service:test --rerun-tasks --no-parallel
+   --max-workers=1` — both modules **fully green** on re-execution (27 + 18 tests), confirming (3) was
+   environmental.
+5. Aggregated every module's JUnit XML directly rather than trusting the task summary (M17.8's own
+   discipline): **372 tests, 0 failures, 0 errors, 0 skipped** across all 12 modules.
+6. **Applied the migration against the live, populated compose database**, not only against an empty
+   Testcontainers one — the distinction the "verify, never assume" rule exists for, since Testcontainers
+   only ever proves a migration works on an empty schema. `docker compose -f docker-compose.infra.yml -f
+   docker-compose.yml up -d --build notification-service` rebuilt the image (also re-confirming the
+   Dockerfile still builds this module — the gap M17.8 discovered had gone unnoticed for seven
+   sub-milestones because nothing ran a Docker build) and restarted the container against the existing
+   database. `notification.flyway_schema_history` then showed **V1–V4 all `success = t`**, `\dt
+   notification.*` showed the four new tables alongside the three existing ones, and the container
+   reported `healthy`. Pre-existing data was untouched: 10,459 `email_log` rows, 17
+   `webhook_deliveries`, and 10,444 `processed_events` (accumulated across M14's load tests and M17.8's
+   E2E) all survived, with the four new tables correctly empty — nothing writes them yet.
+
+**Environment note for future milestones.** `--rerun-tasks` across the whole monorepo while the
+docker-compose stack is up is unreliable on this machine — too many Testcontainers modules contend for
+one Docker daemon under `org.gradle.parallel=true`. Either stop the compose stack first, or add
+`--no-parallel --max-workers=1` to forced full-suite re-runs. Not a code defect and not worth a §14
+entry, but it will recur and cost time otherwise.
+
+**Decisions.** D133–D136 recorded in §11 from the pre-implementation review; none new to this
+sub-milestone itself.
+
+**Known deviation from convention.** `WebhookSchemaIntegrationTest` imports
+`org.testcontainers.containers.PostgreSQLContainer`, which Testcontainers 2.x deprecates in favour of
+`org.testcontainers.postgresql.PostgreSQLContainer`, and so compiles with a deprecation note. Every
+existing integration test in this repository imports the same class; diverging in one new file would
+trade a warning for an inconsistency. Flagged rather than silently accepted — a repository-wide import
+migration is the right shape for this, and belongs to a stabilization pass, not to M18.
+
+**Remaining M18 work.** M18.2 — notification-service's web and security layer (sandbox-service's
+`InternalContextFilter`-only shape, D133), the `/v1/webhook_endpoints` management API with `whsec_`
+secrets revealed once and dual-secret rotation, the gateway route, and `webhooks:manage` added to
+`ApiKeyAuthenticationWebFilter.requiredScopeFor` — which is the first extension of that mapping since
+M15 left it as an explicitly-anticipated known issue (§14).
+
+#### M18.2 — notification-service's web/security layer and the endpoint management API ✅ (2026-07-25)
+
+**Summary.** notification-service stops being Kafka-only. It gains Spring Security (for
+`InternalContextFilter` and nothing else), its first REST controller, and the public
+`/v1/webhook_endpoints` management API: register, list, read, update, delete, and rotate the signing
+secret — all merchant- and mode-scoped from the verified context. The gateway routes to
+notification-service for the first time, and `webhooks:manage` becomes the first scope beyond
+`payments:*` that the platform actually enforces. V1's delivery path is still untouched: nothing reads
+the endpoint table yet.
+
+**Files created.** `config/SecurityConfig.java`, `config/WebhookProperties.java`;
+`security/SecurityErrorWriter.java`, `security/RestAuthenticationEntryPoint.java`,
+`security/RestAccessDeniedHandler.java` (all three byte-for-byte the sandbox-service/payment-service
+shape, so every service's security-failure envelope stays identical); `domain/WebhookEventType.java`;
+`service/WebhookSecretGenerator.java`, `service/WebhookEndpointService.java`;
+`dto/CreateWebhookEndpointRequest.java`, `dto/UpdateWebhookEndpointRequest.java`,
+`dto/WebhookEndpointResponse.java`, `dto/WebhookEndpointCreatedResponse.java`;
+`mapper/WebhookEndpointMapper.java`; `web/WebhookEndpointController.java`.
+
+**Files modified.** `notification-service/build.gradle.kts` (+`spring-boot-starter-security`,
++`spring-boot-webmvc-test`; the module javadoc's "deliberately no REST API, no Spring Security" note
+rewritten rather than left contradicting the code). `notification-service/application.yaml`
+(+`paymentflow.webhooks.*`; the `internal-context` comment corrected — it said the filter "always
+no-ops here", which stops being true the moment a route exists).
+`repository/WebhookSubscriptionRepository.java` (+`findByEndpointIdIn`, the list view's N+1 avoidance).
+`gateway-service/application.yaml` (+`notification-service-webhook-endpoints` route,
++`paymentflow.services.notification.base-uri`). `ApiKeyAuthenticationWebFilter.java`
+(+`webhooks:manage` in `requiredScopeFor`). `docker-compose.yml` (gateway gains
+`PAYMENTFLOW_SERVICES_NOTIFICATION_BASE_URI`; notification-service gains
+`PAYMENTFLOW_WEBHOOKS_REQUIRE_HTTPS: "false"`).
+
+**API added (`/v1` tier — a public promise).** `POST /v1/webhook_endpoints` (201, the only response
+carrying a raw `whsec_`), `GET /v1/webhook_endpoints`, `GET /v1/webhook_endpoints/{id}`,
+`PATCH /v1/webhook_endpoints/{id}`, `DELETE /v1/webhook_endpoints/{id}` (204),
+`POST /v1/webhook_endpoints/{id}/rotate_secret`. No `/api/v1` mirror (D133).
+
+**Gateway.** One new route, direct passthrough (no `/api/v1` controller exists to rewrite onto), with
+`RemoveRequestHeader=X-PF-Mode` for the same defence-in-depth reason `/v1/payments` has it — mode is
+key-bound via the signed context and must never be client-selectable, so a test key physically cannot
+manage a live endpoint.
+
+**Security.** notification-service's first `SecurityFilterChain`: `InternalContextFilter` registered
+*inside* it via `addFilterBefore(…, AuthorizationFilter.class)` (D124), `anyRequest().authenticated()`,
+actuator health/info/prometheus/metrics public. No OAuth2 resource server at all (D133) — this service
+never sees a JWT. Unlike sandbox-service it needs no `permitAll()` carve-out, because every controller
+method returns a plain value rather than a `CompletableFuture`, so Spring Security's async-dispatch gap
+(the reason sandbox-service's `/internal/v1/**` is `permitAll`) does not arise.
+
+**Design points.**
+- **The canonical event vocabulary is defined here, not in M18.3**, because the management API must
+  validate subscriptions against it — an API that accepts `payment.authorised` and silently delivers
+  nothing would be this API's single most likely self-inflicted integration failure. `WebhookEventType`
+  is the closed vocabulary (7 values, `payment.<past-tense>` in lower snake_case) plus the
+  internal↔canonical mapping M18.3's factory consumes. Deliberately not payment-service's internal
+  strings: D4 says a consumer must not adopt a producer's internal names as its own public contract.
+- **The URL is immutable after registration.** It is half of the endpoint's identity
+  (`uq_webhook_endpoints_merchant_mode_url`); repointing it silently would leave a delivery history
+  attached to a destination that never received any of it.
+- **A wildcard collapses redundant explicit subscriptions** rather than erroring: `["*",
+  "payment.authorized"]` stores just `["*"]`, so the stored set never overstates what the endpoint is
+  actually selected by.
+- **Embedded credentials in a URL are refused, not redacted.** `http://user:pass@host/hook` would be
+  written verbatim into `webhook_delivery_attempts.request_url` on every attempt; refusing at
+  registration is the only point where that is cheap.
+- **`maxEndpointsPerMode` (16)** — not in §5's task list, added because fan-out cost is linear in it
+  for every event (M18's own risk table), and a bound set at registration is free where one discovered
+  under load is an incident.
+
+**Tests.** 61 green in notification-service (18 new), 31 in gateway-service (4 new).
+- `WebhookEndpointApiIntegrationTest` (14): the secret is returned once and only its SHA-256 is
+  persisted (asserted against `OpaqueTokenGenerator.sha256Hex`, not merely "a secret came back");
+  cross-mode and cross-merchant reads, patches, and deletes all 404 rather than 403 (D102); the same
+  URL registers in both modes but conflicts within one; an unknown event type is rejected *with the
+  documented vocabulary in the message*; an empty subscription list is rejected; a wildcard collapses
+  redundancy; embedded credentials and relative URLs are rejected; PATCH leaves unsent fields intact;
+  disable/re-enable round-trips and re-enabling zeroes the failure streak; rotation issues a new secret
+  while keeping the old hash usable within its grace window; an unsigned request is 401; and a request
+  whose signature was computed for `test` but whose header claims `live` is 401 — the mode in a signed
+  context cannot be edited in flight.
+- `WebhookEndpointHttpsPolicyIntegrationTest` (4): the production `require-https=true` setting rejects
+  `http://` and `file://`, accepts `https://`, and treats an uppercase `HTTPS://` scheme as valid
+  (RFC 3986 says scheme comparison is case-insensitive; a case-sensitive check would reject a
+  legitimate URL for a reason no merchant could guess). **A separate class deliberately**, because the
+  main suite must run with the rule relaxed — leaving the production default as the one branch no test
+  exercises would have created exactly the kind of gap this milestone exists to close.
+- `ApiKeyAuthenticationIntegrationTest` (+4): a `webhooks:manage` key reaches the new route with a
+  signed context, on both the bare path and a nested one (the bare-path case is what M15's
+  `RewritePath` bug was caught on, so it is asserted explicitly rather than assumed); a
+  `payments:write` key is refused with `INSUFFICIENT_SCOPE`; and a `webhooks:manage` key is refused
+  on `/v1/payments`. The two directions together prove the mapping is a real per-route decision rather
+  than a check that happens to pass for whichever key is tried first.
+
+**A test that was written wrong and corrected before it could mislead.** The HTTPS case was first
+written inside the main suite as `aPlainHttpEndpointIsRejectedWhenHttpsIsRequired` while that suite
+runs with `require-https=false` — so it asserted `201 Created` under a name claiming rejection. It
+would have passed forever while testing the opposite of its name. Split into its own
+properties-overriding class instead. Recorded because a green test asserting the inverse of its own
+name is worse than no test, and the only reason it was caught is that the assertion had to be written
+to match the configuration rather than the intent.
+
+**Decisions.** None new — D133 (no `/api/v1` mirror, no OAuth2 resource server) is applied here rather
+than decided here.
+
+**Remaining M18 work.** M18.3 — `WebhookEventFactory`, the canonical `evt_` object written from
+`payment.events` alongside V1's existing delivery (dual-write, V1 still authoritative).
+
+#### M18.3 — `WebhookEventFactory` and the canonical `evt_` event object ✅ (2026-07-25)
+
+**Summary.** The platform's internal event vocabulary becomes a public one. Every consumed
+`payment.events` message now also writes a canonical, merchant-facing `webhook_events` row in the same
+transaction — a dual-write with no behaviour change: V1's single-URL delivery is still the only thing
+that delivers, and still delivers the internal envelope. M18.6 is the cutover. Writing the canonical
+event a sub-milestone before anything reads it means that cutover changes a *reader* only, and that the
+event shape can be inspected against real traffic before any merchant receives one.
+
+**Files created.** `event/CanonicalPaymentObject.java`, `event/WebhookEventBody.java`,
+`service/WebhookEventFactory.java`.
+
+**Files modified.** `service/NotificationService.java` (+`WebhookEventFactory` dependency, one call
+inside the existing transaction block; javadoc explains the dual-write and why it is temporary).
+`domain/WebhookEvent.java` (`resolveMode` made public — the body must show the same resolved mode the
+row stores). Tests: `NotificationServiceTest` (constructor), `NotificationIntegrationTest` (+2 cases).
+
+**The public event contract, decided here.**
+- **Envelope:** `{id, object:"event", type, apiVersion, created, mode, data:{object:{…}}}`.
+- **`data` wraps `object`** rather than holding the resource directly. Redundant today, deliberately:
+  it is the seam that lets a later revision add `previousAttributes` as a sibling without changing the
+  *type* of `data`, which §4.10 would classify as breaking.
+- **`CanonicalPaymentObject` is a translation, not a passthrough.** `PaymentNotificationEventPayload`
+  carries `merchantContactEmail` and `merchantWebhookUrl` — routing fields D43 embedded for this
+  platform's own consumers. Serializing the internal payload directly would echo a merchant's contact
+  email into every webhook body delivered to whatever endpoint happens to receive it. There is a test
+  asserting neither value appears in a serialized body.
+- **`object` discriminators** on both the envelope (`"event"`) and the resource (`"payment"`), so a
+  client deserializing a heterogeneous stream branches on a field rather than on the event name.
+- **camelCase**, matching every other response this platform emits. M21 owns the contract freeze; this
+  was not the milestone to introduce a second naming convention.
+- **The stored `apiVersion` is the platform's current one, not the receiving endpoint's pin.**
+  Per-endpoint pinning (§5/M18 task 3) is a *rendering* concern for M21, once more than one revision
+  exists: one stored event transformed at delivery time is what lets endpoints on different pins share
+  a single canonical record. Storing it pre-transformed per endpoint would mean N rows for one
+  occurrence, which `uq_webhook_events_source_event_id` exists to forbid.
+
+**A finding with consequences for M18.4: Postgres normalizes `jsonb` on round-trip.** An integration
+assertion written as a byte-exact substring match on the stored `data` failed — Postgres returned
+`{"id": "…", "mode": "test", …}` with its own key order and spacing, not the bytes Jackson wrote. The
+test was wrong, but the underlying fact matters far more than the test did: **the delivered body must
+never be assembled by splicing the stored `jsonb` text**, or the signed bytes would depend on
+Postgres's formatter and could differ between the original attempt and a retry read back from the
+database. `WebhookEventFactory.serialize` therefore parses `data` into a `JsonNode` and re-serializes
+the whole body through Jackson, making the output a function of the data alone — identical on every
+attempt, on every node, after any round trip. That is precisely the property a receiver re-computing
+the HMAC over the body it received depends on, so it is asserted directly
+(`serializingIsStableSoTheSignatureCoversWhatIsDelivered`). Had this surfaced in M18.6 instead, it
+would have presented as intermittently invalid signatures on retries only.
+
+**Tests.** 70 green in the module (9 new).
+- `WebhookEventFactoryTest` (7, no Spring, no database): all seven internal payment types map to their
+  canonical names; an unmapped internal type (`ApiKeyIssued`, and an invented future one) yields empty
+  and writes nothing rather than raising — a future internal event must be addable without
+  notification-service rejecting it; redelivery of one internal event returns the same `evt_` and saves
+  exactly once (D2); an absent envelope mode resolves to `live` in *both* the row and the body; the
+  body carries the documented envelope with a nested `data.object`; the body leaks neither the
+  merchant's contact email nor their webhook URL; and serialization is stable across calls.
+- `NotificationIntegrationTest` (+2, real Kafka + real Postgres): the canonical event is produced by
+  actually consuming a `payment.events` message — with `evt_` matching the derived form, the canonical
+  type, the resolved mode, and a parsed `data.object` — while V1's delivery still reaches `DELIVERED`
+  unchanged; and a non-payment internal type is email-logged as before with no `evt_` minted.
+
+**Decisions.** None new. The event vocabulary itself was defined in M18.2 (`WebhookEventType`) because
+the management API had to validate against it; M18.3 is where it is consumed.
+
+**Remaining M18 work.** M18.4 — `WebhookSigner`, the signature specification, and the cross-language
+test vectors (D136).
+
+#### M18.4 — `WebhookSigner`, the signature specification, and cross-language vectors ✅ (2026-07-25)
+
+**Summary.** The `PaymentFlow-Signature` header exists, is specified in prose next to the code that
+implements it, and is **proven interoperable by running two independent implementations** — not
+deferred to M22 as an assertion. Closes V1 known issue #2 (§2.11) at the algorithm level; M18.6 is
+where deliveries start carrying it.
+
+**Files created.** `service/WebhookSigner.java`;
+`src/test/resources/signature-vectors/webhook-signature-vectors.json` (5 vectors),
+`signature-vectors/verify.js`, `signature-vectors/verify.py`;
+`src/test/java/.../service/WebhookSignerTest.java`.
+
+**Files modified.** None.
+
+**The specification (frozen from here).**
+```
+PaymentFlow-Signature: t=1785758400,v1=<hex>[,v1=<hex>]
+
+  signed_payload = "{t}" + "." + "{raw request body}"
+  v1             = lowercase hex HMAC-SHA256(secret, signed_payload)
+  secret         = the endpoint's whsec_… value as UTF-8 bytes, prefix included
+```
+Receivers recompute over the bytes they received, compare in constant time, and **reject a `t` outside
+their tolerance window**. Multiple `v1` values may appear: during a rotation window a delivery is
+signed with both the current and the superseded secret, so a receiver that has switched and one that
+has not both verify. A verifier accepts if any candidate matches.
+
+**Design points.**
+- **The timestamp is inside the signed payload (D105), and that is the whole point.** A signature over
+  the body alone is replayable forever because nothing binds the message to a moment. Asserted
+  directly: a header 301 seconds old fails a 300-second tolerance, and *editing* `t` to move the
+  message back into the window also fails, because `t` is signed.
+- **Skew is absolute, not "too old".** A timestamp far in the future is equally evidence the header was
+  not produced by us for this delivery.
+- **`common-lib`'s `InternalContextSigner` is deliberately not reused.** It signs a fixed set of
+  pipe-delimited internal fields with a platform-wide secret for a service-to-service hop, and its
+  canonical string is an internal detail free to change. This signs an arbitrary body with a
+  per-endpoint secret and is a frozen, publicly documented, third-party-implemented contract. Sharing
+  an implementation would couple a changeable internal format to an unchangeable external one — the
+  same reasoning that keeps `WebhookEventType` from reusing payment-service's internal event names.
+  Recorded explicitly because "no duplicated code" would otherwise argue for merging them, and here
+  the duplication is the correct call.
+- **The `whsec_` prefix is part of the key and is not stripped.** "Strip the prefix before using it as
+  the HMAC key" is a plausible misreading that would silently produce a wrong signature for every
+  delivery, so the spec states it and a test asserts the two interpretations differ.
+- **Verification is non-short-circuiting** across candidate signatures — the loop does not break on a
+  match, so work done is independent of which (or whether a) signature matched.
+
+**D136 executed, not merely prepared.** The decision anticipated committing vectors and scripts for
+manual running. Both toolchains turned out to be present on this machine (`node v24.14.0`,
+`Python 3.14.3`), so the verification was actually performed and its output recorded:
+
+```
+=== Node ===                          === Python ===
+PASS  minimal_event                   PASS  minimal_event
+PASS  realistic_payment_authorized    PASS  realistic_payment_authorized
+PASS  unicode_body                    PASS  unicode_body
+PASS  empty_body                      PASS  empty_body
+PASS  rotated_secret_same_body        PASS  rotated_secret_same_body
+PASS  accepts … inside the window     PASS  accepts … inside the window
+PASS  rejects a replayed signature    PASS  rejects a replayed signature
+PASS  rejects the wrong secret        PASS  rejects the wrong secret
+PASS  rejects a tampered body         PASS  rejects a tampered body
+All vectors agree (Node). exit 0      All vectors agree (Python). exit 0
+```
+
+The vectors were **generated by the Python implementation first**, then the Java signer was asserted
+against them — deliberately that direction. Generating them from Java and checking Java reproduces them
+would prove only that the signer is deterministic; generating them independently and having Java agree
+is what makes the *specification* the thing under test. Both scripts are written from the prose spec
+rather than ported from the Java, for the same reason. Neither is wired into the Gradle build (D136):
+that would make `node` and `python` prerequisites for building a Java monorepo, to guard a constant
+that changes roughly never.
+
+**A vector chosen for a specific failure mode.** `unicode_body` (`café — 日本語 — ₹500`) exists because
+a platform that signs in the JVM's *default* charset agrees with itself perfectly and disagrees with
+every other language — a bug invisible to any single-language test suite and guaranteed to surface only
+once a real integrator sends a non-ASCII description. `empty_body` covers the `"{t}."` edge, where a
+naive implementation might omit the separator.
+
+**Tests.** 77 green in the module (7 new). `WebhookSignerTest`: every committed vector matches; the
+Unicode vector is called out separately; the header carries one `v1` per active secret and a dual
+header verifies under either; the tolerance window is enforced at ±300s and a moved timestamp fails;
+tampered bodies fail; six shapes of malformed header return `false` rather than throwing (a receiver
+handing us a garbage header must not be able to raise an exception on the delivery path); and the
+`whsec_` prefix is proven to be part of the key.
+
+**Decisions.** None new — D105 and D136 are applied here.
+
+**Remaining M18 work.** M18.5 — the SSRF guard and hardened HTTP client, which must exist before
+M18.6's executor makes its first call to a merchant-controlled URL.
+
+#### M18.5 — The SSRF guard (`EgressPolicy`) ✅ (2026-07-25)
+
+**Summary.** Webhook delivery is the only place this platform makes an outbound HTTP request to a
+destination a *merchant* chose, originating inside the VPC — so an unguarded delivery pipeline is a
+request-forgery primitive aimed at the platform's own network and, in AWS, at the instance-metadata
+service. `EgressPolicy` is checked immediately before every connect and returns the resolved addresses
+so the caller can pin the connection to exactly what was validated. Built before M18.6's executor
+exists, so no code path ever calls a merchant URL unguarded, not even briefly.
+
+**Files created.** `egress/EgressPolicy.java`, `egress/EgressDecision.java`;
+`src/test/java/.../egress/EgressPolicyTest.java`.
+
+**Files modified.** `config/WebhookProperties.java` (+`allowedHosts`, `connectTimeout`, `readTimeout`,
+`maxResponseBytes`), `config/WebhookClientConfig.java` (+`HostResolver` bean),
+`notification-service/application.yaml` (+the four properties, `allowed-hosts: []`).
+
+**What it refuses**, each entry independently justified in the class javadoc rather than as an
+undifferentiated block-list: non-HTTP(S) schemes; loopback; link-local (including
+`169.254.169.254`); RFC1918 private ranges and IPv6 unique-local `fc00::/7`; wildcard/any/multicast;
+carrier-grade NAT `100.64.0.0/10` and `0.0.0.0/8` — neither of which `java.net` classifies as site-local
+or any-local, so both would otherwise pass; **IPv4-mapped and IPv4-compatible IPv6** (`::ffff:127.0.0.1`);
+and embedded credentials.
+
+**Two properties that are the actual defence, not the list.**
+1. **Every resolved address is checked, not the first.** A hostile DNS record can answer with one public
+   and one private address, and which one comes first is the attacker's choice. `getAllByName`, and a
+   loop.
+2. **The decision carries the resolved addresses back.** Re-resolving the hostname at connect time
+   would reopen a DNS-rebinding window between check and request — the check would pass on the public
+   answer and the connection would land on the private one. M18.6 connects to what was validated.
+
+**`java.net`'s own predicates are not sufficient**, which is worth recording because it is the trap:
+`isLoopbackAddress()` and `isSiteLocalAddress()` both return `false` for `::ffff:127.0.0.1` and
+`::ffff:10.0.0.1`. An implementation built on those predicates alone looks thorough, passes a casual
+review, and is bypassable with a five-character prefix. `EgressPolicy` extracts the embedded IPv4
+address from a mapped/compatible IPv6 address and re-checks it on its own; `isSiteLocalAddress()` also
+covers only the deprecated `fec0::/10` for IPv6, so `fc00::/7` is matched explicitly.
+
+**The allow-list is the single deliberate exemption.** Empty by default and in every deployed
+environment; local compose and the integration suite populate it so `localhost` sinks are reachable.
+Exempting a named host is a visible, configured act — weakening `EgressPolicy` itself for local
+convenience would have weakened it in production too, and that is the shape this decision was
+deliberately avoiding.
+
+**Tests.** 109 green in the module (32 new). `EgressPolicyTest` is table-driven with **DNS injected**,
+which is what makes it exhaustive: a name resolving to a private address, or to one public *and* one
+private, is expressible without owning a domain or depending on the internet from a unit test. 16
+hostile URLs; 4 IPv6-wrapped IPv4 addresses; split-horizon DNS; 4 non-HTTP schemes; HTTPS enforcement;
+embedded credentials; unparseable/hostless/relative URLs; unresolvable hosts refused rather than
+attempted; the allow-list exempting exactly one host and nothing else; and the allow-list being empty
+by default.
+
+**Decisions.** None new.
+
+**Remaining M18 work.** M18.6 — fan-out, the delivery executor, and the cutover off V1's single-URL
+path. **Opens with a defect fix**: see D137 below.
+
+#### M18.6 — Fan-out, the hardened delivery executor, and the cutover ✅ (2026-07-25)
+
+**Summary.** The cutover. One canonical event now produces N deliveries — one per enabled, subscribed
+endpoint — each dispatched through `webhook.deliveries` (D134), signed, egress-checked, and recorded as
+a full delivery-log attempt. V1's `merchantWebhookUrl` delivery path is retired. Opens with the
+correction of a defect this milestone introduced in M18.2 (**D137**).
+
+**A defect found and fixed: `whsec_` secrets cannot be SHA-256 hashed.** §4.9 states that every secret
+the platform holds — `sk_`, `whsec_`, refresh tokens — is "stored only as SHA-256". M18.2 implemented
+that literally. It is correct for the other two, which the platform only ever *verifies* (hash what was
+presented, compare). It is **not implementable for a webhook signing secret**, because the platform must
+*use* it as an HMAC key on every delivery: a one-way digest can only produce signatures the merchant —
+who holds the original — could never reproduce. Every delivery would have carried an unverifiable
+signature, and the failure would have surfaced not as a test failure but as integrators reporting that
+verification "just doesn't work". Fixed as **D137**: encrypted at rest (AES-256-GCM) rather than
+hashed. Found while wiring the executor, i.e. at the first moment the secret was actually *used* rather
+than merely stored — which is exactly why the sub-milestone that uses a thing should not be far from the
+one that stores it.
+
+**Files created.** `crypto/WebhookSecretCipher.java`; `service/WebhookFanOutService.java`,
+`service/WebhookDeliveryExecutor.java`, `service/WebhookDeliveryProcessor.java`,
+`service/WebhookDispatcher.java`, `service/LegacyEndpointAdopter.java`;
+`listener/WebhookDeliveryListener.java`; migration `V5__webhook_delivery_fanout.sql`;
+`src/test/java/.../TestWebhookProperties.java`.
+
+**Files modified.** `domain/WebhookEndpoint.java` (secret columns become `*_encrypted`),
+`domain/WebhookDelivery.java` (+`webhookEventId`, `endpointId`, `nextAttemptAt`,
+`replayedFromDeliveryId`, `forEndpoint`/`replayOf` factories; `eventId`/`webhookUrl`/`payload` become
+nullable), `service/WebhookEndpointService.java` (encrypt instead of hash),
+`service/NotificationService.java` (**the cutover**), `config/KafkaTopicConfig.java` (+3 topics),
+`config/WebhookProperties.java`, `config/WebhookClientConfig.java`, `application.yaml`.
+Tests: `NotificationIntegrationTest` and `NotificationServiceTest` **rewritten**;
+`WebhookEndpointApiIntegrationTest`, `WebhookEndpointTest`, `WebhookSchemaIntegrationTest`,
+`EgressPolicyTest`, `WebhookEventFactoryTest` updated.
+
+**DB.** `V5__webhook_delivery_fanout.sql`: drops the two hash columns and adds
+`signing_secret_encrypted`/`previous_secret_encrypted` (no conversion is possible — a digest cannot be
+turned back into its input, so re-issuance is the only path; safe because the table has never existed in
+a deployed environment, and the migration says so rather than leaving it to be discovered);
+`webhook_deliveries` gains `webhook_event_id`, `endpoint_id`, `next_attempt_at`,
+`replayed_from_delivery_id`; `uq_webhook_deliveries_event_id` is **dropped** — one row per event is
+precisely what fan-out breaks — and replaced by a partial unique index on
+`(webhook_event_id, endpoint_id) where replayed_from_delivery_id is null`, partial because a replay is
+deliberately a second delivery of the same event to the same endpoint.
+
+**Kafka.** Three new topics (D106): `webhook.deliveries`, `.retry`, `.dlq`. Six partitions on the first
+two rather than three, because `WebhookDispatcher` keys by **endpoint id** — partitions are what let
+deliveries to different endpoints proceed in parallel while deliveries to one endpoint stay strictly
+ordered, so a merchant sees their own events in the order the platform produced them and one busy
+endpoint cannot reorder another's.
+
+**Design points.**
+- **D134 realised**: the `payment.events` consumer now writes rows and publishes, instead of making N
+  blocking HTTP calls on its own thread.
+- **The JDK `HttpClient`, not `RestClient`.** Redirect policy (`Redirect.NEVER`), per-request timeouts,
+  and reading the response through a *bounded* stream are all first-class there and awkward or
+  unavailable through `RestClient`. `BodyHandlers.ofString()` would buffer a hostile gigabyte response
+  before any cap could apply — the difference between refusing one and being defeated by one.
+- **Redirects are never followed.** A `302` to `169.254.169.254` is the standard way to walk straight
+  through an egress check that validated only the original URL; following them would make M18.5
+  decorative.
+- **The body is rendered and signed per attempt**, not snapshotted at fan-out. A retry therefore carries
+  a fresh timestamp and a fresh signature, which is what keeps the receiver's replay window meaningful
+  across a ~24-hour schedule.
+- **`TransactionTemplate`, not `@Transactional`, in `WebhookDeliveryProcessor`.** `process()` calls its
+  own read and write methods, and a self-invocation does not pass through the Spring proxy — the
+  annotations would have been silently inert and the "no network call inside a transaction" guarantee
+  would have been the opposite of what the code claimed. Caught while writing it; recorded because it is
+  the kind of defect that produces no symptom until a connection pool is exhausted under load.
+- **A disabled endpoint is skipped, not failed.** Disabling between fan-out and dispatch is the merchant
+  asking us to stop; counting it against the endpoint's failure streak would auto-disable something
+  already disabled and corrupt the signal M18.7 depends on.
+
+**D135's position moved from M18.9 to here, and that is the point.** M18.6 is the commit where fan-out
+replaces the legacy path. From it onward, a merchant who configured `merchants.webhook_url` and has not
+registered an endpoint receives **nothing** — silently, because "no subscribed endpoints" is a
+legitimate outcome indistinguishable from "not subscribed". Deferring adoption by three sub-milestones
+would have meant shipping a silent regression for every existing integration and then fixing it.
+`LegacyEndpointAdopter` runs immediately *before* fan-out, inside the same transaction, so the very
+event that triggers adoption is also delivered by it. The decision (D135) is unchanged; only its
+position moved, and the cutover is what created the need.
+
+**Tests.** 114 green in the module (12 changed/new, net).
+- `NotificationIntegrationTest` **rewritten** (12 cases, real Kafka + Postgres + JDK sinks): three
+  endpoints with different subscriptions receive exactly the right two (M18's own completion
+  criterion); **every delivery is signed and verified by recomputing over the received bytes with the
+  merchant's secret — and a wrong secret is asserted *not* to verify**, without which the first
+  assertion proves nothing; the delivered payload is the canonical `evt_` object and contains neither
+  `merchantContactEmail` nor the internal envelope; a test-mode event never reaches a live endpoint; a
+  disabled endpoint receives nothing; every attempt is logged with its real request headers, body,
+  status, and duration; a legacy URL is adopted on first event and subscribed `*`; a merchant with
+  registered endpoints is **never** augmented by the legacy column; redelivery duplicates nothing; a
+  non-merchant-facing internal type is emailed but never delivered; a malformed message does not kill
+  the consumer; and mode is recorded on the email, the event, and the delivery.
+- `NotificationServiceTest` **rewritten** (7): fan-out orchestration, including two ordering assertions
+  that matter — adoption strictly *before* fan-out, and dispatch strictly *after* the transaction
+  commits (a message published inside a transaction that then rolls back would point at a row that does
+  not exist).
+- `TestWebhookProperties` added because `WebhookProperties` grew a field in three consecutive
+  sub-milestones and each time broke every unrelated test that constructed one. Centralising it also
+  means no test carries a long list of values it does not care about — which is what was making the
+  values it *does* care about invisible.
+
+**Decisions.** **D137** (see §11).
+
+**Remaining M18 work.** M18.7 — the explicit retry schedule on `webhook.deliveries.retry`, dead-lettering,
+and endpoint auto-disable.
+
+#### M18.7 — The explicit retry schedule, dead-lettering, and auto-disable ✅ (2026-07-25)
+
+**Summary.** A failing delivery now walks a **published** schedule — 0s, 5s, 30s, 2m, 10m, 1h, 6h, 12h:
+eight attempts over ~19h12m — then dead-letters. An endpoint failing 20 consecutive times across
+distinct events is switched off and the merchant emailed. Two real defects were found by the
+integration test, one of them serious.
+
+**Files created.** `service/WebhookRetrySchedule.java`, `service/WebhookRetryRelay.java`; migration
+`V6__webhook_endpoint_contact_email.sql`; `service/WebhookRetryScheduleTest.java`,
+`WebhookRetryAndAutoDisableIntegrationTest.java`.
+
+**Files modified.** `service/WebhookDeliveryProcessor.java` (scheduling, dead-lettering, auto-disable),
+`domain/WebhookEndpoint.java` (+`contactEmail`), `repository/WebhookDeliveryRepository.java`
+(+`findDueForRetry`, +the M18.8 query methods), `service/WebhookEndpointService.java`,
+`service/LegacyEndpointAdopter.java`, `web/WebhookEndpointController.java`,
+`service/NotificationService.java`, `NotificationServiceApplication.java` (+`@EnableScheduling`),
+`application.yaml`.
+
+**A fixed table, not exponential backoff — deliberately unlike V1's D46.** Two merchant-facing reasons:
+the schedule is **published**, so an integrator can say when the next attempt lands and how long they
+have to fix an endpoint before it dead-letters, which is impossible to state honestly about a randomised
+backoff; and the intervals are chosen to cover the failure modes that actually happen (a blip, a deploy,
+a short outage, a long one) rather than to be a smooth curve. Jitter is absent for the same reason —
+deliveries are already spread across endpoints by the dispatcher's partition keying, and an unpredictable
+schedule is worth less than the thundering-herd protection jitter would buy at this scale. If M28
+measures a herd problem, jitter is a bounded addition to one class.
+
+**A polling relay, not a delayed message.** Kafka has no per-message delay. The alternatives were parking
+a consumer thread on a `sleep` (V1's approach — defensible for a 30-second backoff, untenable for a
+six-hour one: it would hold a partition assignment for hours and stall every other delivery on it) or a
+tier of delay topics per interval. Polling `next_attempt_at` is the same shape payment-service's
+`OutboxRelay` (D3) and sandbox-service's `ScheduledOutcomeRelay` (M17.6) already use here, and it
+survives a restart for free — a sleeping thread does not. It is also why `next_attempt_at` is a column:
+a delivery's next attempt has to be visible in the delivery log and durable across a deploy.
+
+**Two defects found by the integration test, not by review.**
+1. **The auto-disable notification was rolling back the delivery bookkeeping.** The email was sent
+   inside the same transaction that recorded the attempt and scheduled the retry, with a `null`
+   recipient — notification-service has no merchant lookup (D43) and nothing on the endpoint carried an
+   address. `email_log.recipient_email` is `NOT NULL`, so the insert failed, and **the whole transaction
+   rolled back with it**: the failed attempt and the scheduled retry were never persisted, so a dead
+   endpoint retried forever without ever advancing toward dead-lettering. Fixed in both halves — the
+   address is now stored on the endpoint (`V6`, sourced from the verified `MerchantContext` at
+   registration per D118, or the event payload at legacy adoption per D43, so still no new dependency),
+   and the notification is sent **after** the transaction commits. A notification is a side effect of a
+   state change, never a precondition for recording it.
+2. **`@Transactional` on self-invoked methods is inert** (carried over from M18.6 and corrected there):
+   `process()` calls its own read and write methods, which do not pass through the Spring proxy.
+   Replaced with the explicit `TransactionTemplate` this service already uses.
+
+**Two design corrections made while writing it.** An in-memory `alreadyNotified` set was drafted to
+avoid emailing on every attempt of an already-disabled endpoint — discarded, because it does not survive
+a restart and grows without bound. The transaction is the only place that can distinguish "this attempt
+disabled it" from "it was already disabled", so `record` returns both the result *and* whether it
+auto-disabled; the two are carried separately because they coincide (the attempt that exhausts the
+schedule can also be the one that crosses the threshold, and a single enum would silently drop one of the
+two notifications).
+
+**Tests.** 124 green in the module (10 new).
+- `WebhookRetryScheduleTest` (6, pure): the documented schedule is 8 attempts totalling 19h12m35s —
+  asserted, so the published promise and the code cannot drift; each completed attempt selects the next
+  delay in order; **the exhaustion boundary** (7 done → one retry left, 8 done → none), where an
+  off-by-one is the difference between 8 attempts and 9 or between dead-lettering a delivery still owed
+  a retry; an empty schedule (deliver once, never retry) is a legitimate configuration that must not
+  loop or index negatively; and impossible attempt counts return empty rather than throwing, so a
+  corrupted counter cannot take down a delivery worker.
+- `WebhookRetryAndAutoDisableIntegrationTest` (4, real Kafka + Postgres + an endpoint that 500s every
+  time): a dead endpoint walks the whole schedule and dead-letters with exactly 3 attempts numbered
+  1,2,3, all `FAILED_STATUS` with status 500, and **no lingering `next_attempt_at`** (which would have
+  the relay re-dispatching it forever); the endpoint is auto-disabled with the right reason and the
+  merchant is emailed; a disabled endpoint then **stops consuming the retry budget entirely** (the whole
+  point of auto-disable); and a success resets the streak, so a merely flaky endpoint is never disabled
+  as though it were dead.
+
+**Decisions.** None new.
+
+**Remaining M18 work.** M18.8 — the replay API, the delivery-log query API, and D131's
+`duplicate_webhooks`/`webhook_failure` enactment.
+
+#### M18.8 — Delivery-log query API, manual replay, and D131 enactment ✅ (2026-07-25)
+
+**Summary.** The half of the milestone that makes the other half debuggable. `GET /v1/webhook_deliveries`
+and `/{id}` return every attempt with its full request and response; `POST /{id}/replay` re-sends a past
+delivery as a distinct new one; and D131's two webhook-path simulation scenarios — defined and stored by
+sandbox-service since M17.5, enacted nowhere until now — finally do something.
+
+**Files created.** `dto/WebhookDeliveryResponse.java`, `dto/WebhookDeliveryAttemptResponse.java`;
+`mapper/WebhookDeliveryMapper.java`; `service/WebhookDeliveryQueryService.java`;
+`web/WebhookDeliveryController.java`; `sandbox/SandboxWebhookScenario.java`,
+`sandbox/SandboxScenarioClient.java`; `WebhookDeliveryLogAndReplayIntegrationTest.java`,
+`sandbox/SandboxScenarioClientTest.java`.
+
+**Files modified.** `service/WebhookDeliveryProcessor.java` (scenario enactment),
+`repository/WebhookDeliveryAttemptRepository.java` (+batch read), `application.yaml`,
+`gateway-service/application.yaml` (+route), `ApiKeyAuthenticationWebFilter.java` (scope extended to the
+new path).
+
+**API added.** `GET /v1/webhook_deliveries` (paginated, newest first), `GET /v1/webhook_deliveries/{id}`,
+`POST /v1/webhook_deliveries/{id}/replay` (201). All `webhooks:manage`, all merchant- and mode-scoped.
+
+**Offset pagination, deliberately — not cursors.** D107 introduces signed cursor pagination in **M19**,
+as one decision applied across every public list endpoint at once. Adopting a second convention here,
+one milestone early and for one resource, is precisely the drift M19 exists to prevent; §5/M19 also
+explicitly retains `PageResponse` for endpoints that predate it. Recorded because "the newest endpoint
+uses the older convention" looks like an oversight and is not.
+
+**Replay semantics.** A replay is a **new delivery** with its own attempts, pointing back through
+`replayed_from_delivery_id`; the original is never touched. That is load-bearing rather than tidy: a
+delivery log that mutates when you replay it cannot answer "what happened the first time", which is
+usually the question being asked. The event is re-rendered and re-signed at send time like any other
+attempt, so a replay carries a current timestamp and passes a receiver's tolerance window — a replay
+reproducing the original signature would be rejected by any correctly implemented receiver, which is
+exactly the check §9.4 instructs them to perform. Replaying into a **disabled** endpoint is refused with
+an actionable message rather than accepted: silently accepting would create a delivery the processor
+skips forever, leaving a `PENDING` row that never resolves and no explanation anywhere.
+
+**D131 enacted, and built to be ignorable.** `SandboxScenarioClient` reads the merchant's active
+override from sandbox-service — notification-service's **only** synchronous dependency on another
+service. Every failure mode (unreachable, slow, 404, 500, malformed, null scenario, empty body) resolves
+to `Optional.empty()`, meaning "behave normally", and **live mode never makes the call at all** — not
+because the override would be rejected, but because a live delivery must not depend on sandbox-service
+being reachable even to be told no. A simulation feature able to break a real delivery by being
+unavailable would be worse than no simulation feature, and would invert D103's whole point about sandbox
+being advisory. The two scenarios:
+- `duplicate_webhooks` sends a genuine second request with its own signature and its own logged attempt.
+  Logging it matters: a duplicate the merchant cannot see is indistinguishable from a platform bug, and
+  the point of the scenario is for them to prove their consumer is idempotent on `event.id` (§8.3).
+- `webhook_failure` overrides the recorded outcome **after** the real call, not instead of it. The
+  endpoint still receives the delivery; what the developer is exercising is this platform's retry
+  schedule and their own alerting — not their endpoint's ability to return an error, which they can
+  already test by returning one.
+
+The enum is a local two-value copy rather than an import of sandbox's eight-value `SimulationScenario`:
+D4's schema-per-service rule applies to an enum crossing a service boundary exactly as it does to an
+event payload, and the other six scenarios are none of this service's business.
+
+**Tests.** 141 green in the module (17 new).
+- `WebhookDeliveryLogAndReplayIntegrationTest` (10, real HTTP + Postgres): the log returns full request
+  and response per attempt including the signature header we sent (a signature is not a secret, and
+  comparing it is the entire debugging loop for a verification failure); merchant and mode scoping on
+  both the list and the single read; **replay creates a new delivery and the original is byte-for-byte
+  unchanged**, with both then visible as distinct rows; replay is permitted even when the original
+  succeeded (a merchant whose consumer crashed after 200-ing needs exactly that); replay into a disabled
+  endpoint is refused with a message naming the fix; replaying another merchant's delivery is 404; a
+  pre-fan-out V1 row cannot be replayed; pagination and ordering; and an unsigned request is 401.
+- `SandboxScenarioClientTest` (7, real HTTP stub): both scenarios parse; the request carries the signed
+  internal context; an engine-only scenario is ignored; **live mode makes zero calls** (asserted on the
+  call counter, not just the return value); all five server-side failure modes resolve to empty; an
+  unreachable sandbox resolves to empty; and disabling the integration skips the call entirely.
+
+**Decisions.** None new — D131 is enacted here, D107 is deferred to M19 here.
+
+**Remaining M18 work.** M18.9 — the merchant-facing webhook guide (§9.4), the signature specification as
+published documentation, full docker-compose E2E, regression verification, and milestone closure.
+
+#### M18.9 — The webhook guide, live E2E validation, and M18 closure ✅ (2026-07-25)
+
+**Summary.** The merchant-facing guide (§9.4) is written and kept honest by a test; the whole subsystem
+is validated on a live docker-compose stack against real signature-verifying receivers; the full suite is
+re-executed across every module.
+
+**Files created.** `notification-service/docs/WEBHOOKS.md`; `WebhookDocumentationConsistencyTest.java`.
+**Files modified.** `docker-compose.yml` (webhook env for notification-service, `extra_hosts` for
+host-machine sinks), `.env.example` (+`WEBHOOK_SECRET_ENCRYPTION_KEY` with its rotation warning),
+`application.yaml` (retry schedule → explicit YAML sequence).
+
+**The guide is tested, not just written.** `WebhookDocumentationConsistencyTest` asserts the published
+numbers against the **running configuration**: the 8-attempt schedule and every interval in its table,
+the 19h12m35s total, the 20-failure auto-disable threshold, the 48h rotation window, the 5s timeout, the
+8 KB response cap, the 16-endpoint limit, the signature specification's exact wording, and — the one most
+likely to rot — that **every value of `WebhookEventType` appears in the guide**, since adding an event
+type is a one-line change and the guide is the only place a merchant can learn the name exists. R10 calls
+documentation drift fatal for a developer platform and D115 answers it by executing samples in CI; this
+is the same discipline applied to the part available now.
+
+**A real configuration bug the doc test caught.** `retry-schedule: 5s,30s,2m,10m,1h,6h,12h` as a
+comma-separated YAML scalar did **not** bind to a 7-element `List<Duration>` — `maxAttempts()` came back
+wrong, meaning the platform would have retried once instead of seven times while the guide promised
+eight. Nothing else would have noticed: the integration tests override the schedule with their own short
+values, so they were exercising a correctly-bound list the whole time and the *default* was the broken
+one. Fixed by using an explicit YAML sequence. This is the clearest argument in the milestone for
+asserting documentation against live configuration rather than against literals.
+
+**Live E2E on the running stack.** Images rebuilt, all six migrations applied against the **populated**
+database (V1–V6 `success = t`), containers healthy. Driven over the real gateway with a freshly
+registered user, merchant, and the merchant's own onboarding-issued keys — no test-only bypass. The
+receivers were three Node HTTP sinks written from `docs/WEBHOOKS.md` alone, each holding only its own
+`whsec_`, recomputing the HMAC over the raw body and enforcing the 300s window — the same check a
+merchant would write.
+
+- **Fan-out by subscription** — endpoints subscribed to `payment.authorized`, `*`, and
+  `payment.refunded`. The first received 1 event, the second received 2 (`payment.created` +
+  `payment.authorized`), the third received **0**. Exactly the milestone's first completion criterion.
+- **Signature verified by third-party code** — every delivery reported `verified: true` from the Node
+  sinks, with `PaymentFlow-Event-Id` matching the body's `evt_`.
+- **SSRF** — `http://169.254.169.254/latest/meta-data` registered successfully (scheme and credentials
+  are all registration validates) and was then refused **at the connect boundary**, recorded as
+  `BLOCKED` with "The destination resolves to a blocked address range." Distinct from a transport
+  failure, as designed.
+- **Delivery log** — `GET /v1/webhook_deliveries` returned each delivery with its attempts, outcome,
+  response status, and duration.
+- **Replay** — `POST /{id}/replay` → 201 with a new delivery id and `replayedFromDeliveryId` pointing at
+  the original; re-reading the original showed `attemptCount` unchanged and `replayedFromDeliveryId`
+  null. The original really is untouched.
+- **Dual-secret rotation, proven on the wire** — after `rotate_secret`, the next delivery's header
+  carried **two** `v1` values (confirmed in `webhook_delivery_attempts.request_headers`), and a receiver
+  still holding the **rotated-out** secret verified it successfully. A receiver mid-rollout keeps working,
+  which is the entire purpose of the window.
+- **Mode isolation** — the live key saw **0** endpoints where the test key saw 4, and a cross-mode read
+  of a real test endpoint id returned **404**, not 403 (D102).
+- **Scope enforcement** — a `pk_test_` key (`payments:read`) on `/v1/webhook_endpoints` → **403**.
+- **Secrets at rest** — `select count(*) … where signing_secret_encrypted like 'whsec_%'` returned **0**:
+  no row holds a plaintext secret.
+- **A false alarm worth recording**: the rotation check initially reported one signature, which looked
+  like rotation failing. It was the test reading the sink before the post-rotation delivery arrived —
+  the entry it saw was a pre-rotation one. Confirmed against `webhook_delivery_attempts` directly, which
+  is why that table exists. Verified, not assumed, in both directions.
+
+**Regression verification.** `.\gradlew.bat build --rerun-tasks --no-parallel --max-workers=1` —
+**BUILD SUCCESSFUL in 1h 17m**, with every module's suite genuinely re-executed rather than restored
+from the build cache (the trap M18.1 recorded). Aggregated from each module's JUnit XML rather than the
+task summary: **482 tests, 0 failures, 0 errors** across all 11 test-bearing modules — notification 149,
+payment 101, sandbox 78, gateway 31, merchant 24, common-lib 22, transaction 20, analytics 19,
+common-dto 17, identity 12, audit 9. Serial and `--no-parallel` deliberately, per M18.1's own
+environment note about Docker contention.
+
+**M18 status: complete.** All nine sub-milestones implemented, verified independently, and validated
+together on a live stack. V1 known issue #2 is closed. Four defects were found and fixed during the
+milestone (D137's unhashable secret, the auto-disable notification rolling back delivery bookkeeping,
+inert `@Transactional` on self-invocation, and the unbound retry schedule), three of which would have
+been invisible until a merchant reported them.
 
 ---
 

@@ -1,0 +1,20 @@
+-- M18.7: an endpoint records the address to notify when the platform disables it.
+--
+-- Found by a failing integration test, not by review: the auto-disable notification was
+-- written with a null recipient, because notification-service has no merchant lookup
+-- (D43 — it never calls merchant-service) and nothing on the endpoint carried one.
+-- email_log.recipient_email is NOT NULL, so the insert failed, and because that insert
+-- sat inside the same transaction as the delivery bookkeeping, the failure rolled back
+-- the recorded attempt and the scheduled retry too. A dead endpoint therefore retried
+-- forever without ever advancing. Both halves are fixed: the address is stored here, and
+-- the notification is sent outside the bookkeeping transaction (see
+-- WebhookDeliveryProcessor).
+--
+-- The address is available at both creation points without any new dependency: the
+-- verified MerchantContext carries contactEmail on the API-key path (D118), and the
+-- payment event payload carries merchantContactEmail for a legacy adoption (D43).
+--
+-- Nullable, because neither source is guaranteed: a context without a contact email is
+-- valid, and an endpoint with no address simply gets no auto-disable email rather than
+-- blocking the disable itself.
+alter table webhook_endpoints add column contact_email varchar(255);

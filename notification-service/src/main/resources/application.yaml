@@ -46,11 +46,80 @@ paymentflow:
     identity-events-topic: identity.events
     identity-events-group-id: notification-service-identity.events
   internal-context:
-    # Every servlet service hosts common-lib's InternalContextFilter (SERVLET-
-    # conditional autoconfig, M15) — harmless here: nothing routes /v1/** to
-    # notification-service, so the filter always no-ops (D100/D118).
+    # M18.2: no longer inert. The gateway now routes /v1/webhook_endpoints/** here, so
+    # InternalContextFilter is this service's actual (and only) authentication mechanism
+    # — wired into the Spring Security chain by SecurityConfig per D124, not merely
+    # present on the classpath as it was from M15 through M18.1.
     secret: ${PAYMENTFLOW_INTERNAL_CONTEXT_SECRET:dev-only-insecure-shared-secret-change-me}
     max-clock-skew-seconds: 30
+  webhooks:
+    # Pinned onto every endpoint at registration. One value until M21's date-based
+    # versioning (D108) gives the field more than documentary meaning.
+    api-version: "2026-08-01"
+    # §4.5's dual-secret window: long enough that a merchant can deploy a new secret
+    # across their fleet unhurried, and comfortably longer than the ~24h the retry
+    # schedule (M18.7) can keep a delivery in flight — so nothing signed with the old
+    # secret can outlive its own grace period.
+    secret-rotation-grace-period: 48h
+    # HTTPS-only in production (§4.5). Overridden to false in the test/local profiles
+    # only, because every sink this repository can run locally is http://localhost — a
+    # documented exception rather than a silently weakened rule.
+    require-https: true
+    # Fan-out cost is linear in this per event; bounded at registration rather than
+    # discovered as a throughput problem under load.
+    max-endpoints-per-mode: 16
+    # M18.5 — SSRF guard (§4.9/R5). Empty in every deployed environment: webhook delivery
+    # is the one outbound request this platform makes to a destination a *merchant* chose,
+    # from inside the VPC, so loopback/link-local/private/CGNAT ranges are all refused.
+    # docker-compose and the test suite override this with their own local sinks; nothing
+    # is exempt by default.
+    allowed-hosts: []
+    connect-timeout: 3s
+    read-timeout: 5s
+    # A hostile endpoint streaming gigabytes must not be able to exhaust memory or fill
+    # webhook_delivery_attempts through us.
+    max-response-bytes: 8192
+    # M18.6 (D137): AES-256-GCM key material for signing secrets at rest. A whsec_ secret
+    # cannot be hashed like an sk_ key — the platform must *use* it as an HMAC key — so it
+    # is encrypted instead. Same env-var-now/Secrets-Manager-later handling as the
+    # internal-context secret (D18/D73), and the same known issue: this local default is
+    # deliberately insecure and M29 owns replacing it.
+    secret-encryption-key: ${PAYMENTFLOW_WEBHOOK_SECRET_ENCRYPTION_KEY:dev-only-insecure-webhook-secret-key-change-me}
+    # The bound on concurrent outbound deliveries — the shared pool one merchant's slow
+    # endpoint must not be able to consume. Also the delivery listener's concurrency, so
+    # it cannot outrun the pool it feeds. Matches webhook.deliveries' partition count.
+    max-concurrent-deliveries: 6
+    delivery-group-id: notification-service-webhook.deliveries
+    # M18.7 (§4.5): the explicit schedule — 8 attempts over ~24h. The first attempt is
+    # immediate; these are the delays before each subsequent one.
+    # An explicit YAML sequence, not a comma-separated scalar: the scalar form binds to
+    # List<Duration> in some Spring configurations and to a single element in others, and
+    # a schedule that silently becomes one entry means one retry instead of seven. Caught
+    # by the documentation-consistency test, which asserts maxAttempts() == 8.
+    retry-schedule:
+      - 5s
+      - 30s
+      - 2m
+      - 10m
+      - 1h
+      - 6h
+      - 12h
+    # How often WebhookRetryRelay sweeps for due retries. Mirrors payment-service's
+    # paymentflow.outbox.relay-interval-ms in spirit; 1s keeps the observable slip between
+    # a scheduled attempt and its dispatch small relative to the shortest interval above.
+    retry-relay-interval-ms: 1000
+    # Consecutive failures across distinct events before an endpoint is switched off and
+    # the merchant emailed. High enough that a bad afternoon does not disable a working
+    # endpoint; low enough that a week-dead one stops consuming the retry budget.
+    auto-disable-after-consecutive-failures: 20
+    sandbox:
+      # M18.8/D131: enacting duplicate_webhooks and webhook_failure requires reading the
+      # merchant's active override from sandbox-service — notification-service's only
+      # synchronous dependency on another service, and deliberately an ignorable one.
+      # Every failure resolves to "behave normally"; only test-mode deliveries ever call.
+      base-uri: http://localhost:8094
+      timeout: 1s
+      enabled: true
   notification:
     retry-topic: payment.events.retry
     retry-group-id: notification-service-payment.events.retry

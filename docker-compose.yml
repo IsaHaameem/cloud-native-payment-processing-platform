@@ -209,7 +209,26 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-paymentflow}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
+      # M18.2: local-compose only. §4.5 requires HTTPS webhook endpoints and the
+      # application default is `true`; every webhook sink reachable from this stack is a
+      # plain-HTTP container or host process, so registration would be impossible to
+      # demonstrate locally. Deliberately NOT set in any deployed environment — M29's
+      # task definitions must leave the secure default in place.
+      PAYMENTFLOW_WEBHOOKS_REQUIRE_HTTPS: "false"
+      # M18.5 — local-compose only, for the same reason as the line above: every webhook
+      # sink reachable from this stack is a container or a host process on a private
+      # address, which the SSRF guard refuses by default and must keep refusing in any
+      # deployed environment. host.docker.internal is how a container reaches a sink the
+      # developer runs on their own machine.
+      PAYMENTFLOW_WEBHOOKS_ALLOWED_HOSTS: host.docker.internal,localhost,webhook-sink
+      # M18.8/D131 — where notification-service reads a merchant's active simulation
+      # override from, to enact duplicate_webhooks/webhook_failure.
+      PAYMENTFLOW_WEBHOOKS_SANDBOX_BASE_URI: http://sandbox-service:8094
+      PAYMENTFLOW_WEBHOOK_SECRET_ENCRYPTION_KEY: ${WEBHOOK_SECRET_ENCRYPTION_KEY:-dev-only-insecure-webhook-secret-key-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+    extra_hosts:
+      # Lets the container reach a webhook sink running on the developer's machine.
+      - "host.docker.internal:host-gateway"
     ports:
       - "8092:8092"
     depends_on:
@@ -293,6 +312,7 @@ services:
       PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI: http://merchant-service:8082
       PAYMENTFLOW_SERVICES_PAYMENT_BASE_URI: http://payment-service:8083
       PAYMENTFLOW_SERVICES_SANDBOX_BASE_URI: http://sandbox-service:8094
+      PAYMENTFLOW_SERVICES_NOTIFICATION_BASE_URI: http://notification-service:8092
       PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:

@@ -33,8 +33,29 @@ public class WebhookDelivery {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
-    @Column(name = "event_id", nullable = false, updatable = false, unique = true)
+    // V1's key: the internal Kafka event id, one row per event. Nullable from M18.6 —
+    // fan-out rows are keyed by (webhookEventId, endpointId) instead. Retained, not
+    // dropped: existing rows are a real delivery history (§13-Q9's reasoning).
+    @Column(name = "event_id", updatable = false)
     private UUID eventId;
+
+    // M18.6: the canonical event and the endpoint this row delivers it to. One event
+    // produces as many of these as are subscribed.
+    @Column(name = "webhook_event_id", updatable = false)
+    private UUID webhookEventId;
+
+    @Column(name = "endpoint_id", updatable = false)
+    private UUID endpointId;
+
+    // When the next retry is due (M18.7's explicit schedule). Null means no further
+    // attempt is scheduled — either resolved, or awaiting its immediate first dispatch.
+    @Column(name = "next_attempt_at")
+    private Instant nextAttemptAt;
+
+    // A replay (M18.8) is a new delivery pointing back at the one it re-sends, so the
+    // original's history stays exactly what happened the first time.
+    @Column(name = "replayed_from_delivery_id", updatable = false)
+    private UUID replayedFromDeliveryId;
 
     @Column(name = "merchant_id", nullable = false, updatable = false)
     private UUID merchantId;
@@ -47,11 +68,14 @@ public class WebhookDelivery {
     @Column(updatable = false, length = 4)
     private String mode;
 
-    @Column(name = "webhook_url", nullable = false, updatable = false, length = 2048)
+    @Column(name = "webhook_url", updatable = false, length = 2048)
     private String webhookUrl;
 
+    // V1 stored the internal envelope here. From M18.6 the body is rendered from the
+    // canonical event at send time (so a retry re-signs with a fresh timestamp), leaving
+    // this null on fan-out rows.
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "payload", nullable = false, updatable = false, columnDefinition = "jsonb")
+    @Column(name = "payload", updatable = false, columnDefinition = "jsonb")
     private String payload;
 
     @Enumerated(EnumType.STRING)
@@ -93,9 +117,42 @@ public class WebhookDelivery {
         return new WebhookDelivery(eventId, merchantId, mode, webhookUrl, payload);
     }
 
+    /**
+     * A fan-out delivery of one canonical event to one endpoint (M18.6). The URL is
+     * snapshotted from the endpoint at creation so the delivery log records where the
+     * attempt was actually sent, even if the endpoint is later deleted; the body is
+     * <em>not</em> snapshotted, because every attempt re-renders and re-signs it with a
+     * fresh timestamp.
+     */
+    public static WebhookDelivery forEndpoint(UUID webhookEventId, UUID endpointId, UUID merchantId, String mode,
+                                              String webhookUrl) {
+        WebhookDelivery delivery = new WebhookDelivery(null, merchantId, mode, webhookUrl, null);
+        delivery.webhookEventId = webhookEventId;
+        delivery.endpointId = endpointId;
+        return delivery;
+    }
+
+    /**
+     * A replay of an existing delivery (M18.8) — a new row with its own attempts,
+     * pointing back at the original, which is left exactly as it was.
+     */
+    public static WebhookDelivery replayOf(WebhookDelivery original, String webhookUrl) {
+        WebhookDelivery replay = new WebhookDelivery(null, original.merchantId, original.mode, webhookUrl, null);
+        replay.webhookEventId = original.webhookEventId;
+        replay.endpointId = original.endpointId;
+        replay.replayedFromDeliveryId = original.id;
+        return replay;
+    }
+
+    /** Schedules the next attempt, or clears the schedule when {@code at} is null. */
+    public void scheduleNextAttemptAt(Instant at) {
+        this.nextAttemptAt = at;
+    }
+
     public void markDelivered() {
         this.status = DeliveryStatus.DELIVERED;
         this.lastAttemptedAt = Instant.now();
+        this.nextAttemptAt = null;
     }
 
     public void recordFailedAttempt() {
@@ -105,6 +162,7 @@ public class WebhookDelivery {
 
     public void markDeadLettered() {
         this.status = DeliveryStatus.DEAD_LETTERED;
+        this.nextAttemptAt = null;
     }
 
     public UUID getId() {
@@ -113,6 +171,22 @@ public class WebhookDelivery {
 
     public UUID getEventId() {
         return eventId;
+    }
+
+    public UUID getWebhookEventId() {
+        return webhookEventId;
+    }
+
+    public UUID getEndpointId() {
+        return endpointId;
+    }
+
+    public Instant getNextAttemptAt() {
+        return nextAttemptAt;
+    }
+
+    public UUID getReplayedFromDeliveryId() {
+        return replayedFromDeliveryId;
     }
 
     public UUID getMerchantId() {

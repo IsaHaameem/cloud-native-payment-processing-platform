@@ -87,6 +87,28 @@ spring:
               uri: ${paymentflow.services.sandbox.base-uri}
               predicates:
                 - Path=/v1/test/cards/**
+            # M18.2: the webhook-endpoint management API — the first public route to
+            # notification-service, which had no HTTP surface at all before this
+            # milestone. Direct passthrough, like the sandbox routes above (there is no
+            # /api/v1 controller to rewrite onto: the dashboard mirror is deferred to
+            # M23, D133). Mode is bound to the key via the signed internal context, so
+            # any client-supplied X-PF-Mode is stripped here exactly as on /v1/payments
+            # — a test key can never manage a live endpoint.
+            - id: notification-service-webhook-endpoints
+              uri: ${paymentflow.services.notification.base-uri}
+              predicates:
+                - Path=/v1/webhook_endpoints/**
+              filters:
+                - RemoveRequestHeader=X-PF-Mode
+            # M18.8: the delivery log and manual replay. Its own route entry rather than a
+            # broadened predicate above, matching the M17.5/M17.8 precedent — one route per
+            # resource keeps "what is publicly reachable" answerable by reading the list.
+            - id: notification-service-webhook-deliveries
+              uri: ${paymentflow.services.notification.base-uri}
+              predicates:
+                - Path=/v1/webhook_deliveries/**
+              filters:
+                - RemoveRequestHeader=X-PF-Mode
           # V1 known issue #7 (M15 fix, D-noted): the gateway now sits behind an ALB in
           # AWS, so X-Forwarded-* must be honored for scheme-dependent behavior (HSTS
           # etc.) to see the real, not the internal-hop, scheme. Trusts only the ALB/
@@ -115,6 +137,8 @@ paymentflow:
       base-uri: http://localhost:8083
     sandbox:
       base-uri: http://localhost:8094
+    notification:
+      base-uri: http://localhost:8092
   gateway:
     cors:
       allowed-origins: http://localhost:3000

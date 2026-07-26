@@ -1,0 +1,47 @@
+{
+  "description": "PaymentFlow webhook signature test vectors (M18.4). signed_payload = \"{timestamp}.{body}\"; v1 = lowercase hex HMAC-SHA256(secret, signed_payload); the whsec_ prefix is part of the key and is NOT stripped. Secrets here are fabricated for testing and are not valid credentials.",
+  "algorithm": "HMAC-SHA256",
+  "header": "PaymentFlow-Signature: t={timestamp},v1={signature}",
+  "vectors": [
+    {
+      "name": "minimal_event",
+      "secret": "whsec_TestVectorSecretDoNotUseInProduction",
+      "timestamp": 1785758400,
+      "body": "{\"id\":\"evt_0000000000000000000000000000\",\"object\":\"event\"}",
+      "signedPayload": "1785758400.{\"id\":\"evt_0000000000000000000000000000\",\"object\":\"event\"}",
+      "expectedV1": "a5de8dd2a3c9efd40a8178650153e8265fcea095405cfe5ec2ec13e290d338a3"
+    },
+    {
+      "name": "realistic_payment_authorized",
+      "secret": "whsec_TestVectorSecretDoNotUseInProduction",
+      "timestamp": 1785758400,
+      "body": "{\"id\":\"evt_3f2504e04f8941d39a0c0305e82c3301\",\"object\":\"event\",\"type\":\"payment.authorized\",\"apiVersion\":\"2026-08-01\",\"created\":\"2026-08-01T12:00:00Z\",\"mode\":\"test\",\"data\":{\"object\":{\"id\":\"a1b2c3d4-0000-4000-8000-000000000001\",\"object\":\"payment\",\"merchantId\":\"a1b2c3d4-0000-4000-8000-000000000002\",\"amountMinor\":5000,\"currency\":\"USD\",\"status\":\"AUTHORIZED\",\"previousStatus\":\"CREATED\",\"eventAmountMinor\":5000,\"mode\":\"test\"}}}",
+      "signedPayload": "1785758400.{\"id\":\"evt_3f2504e04f8941d39a0c0305e82c3301\",\"object\":\"event\",\"type\":\"payment.authorized\",\"apiVersion\":\"2026-08-01\",\"created\":\"2026-08-01T12:00:00Z\",\"mode\":\"test\",\"data\":{\"object\":{\"id\":\"a1b2c3d4-0000-4000-8000-000000000001\",\"object\":\"payment\",\"merchantId\":\"a1b2c3d4-0000-4000-8000-000000000002\",\"amountMinor\":5000,\"currency\":\"USD\",\"status\":\"AUTHORIZED\",\"previousStatus\":\"CREATED\",\"eventAmountMinor\":5000,\"mode\":\"test\"}}}",
+      "expectedV1": "f680decb0d6517ae4b37d3a6946be4a3783d57baf0cfe658b2c5082f85598aa9"
+    },
+    {
+      "name": "unicode_body",
+      "secret": "whsec_TestVectorSecretDoNotUseInProduction",
+      "timestamp": 1785758400,
+      "body": "{\"description\":\"café — 日本語 — ₹500\"}",
+      "signedPayload": "1785758400.{\"description\":\"café — 日本語 — ₹500\"}",
+      "expectedV1": "1f1c129b5f81bddc7ae84c18eee03484795c008d56863acc7cca5760542862b9"
+    },
+    {
+      "name": "empty_body",
+      "secret": "whsec_TestVectorSecretDoNotUseInProduction",
+      "timestamp": 1785758400,
+      "body": "",
+      "signedPayload": "1785758400.",
+      "expectedV1": "4ba10b0f8feb1590a7aae195632a39547736559d0092cbacf32684c4ecd4d891"
+    },
+    {
+      "name": "rotated_secret_same_body",
+      "secret": "whsec_RotatedTestVectorSecretAlsoNotReal",
+      "timestamp": 1785758400,
+      "body": "{\"id\":\"evt_0000000000000000000000000000\",\"object\":\"event\"}",
+      "signedPayload": "1785758400.{\"id\":\"evt_0000000000000000000000000000\",\"object\":\"event\"}",
+      "expectedV1": "04251619905d4677bb33aeb7d121e4af570b63b2f8b4a292018dbb05876883cc"
+    }
+  ]
+}

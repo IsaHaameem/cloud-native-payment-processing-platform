@@ -4,12 +4,18 @@
  * webhook delivery failures (D10's "declared explicitly, no auto-create" policy,
  * extended to a producer of its own topics for the first time in this platform).
  *
- * Deliberately no REST API, no Spring Security, no OpenFeign (same scope discipline as
- * transaction-service/audit-service, D42): its only inbound interface is Kafka. Outbound
- * webhook delivery uses Spring Web's RestClient (already pulled by
- * spring-boot-starter-web) rather than OpenFeign — OpenFeign is for typed internal
- * clients to known services (D32's MerchantClient); this is one HTTP POST to an
- * arbitrary, merchant-configured external URL, which RestClient models directly.
+ * Outbound webhook delivery uses Spring Web's RestClient rather than OpenFeign —
+ * OpenFeign is for typed internal clients to known services (D32's MerchantClient); this
+ * is an HTTP POST to an arbitrary, merchant-configured external URL, which RestClient
+ * models directly.
+ *
+ * M18.2 ends this service's "Kafka is my only inbound interface" era (D42's scope
+ * discipline, correct while no caller existed): the webhook-endpoint management API
+ * (§4.5) is a real, key-authenticated public surface, so Spring Security arrives — but
+ * *only* for common-lib's InternalContextFilter (D100), exactly as sandbox-service does
+ * (M17.2). There is deliberately no spring-boot-starter-oauth2-resource-server: this
+ * service never accepts a JWT, because the /api/v1 dashboard mirror is deferred to M23
+ * (D133).
  */
 plugins {
     id("paymentflow.java-conventions")
@@ -21,6 +27,10 @@ dependencies {
     implementation(project(":common-lib"))
 
     implementation("org.springframework.boot:spring-boot-starter-web")
+    // M18.2: solely to host common-lib's InternalContextFilter (D100) on the webhook
+    // management API — no OAuth2 resource server, since this service never sees a JWT
+    // (D133). Mirrors sandbox-service's identical, deliberately minimal security setup.
+    implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
@@ -34,6 +44,7 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-webmvc-test")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.springframework.kafka:spring-kafka-test")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
