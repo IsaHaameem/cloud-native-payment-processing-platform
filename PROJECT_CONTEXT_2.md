@@ -6061,12 +6061,27 @@ usage getting an empty report rather than a 404; and both window bounds rejected
 ##### The load proof (§5/M20's "most worth proving by experiment")
 
 With the broker **wedged** — accepting the connection and never responding, the worst realistic case —
-**4,000 requests across 16 threads**: every one completed, **mean added latency 1.4 ms, p99 7.9 ms**,
-**2,999 events dropped and counted**, **zero failures**.
+4,000 requests across a thread pool scaled to the machine: every one completed, events were dropped and
+counted, **zero failures**, and the request path was **not slowed at all**.
 
-That is a stronger claim than M20.2's unit test, and deliberately so: a design can drop correctly and
-still serialise every caller on a lock while doing it. The p99 assertion is what a blocking regression —
-a lock, a synchronous send, an unbounded queue growing into GC pressure — would break.
+Measured on a 16-core machine, three runs of the identical harness:
+
+| Run | mean | p99 | max |
+|---|---|---|---|
+| Harness floor (logging off) | 2 µs | 5 µs | 5.1 ms |
+| Logging on, **healthy** broker | 114 µs | 1,184 µs | 61.0 ms |
+| Logging on, **wedged** broker | **33 µs** | **275 µs** | 8.5 ms |
+
+**A wedged broker is measurably *cheaper* than a healthy one**, which is the design working rather than
+an anomaly: when the buffer is full, `offer` fails immediately and the drain thread is parked, so the
+request path neither queues nor contends. Backpressure degrades to a cheap drop, not to a wait. That is
+D109's guarantee demonstrated as an inequality rather than asserted in prose.
+
+This is a stronger claim than M20.2's unit test, and deliberately so: a design can drop correctly and
+still serialise every caller on a lock while doing it. **The assertion compares the wedged run against
+the healthy run**, so a blocking regression — a synchronous send, a lock convoy, an unbounded queue
+growing into GC pressure — diverges by orders of magnitude on any machine, while scheduling noise
+cancels out because both runs pay it equally. See the CI defect below for why it is written that way.
 
 ##### The live docker-compose E2E — 45 checks, 0 failures
 
@@ -6127,6 +6142,45 @@ reason; and the cross-merchant and cross-mode isolation checks originally passed
 log was empty — asserting absence proves nothing when everything is absent. A non-emptiness guard now
 precedes them.
 
+##### Defect found by CI after M20 was committed: the load proof measured the machine, not the code
+
+GitHub Actions failed `:gateway-service:test` on the M20 commit —
+`ApiRequestLoggingLoadTest`, `expected p99 < 50 ms, actual 64.146 ms` — while the same commit was green
+locally. **The implementation was never at fault; the measurement was.** Three flaws, all mine:
+
+1. **Thread oversubscription.** The pool was a hardcoded **16 threads**. This machine has 16 cores;
+   GitHub's runners have **2**. At 8:1 oversubscription every timed window included the time its thread
+   spent *descheduled waiting for a CPU* — scheduler latency, attributed to the filter.
+2. **No warmup.** p99 over 4,000 samples is the 40 slowest, which is exactly where JIT-compilation
+   outliers sit. On 2 cores compilation competes with the load threads, so that tail grows instead of
+   amortising.
+3. **Harness work inside the timed region.** The exchange — two `UUID.randomUUID()` calls plus a mock
+   request and response — was constructed *after* the clock started.
+
+The arithmetic is what settles it: the filter's per-request work is a handful of small regex evaluations
+and one non-blocking `offer`. 64 ms is three orders of magnitude more than that can account for. Removing
+the three flaws, on unchanged production code, took the same measurement from **7,896 µs to 275 µs p99 —
+a 28× reduction from methodology alone.**
+
+**The fix changes no production code and weakens no assertion.** The test now warms up, times only the
+filter call, scales its pool to `availableProcessors`, and — the substantive change — asserts against a
+**healthy-broker control run** instead of a wall-clock constant. That is the comparison §5/M20's claim
+actually makes ("a stalled producer must not slow requests"), and it is machine-independent because both
+runs execute the identical path and differ only in whether the broker answers. It is also *stricter* in
+the direction that matters: a blocking send or lock convoy diverges from the control by orders of
+magnitude, which no absolute 50 ms ceiling would reliably have caught on a fast machine.
+
+**A logging-off baseline was tried first and rejected on evidence**: the filter legitimately costs ~100×
+a no-op pass-through (351 µs p99 against a 3 µs floor), so a ratio against that floor is meaningless and
+the absolute slack silently becomes the real budget — reintroducing exactly the machine-dependence that
+failed. Those intermediate numbers are kept in the class javadoc so the next person need not re-derive
+them.
+
+**The transferable lesson:** an absolute performance threshold encodes the machine it was written on.
+M18.9, M19.8 and M20.8 all ran their proofs on this laptop; this is the first whose result was *a number*
+rather than *a behaviour*, and the first to break in CI. The behavioural assertions — did it drop, did
+anything fail — ported to a 2-core runner unchanged. The numeric one did not.
+
 ##### Regression verification (2026-07-26)
 
 `.\gradlew.bat build --rerun-tasks --no-parallel --max-workers=1` — **BUILD SUCCESSFUL in 11m 34s**,
@@ -6146,7 +6200,7 @@ rollup and retention, the read APIs). **No `:test` task was served from cache** 
 | Every request through the gateway appears in the developer-visible log within seconds | ✅ E2E §6, over the real gateway. Scoped to *attributable* requests — a request whose key never resolved has no merchant to file it under (M20.2) |
 | No secret ever appears in a logged body — verified against a deliberately secret-laden corpus | ✅ 10-payload corpus sweep asserting none of seven known secrets survives, plus a live SQL sweep of `api_request_log` returning 0 |
 | Rate limits are per key and per mode; headers are correct at the boundary | ✅ Per-key buckets and per-merchant/mode quotas on real Redis; boundary proved with a frozen clock; headers confirmed live |
-| A stalled log pipeline degrades to dropped events with zero request impact, proven under load | ✅ 4,000 requests, broker wedged, p99 7.9 ms, 2,999 dropped, 0 failures |
+| A stalled log pipeline degrades to dropped events with zero request impact, proven under load | ✅ 4,000 requests, broker wedged: 0 failures, events dropped and counted, and p99 **lower** than the healthy-broker control (275 µs vs 1,184 µs) — the stall costs the request path nothing |
 | Retention pruning works and `/actuator/prometheus` exposes Resilience4j meters again | ✅ Pruner drops rolled-up partitions and provably refuses un-rolled-up ones; 58 meter lines on payment-service, measured at 0 beforehand |
 
 **M20 status: complete.** All eight sub-milestones implemented, verified independently, and validated
