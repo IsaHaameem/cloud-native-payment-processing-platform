@@ -55,15 +55,41 @@ public class AuditService {
         // Audit never coerces null->live — it records what the event declared (D126).
         JsonNode modeNode = envelope.get("mode");
         String mode = (modeNode == null || modeNode.isNull()) ? null : modeNode.asString();
-        String payload = envelope.get("payload").toString();
+        JsonNode payloadNode = envelope.get("payload");
+        String payload = payloadNode.toString();
+        // M19.5: one identifier lifted out for scoping. Audit still stores the payload
+        // verbatim and still interprets nothing else about it (D44) — but a
+        // merchant-facing Events API has to be merchant-scoped, and a jsonb dig on every
+        // query is neither indexable nor a guarantee.
+        UUID merchantId = readMerchantId(payloadNode);
 
         try {
             auditLogEntryRepository.save(
-                    AuditLogEntry.of(eventId, eventType, aggregateId, occurredAt, correlationId, mode, payload));
+                    AuditLogEntry.of(eventId, eventType, aggregateId, occurredAt, correlationId, mode, merchantId,
+                            payload));
             meterRegistry.counter("audit_events_total", "outcome", "recorded", "eventType", eventType).increment();
         } catch (DataIntegrityViolationException e) {
             log.debug("Event {} was recorded by a concurrent redelivery, ignoring", eventId);
             meterRegistry.counter("audit_events_total", "outcome", "concurrent_duplicate").increment();
+        }
+    }
+
+    /**
+     * The payload's {@code merchantId}, or {@code null} when it has none or it is not a
+     * UUID. Never throws: audit's job is to record whatever arrived (D44), and a
+     * malformed identifier must degrade to "no merchant" — an unscoped-but-recorded
+     * event — rather than reject an event the trail is supposed to preserve.
+     */
+    private static UUID readMerchantId(JsonNode payload) {
+        JsonNode node = (payload == null) ? null : payload.get("merchantId");
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(node.asString());
+        } catch (IllegalArgumentException e) {
+            log.warn("Payload carried an unparseable merchantId; recording the event unscoped");
+            return null;
         }
     }
 }

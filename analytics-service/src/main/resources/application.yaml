@@ -40,9 +40,9 @@ paymentflow:
     # every partition can be consumed in parallel within this one consumer group.
     listener-concurrency: 3
   internal-context:
-    # Every servlet service hosts common-lib's InternalContextFilter (SERVLET-
-    # conditional autoconfig, M15) — harmless here: nothing routes /v1/** to
-    # analytics-service, so the filter always no-ops (D100/D118).
+    # M19.6: no longer inert. The gateway routes /v1/analytics* here, so
+    # InternalContextFilter is this service's actual (and only) authentication mechanism,
+    # wired into the Spring Security chain by SecurityConfig (D124).
     secret: ${PAYMENTFLOW_INTERNAL_CONTEXT_SECRET:dev-only-insecure-shared-secret-change-me}
     max-clock-skew-seconds: 30
 

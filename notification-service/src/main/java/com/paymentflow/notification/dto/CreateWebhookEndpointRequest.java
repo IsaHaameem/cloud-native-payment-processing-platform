@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Registers a webhook endpoint (M18.2). {@code merchantId} and {@code mode} are
@@ -26,5 +27,13 @@ public record CreateWebhookEndpointRequest(
         String description,
 
         @NotEmpty
-        List<@NotBlank @Size(max = 64) String> enabledEvents) {
+        List<@NotBlank @Size(max = 64) String> enabledEvents,
+
+        /**
+         * Free-form merchant annotation (M19.8, §4.6). Optional; absent and {@code {}}
+         * are the same thing. String values only, matching payments and refunds — the
+         * platform never interprets, indexes, or filters on it here, and a richer type
+         * would imply otherwise.
+         */
+        Map<@NotBlank @Size(max = 40) String, @Size(max = 500) String> metadata) {
 }

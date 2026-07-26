@@ -6,7 +6,7 @@ import com.paymentflow.common.exception.ResourceNotFoundException;
 import com.paymentflow.notification.config.WebhookProperties;
 import com.paymentflow.notification.crypto.WebhookSecretCipher;
 import com.paymentflow.notification.domain.WebhookEndpoint;
-import com.paymentflow.notification.domain.WebhookEventType;
+import com.paymentflow.common.dto.event.CanonicalEventType;
 import com.paymentflow.notification.domain.WebhookSubscription;
 import com.paymentflow.notification.repository.WebhookEndpointRepository;
 import com.paymentflow.notification.repository.WebhookSubscriptionRepository;
@@ -66,7 +66,7 @@ public class WebhookEndpointService {
 
     @Transactional
     public RegisteredEndpoint register(UUID merchantId, String mode, String url, String description,
-                                       Collection<String> enabledEvents, String contactEmail) {
+                                       Collection<String> enabledEvents, String contactEmail, String metadataJson) {
         String normalizedUrl = validateUrl(url);
         Set<String> eventTypes = validateEventTypes(enabledEvents);
 
@@ -85,6 +85,11 @@ public class WebhookEndpointService {
         WebhookEndpoint endpoint = WebhookEndpoint.register(merchantId, mode, normalizedUrl, description,
                 properties.apiVersion(), secretCipher.encrypt(rawSecret),
                 WebhookSecretGenerator.storedPrefixOf(rawSecret), contactEmail);
+        // Set after construction rather than through the factory: metadata is annotation
+        // with no invariant behind it (see WebhookEndpoint.metadata), so it is not part
+        // of what makes an endpoint well-formed. Same transaction, so a registration
+        // cannot persist without the metadata the caller sent.
+        endpoint.updateMetadata(metadataJson);
 
         WebhookEndpoint saved;
         try {
@@ -128,11 +133,17 @@ public class WebhookEndpointService {
 
     @Transactional
     public WebhookEndpoint update(UUID merchantId, String mode, UUID endpointId, String description, Boolean enabled,
-                                  Collection<String> enabledEvents) {
+                                  Collection<String> enabledEvents, String metadataJson, boolean metadataSupplied) {
         WebhookEndpoint endpoint = requireEndpoint(merchantId, mode, endpointId);
 
         if (description != null) {
             endpoint.updateDescription(description);
+        }
+        // `metadataSupplied` rather than a null check, because null and "{}" mean
+        // different things on a PATCH: an absent field leaves metadata alone, while an
+        // explicit empty object clears it — and both arrive here as a null JSON string.
+        if (metadataSupplied) {
+            endpoint.updateMetadata(metadataJson);
         }
         if (enabled != null) {
             // enable() also clears an auto-disable and resets the failure streak, which is
@@ -232,11 +243,11 @@ public class WebhookEndpointService {
 
         List<String> unknown = normalized.stream()
                 .filter(eventType -> !WebhookSubscription.ALL_EVENT_TYPES.equals(eventType))
-                .filter(eventType -> WebhookEventType.fromCanonical(eventType).isEmpty())
+                .filter(eventType -> CanonicalEventType.fromCanonical(eventType).isEmpty())
                 .toList();
         if (!unknown.isEmpty()) {
             throw new BadRequestException("Unknown event type(s): " + String.join(", ", unknown)
-                    + ". Supported: *, " + WebhookEventType.documentedVocabulary() + ".");
+                    + ". Supported: *, " + CanonicalEventType.documentedVocabulary() + ".");
         }
         // A wildcard alongside explicit types is redundant, not an error — the wildcard
         // already matches everything, so the explicit entries are collapsed into it and

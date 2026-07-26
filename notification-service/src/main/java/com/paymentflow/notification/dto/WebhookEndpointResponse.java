@@ -4,6 +4,7 @@ import com.paymentflow.notification.domain.EndpointDisableReason;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -28,6 +29,8 @@ public record WebhookEndpointResponse(
         Instant disabledAt,
         EndpointDisableReason disabledReason,
         boolean migratedFromLegacy,
+        /** Always present, never null — an endpoint with no metadata reports {@code {}} (M19.8). */
+        Map<String, String> metadata,
         Instant createdAt,
         Instant updatedAt) {
 }

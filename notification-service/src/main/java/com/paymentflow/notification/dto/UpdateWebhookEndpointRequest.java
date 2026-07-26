@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Partial update of an endpoint (M18.2). Every field is nullable and {@code null} means
@@ -22,5 +23,12 @@ public record UpdateWebhookEndpointRequest(
 
         Boolean enabled,
 
-        List<@NotBlank @Size(max = 64) String> enabledEvents) {
+        List<@NotBlank @Size(max = 64) String> enabledEvents,
+
+        /**
+         * {@code null} leaves metadata unchanged, like every other field here. A supplied
+         * map replaces the stored one wholesale rather than merging — sending {@code {}}
+         * is how a merchant clears it, and a merge would leave no way to remove a key.
+         */
+        Map<@NotBlank @Size(max = 40) String, @Size(max = 500) String> metadata) {
 }

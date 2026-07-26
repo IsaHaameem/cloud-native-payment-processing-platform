@@ -3,6 +3,7 @@ package com.paymentflow.analytics.service;
 import com.paymentflow.analytics.domain.MerchantPaymentStats;
 import com.paymentflow.analytics.event.AnalyticsEventPayload;
 import com.paymentflow.analytics.repository.MerchantPaymentStatsRepository;
+import com.paymentflow.analytics.repository.PaymentStatsHourlyRepository;
 import com.paymentflow.analytics.repository.ProcessedEventRepository;
 import com.paymentflow.common.dto.event.EventEnvelope;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -36,6 +37,12 @@ class AnalyticsServiceTest {
     private ProcessedEventRepository processedEventRepository;
     @Mock
     private MerchantPaymentStatsRepository merchantPaymentStatsRepository;
+    // M19.6: the same event now also lands in its hour's bucket, in the same transaction.
+    // Stubbed rather than asserted here — this suite is about the running totals and the
+    // optimistic-lock retry loop; the bucketing itself is covered by
+    // AnalyticsQueryIntegrationTest against a real database.
+    @Mock
+    private PaymentStatsHourlyRepository paymentStatsHourlyRepository;
     @Mock
     private TransactionTemplate transactionTemplate;
 
@@ -46,7 +53,8 @@ class AnalyticsServiceTest {
 
     @BeforeEach
     void setUp() {
-        analyticsService = new AnalyticsService(processedEventRepository, merchantPaymentStatsRepository, transactionTemplate,
+        analyticsService = new AnalyticsService(processedEventRepository, merchantPaymentStatsRepository,
+                paymentStatsHourlyRepository, transactionTemplate,
                 new SimpleMeterRegistry());
 
         lenient().doAnswer(inv -> {
@@ -54,6 +62,10 @@ class AnalyticsServiceTest {
             action.accept(null);
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
+
+        lenient().when(paymentStatsHourlyRepository.findByMerchantIdAndCurrencyAndModeAndBucketStart(
+                any(), any(), any(), any())).thenReturn(Optional.empty());
+        lenient().when(paymentStatsHourlyRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         lenient().when(merchantPaymentStatsRepository.findByMerchantIdAndCurrencyAndMode(any(), any(), any()))
                 .thenReturn(Optional.empty());

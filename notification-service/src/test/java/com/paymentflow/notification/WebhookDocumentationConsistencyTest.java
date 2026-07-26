@@ -1,7 +1,7 @@
 package com.paymentflow.notification;
 
 import com.paymentflow.notification.config.WebhookProperties;
-import com.paymentflow.notification.domain.WebhookEventType;
+import com.paymentflow.common.dto.event.CanonicalEventType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -121,9 +121,9 @@ class WebhookDocumentationConsistencyTest {
         String guide = guide();
 
         // The failure this prevents is specific and likely: adding a value to
-        // WebhookEventType is a one-line change, and the guide is the only place a
+        // CanonicalEventType is a one-line change, and the guide is the only place a
         // merchant can learn the name exists in order to subscribe to it.
-        for (WebhookEventType type : WebhookEventType.values()) {
+        for (CanonicalEventType type : CanonicalEventType.values()) {
             assertThat(guide)
                     .describedAs("event type '%s' is missing from the webhook guide", type.canonicalName())
                     .contains("`" + type.canonicalName() + "`");

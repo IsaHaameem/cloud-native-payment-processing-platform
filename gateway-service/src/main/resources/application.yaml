@@ -28,11 +28,13 @@ spring:
               uri: ${paymentflow.services.payment.base-uri}
               predicates:
                 - Path=/api/v1/payments/**
-            # M15: the public, key-authenticated /v1 surface — initially proxying
-            # payments only (§4.10: "/v1" denotes the API family; growing which
-            # downstream paths it covers is additive, never a breaking change).
-            # Rewritten onto payment-service's existing /api/v1/payments controller —
-            # no controller duplication needed on that side.
+            # M15 introduced this route with a RewritePath onto /api/v1/payments, because
+            # the public and internal tiers were the same controller. M19.2 split them:
+            # /v1 returns cursor-paginated CursorPage (D107/D139) and /api/v1 keeps offset
+            # PageResponse, which one handler cannot do. payment-service now serves /v1
+            # directly via PaymentV1Controller, so the rewrite is removed rather than
+            # narrowed — a rewrite covering only some verbs would leave one path served by
+            # two controllers depending on the method.
             - id: payment-service-v1
               uri: ${paymentflow.services.payment.base-uri}
               predicates:
@@ -44,20 +46,13 @@ spring:
                 # downstream service. The /api/v1 dashboard route deliberately keeps the
                 # header: the dashboard's mode toggle legitimately sets it (JWT path).
                 - RemoveRequestHeader=X-PF-Mode
-                # (?<segment>/?.*) — not /(?<segment>.*) — deliberately: the bare
-                # POST/GET /v1/payments (create/list, the most common real requests)
-                # has no trailing slash at all, so a pattern requiring a literal "/"
-                # before the capture group never matches it and the path passes
-                # through unrewritten, 404ing against payment-service. A real bug
-                # caught by this milestone's own gateway integration test, not a
-                # hypothetical edge case.
-                # $\{segment} (not ${segment}): YAML/Boot property-placeholder
-                # resolution would otherwise try to resolve "segment" as an actual
-                # config property before RewritePath's own regex engine ever sees
-                # the replacement string — the backslash escapes exactly that, and
-                # is stripped by the filter itself before the regex runs (Spring
-                # Cloud Gateway's own documented workaround for this collision).
-                - RewritePath=/v1/payments(?<segment>/?.*), /api/v1/payments$\{segment}
+            # M19.3: refunds as a first-class resource, served by the same controller.
+            - id: payment-service-refunds
+              uri: ${paymentflow.services.payment.base-uri}
+              predicates:
+                - Path=/v1/refunds/**
+              filters:
+                - RemoveRequestHeader=X-PF-Mode
             # M17.5: sandbox-service's own public control API is already at /v1/test/
             # simulations (no /api/v1 duplicate controller exists there to rewrite onto,
             # unlike payment-service) — a direct passthrough route, same as
@@ -109,6 +104,27 @@ spring:
                 - Path=/v1/webhook_deliveries/**
               filters:
                 - RemoveRequestHeader=X-PF-Mode
+            # M19.4/19.5/19.6: the three services that had no route at all until now
+            # (D42 deferred their APIs until a consumer existed; M19 is that consumer).
+            # Direct passthrough with the same mode-stripping every /v1 route applies.
+            - id: transaction-service-balance
+              uri: ${paymentflow.services.transaction.base-uri}
+              predicates:
+                - Path=/v1/balance,/v1/balance_transactions/**
+              filters:
+                - RemoveRequestHeader=X-PF-Mode
+            - id: audit-service-events
+              uri: ${paymentflow.services.audit.base-uri}
+              predicates:
+                - Path=/v1/events/**
+              filters:
+                - RemoveRequestHeader=X-PF-Mode
+            - id: analytics-service-analytics
+              uri: ${paymentflow.services.analytics.base-uri}
+              predicates:
+                - Path=/v1/analytics/**
+              filters:
+                - RemoveRequestHeader=X-PF-Mode
           # V1 known issue #7 (M15 fix, D-noted): the gateway now sits behind an ALB in
           # AWS, so X-Forwarded-* must be honored for scheme-dependent behavior (HSTS
           # etc.) to see the real, not the internal-hop, scheme. Trusts only the ALB/
@@ -139,6 +155,12 @@ paymentflow:
       base-uri: http://localhost:8094
     notification:
       base-uri: http://localhost:8092
+    transaction:
+      base-uri: http://localhost:8084
+    audit:
+      base-uri: http://localhost:8091
+    analytics:
+      base-uri: http://localhost:8093
   gateway:
     cors:
       allowed-origins: http://localhost:3000

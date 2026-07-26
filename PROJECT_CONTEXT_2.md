@@ -18,9 +18,15 @@
 > decomposed into M18.1–M18.9; all nine sub-milestones implemented, verified independently,
 > and E2E-validated together on the running docker-compose stack against real
 > signature-verifying receivers. Closes V1 known issue #2 (unsigned webhooks).
-> **M19 is the next milestone.**
+> **M19 (Public Read APIs & Query Surface) — complete** (2026-07-25 – 2026-07-26):
+> repository reviewed against §5/M19 (seven divergences resolved as D139/D140 and in
+> M19.7), decomposed into M19.1–M19.8; all eight sub-milestones implemented, verified
+> independently, `EXPLAIN`-checked against seeded production-scale data, and E2E-validated
+> together on the running docker-compose stack over the real gateway. Closes V1 known
+> issues #3 and #4 (three services with no query API).
+> **M20 is the next milestone.**
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D137**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D144**.
 
 ---
 
@@ -455,8 +461,8 @@ lingering note:
 |---|---|---|
 | 1 | API keys are issued but authenticate nothing; payment creation is JWT-only (D31/D32) | **M15** |
 | 2 | Webhooks are unsigned — merchants cannot verify authenticity | **M18 ✅ closed** (2026-07-25) |
-| 3 | transaction-service has no query API; ledger state needs `psql` (D42) | **M19** |
-| 4 | audit-service and analytics-service have no query APIs | **M19** |
+| 3 | transaction-service has no query API; ledger state needs `psql` (D42) | **M19 ✅ closed** (2026-07-26) |
+| 4 | audit-service and analytics-service have no query APIs | **M19 ✅ closed** (2026-07-26) |
 | 5 | `springdoc` is in the tech-stack table but is not a dependency of any module | **M21** |
 | 6 | No README badge target, no diagrams, no frontend | **M23/M24/M30** |
 | 7 | Gateway does not honour `X-Forwarded-*` behind the ALB | **M15** (edge work) |
@@ -2625,7 +2631,14 @@ decisions are appended as milestones are implemented.
 | D134 | (M18) The **first** delivery attempt is dispatched through the `webhook.deliveries` topic (§4.7) rather than made inline post-commit as V1 does (D46); one consumed `payment.events` message writes the canonical event plus N delivery rows and publishes N dispatch messages | Keep V1's inline first attempt and add only `.retry`/`.dlq`, as §5/M18 task 7 alone would imply | Confirmed with the user before implementing. V1's inline attempt was correct when a merchant had exactly one URL: one HTTP call, one thread, bounded. Fan-out changes the arithmetic — N endpoints × the per-attempt timeout, on a `payment.events` listener thread shared with every other merchant — which is precisely the "a slow endpoint starves delivery for everyone" risk M18's own risk table names, arriving on the *first* attempt rather than a retry. Routing dispatch through a topic keeps the `payment.events` consumer's work bounded regardless of endpoint count, gives per-endpoint bulkheads somewhere natural to live, and reconciles §4.7's three-topic table with task 7's two. Cost: one Kafka hop of latency before the first attempt, which is invisible against an 8-attempt/24-hour schedule |
 | D135 | (M18) V1's `merchants.webhook_url` is adopted into a real `webhook_endpoints` row **lazily, from the payment event payload**, the first time an event arrives for a merchant that has a URL but no registered endpoint — flagged `migrated_from_legacy` | (a) A one-off operational backfill script reading both schemas at M18.9; (b) merchant-service publishes an adoption event on `merchant.events` and notification-service consumes it | Confirmed with the user before implementing. §5/M18 task 10 describes this as a migration, but `merchants` lives in merchant-service's schema: notification-service cannot read it (D4, schema-per-service) and deliberately never calls merchant-service (D43 — the URL already rides on every payment event). (a) puts a cross-schema step outside the migration system and outside CI, exactly the class of manual operation that is correct once and forgotten thereafter; (b) is the cleanest long-term shape but pulls merchant-service changes, a new topic consumer, and a new listener into a milestone that already changes notification-service's charter more than any milestone has changed a service since M5. Lazy adoption needs no new dependency, no new schema access, and no downtime, and it is self-healing: a merchant who sets a URL after M18 ships is adopted on their next event rather than missed by a script that already ran. Per §13-Q9 the column itself is kept and marked deprecated, not dropped |
 | D137 | (M18.6) Webhook signing secrets are stored **encrypted** (AES-256-GCM, key from configuration), not SHA-256 hashed — the one exception to §4.9's "every secret is stored only as SHA-256" | (a) Keep the hash, as §4.9 and M18.2 originally implemented; (b) derive each endpoint's secret deterministically from a platform master key plus endpoint id and a rotation counter (HKDF), storing no secret material at all | **A defect found in this milestone's own M18.2 work, not a preference.** §4.9's rule is correct for `sk_` keys and refresh tokens because the platform only ever *verifies* those: hash what the caller presented, compare digests. A webhook signing secret is *used* — it is the HMAC key for every outbound delivery — and a one-way digest cannot produce a signature the merchant, who holds the original, could reproduce. (a) is therefore not "less secure", it is **non-functional**: every delivery would have carried a signature no receiver on earth could verify, and the failure would have surfaced as integrators reporting that verification "just doesn't work" rather than as a red test. (b) is genuinely elegant — no secret material at rest at all — but makes every secret re-derivable forever by anyone holding the master key and the row, which quietly weakens the "revealed exactly once" property into "re-derivable on demand", and adds a rotation-counter concept to a schema that already models rotation with an explicit previous-secret column. Encryption is what comparable platforms do, keeps "shown once" strictly true, and fails loudly (GCM is authenticated, so a tampered ciphertext raises rather than silently yielding a wrong key). The key is handled exactly like the internal-context HMAC secret (D18/D73) and inherits its known issue: an insecure local default, with Secrets Manager wiring owned by M29 |
+| D138 | (M19.1) Pagination cursors are **signed with the existing internal-context HMAC secret**, not with a new dedicated key, and are authenticated but not encrypted | (a) A separate cursor-signing key; (b) unsigned cursors, relying on repository-layer scoping alone; (c) encrypt the payload | (a) doubles the operational surface — another value in `.env`, another Secrets Manager entry for M29, another rotation story — for no separation that matters: both are server-side integrity secrets with identical lifecycles and blast radius. (b) is tempting because the repository already takes merchant and mode from the verified context (D101), so a forged cursor genuinely could not widen a query — but it would resolve to a confusing empty page instead of an error, and "it would not have worked anyway" is a poor reason to accept a forged token. (c) would imply a confidentiality property that does not exist: the payload is a timestamp and a row id the client just received in the response body |
+| D139 | (M19.2) `GET /v1/payments` moves from offset `PageResponse` to cursor `CursorPage`, a **breaking change to an endpoint that already shipped**; `/api/v1/payments` keeps offset pagination, and the two tiers are split into separate controllers | (a) Keep offset on `/v1` and introduce cursors only on the new M19 endpoints; (b) move both tiers to cursors | This is the change M19 exists to make. §5/M19 states the ordering rationale outright — pagination semantics are "set once here and inherited by everything after, so getting them right before M21 freezes them is the whole point" — and D107 already decided cursors for public lists. (a) would ship the platform's flagship list endpoint with the semantics D107 rejects, permanently, since M21 freezes it a milestone later; it would also make "which pagination does this endpoint use?" a per-endpoint question forever. (b) changes a contract M23's dashboard has not been written against, for no benefit — D98 makes `/api/v1` freely changeable precisely so it can migrate later if a reason appears. The split into two controllers is forced by the same fact: before M19 the gateway rewrote `/v1/payments` onto `/api/v1/payments`, so one handler served both and could not return two envelopes |
+| D140 | (M19.5) The canonical merchant-facing event vocabulary and its `evt_` id derivation move from notification-service to **`common-dto`** as `CanonicalEventType`; notification-service's `WebhookEventType` is deleted rather than kept alongside it | (a) audit-service keeps its own local copy, following the schema-per-service precedent every service uses for *event payload* shapes (D4/D36); (b) audit-service calls notification-service to resolve the shape | (a) is the established pattern and is wrong here, because it generalises the wrong property. D36's local copies exist so no service compiles against another's *internal model* — a producer's payload shape is free to change. This is the opposite: a **frozen public contract** that M21 will version and M22's four SDKs will implement, and which two services must render byte-identically for the same event. Two hand-maintained copies of a frozen contract drifting apart is exactly the documentation-and-contract drift R10 calls fatal, and there would be no test that could catch it from inside either service. `common-dto` already holds precisely this class of thing (`ApiError`, `PageResponse`, `EventEnvelope`). (b) would make a read API depend on another service being up to name its own event types, for data audit-service already has |
 | D136 | (M18) The webhook signature is proved cross-language by **committed test vectors plus small `verify.js`/`verify.py` scripts run manually**, with the recorded output going in this log — not by a Gradle task that shells out to Node and Python | (a) Commit vectors and the written spec only, deferring real cross-language execution to M22; (b) wire the scripts into the build as a verification task | Confirmed with the user before implementing. M18's own risk table calls the signature scheme "subtly wrong and only discovered by an integrator" the failure mode worth spending a milestone's effort on, and (a) leaves that criterion asserted rather than demonstrated — the exact gap §14 already records for M17's test-card catalogue. (b) makes `node` and `python` build prerequisites for a Java monorepo, so a contributor with neither cannot build at all, to guard a constant that changes roughly never. Committed vectors give M22's four SDKs a shared fixture to test against, which is where the compatibility guarantee actually needs to live; running them by hand once, here, is what converts the guarantee from claimed to observed |
+| D141 | (M19.8) Range and cursor predicates that participate in the **ordering** use **sentinel bounds** (`ListQuery.EARLIEST`/`LATEST`/`LAST_ID`) rather than the `(:x is null or …)` null-guard idiom; predicates that do not participate in the ordering keep their null guards | (a) Keep null guards everywhere, as M19.2 shipped; (b) build the predicate set dynamically per request (Criteria API / a Specification builder), emitting only the clauses a request actually uses; (c) maintain two hand-written query variants and pick one at call time | **A defect found by reading a plan, not by a failing test** — every assertion in M19.2 passed both before and after, because the idiom is *functionally* correct and only *structurally* wrong. Wrapping the row-wise comparison as `(:cursorCreatedAt is null or (created_at, id) < (…))` demotes it from an `Index Cond` to a `Filter`: Postgres scans from the newest row of the merchant's partition and discards everything above the cursor, so a deep page costs **O(depth)** — precisely what keyset pagination exists to avoid. Measured on 600k seeded payments one page 150 days in: 2,512 buffers and 2,568 rows discarded, versus **29 buffers and 0 discarded** unguarded. (b) is the textbook answer and produces optimal SQL for every combination, but it replaces two readable native queries with a builder, and the two clauses that need it are *jsonb containment* and *row-wise comparison* — the two things a Criteria builder expresses worst. (c) doubles the query surface for every future filter. The sentinel idiom was **already in the repository**: M19.4 adopted it in transaction-service for an unrelated reason (Postgres cannot infer a bind parameter's type from `? is null` alone), so M19.8 found that the choice made for type-inference reasons is also the one that produces the right plan. Promoting the three constants to `ListQuery` collapsed three private copies into one, which is what M19.1 said shared primitives were for. Status, currency, amount and metadata deliberately keep their guards: they do not participate in the ordering, so they cost only a `Filter` on rows the index already located, and there is no sentinel for "any status" that would not be a lie |
+| D142 | (M19.8) payment-service sets `server.tomcat.relaxed-query-chars: "[,]"` so the **documented** `metadata[key]=value` filter syntax works literally as published, not only percent-encoded | (a) Publish only the percent-encoded spelling (`metadata%5BorderId%5D=A-1234`); (b) change the wire syntax to something RFC 3986 permits unreserved, e.g. `metadata.orderId=` or a repeated `metadata=k:v`; (c) relax Tomcat globally across every service | Found on the live stack, not by any test: Tomcat rejects `[` and `]` in a query string by default, so a client sending the published form got **HTTP 400 with Tomcat's HTML error page** — not merely a failure, but one that breaks the JSON error contract M21 will freeze. MockMvc could never have caught it, because it builds the request object directly and never goes through Tomcat's URI parser. (a) is honest but hostile: `metadata[k]=v` is the spelling every comparable platform uses and the one an integrator will type first, and "it works but only if your HTTP library happens to encode brackets" is a support ticket generator rather than a contract. (b) avoids the character class entirely and was genuinely tempting, but changes a syntax already published in `docs/READ_APIS.md` and already asserted by `ReadApiDocumentationConsistencyTest` for no gain beyond avoiding one configuration line. (c) widens the parser's accepted input on eight services to fix one — scoped to the two characters and the one service that serves the filter, both spellings now behave identically instead of one of them depending on which HTTP library a developer happens to use |
+| D143 | (M19.8) `AnalyticsSummaryResponse` drops `@JsonInclude(NON_NULL)` so `successRate: null` is **explicitly on the wire** when no payment was attempted, rather than the field being omitted | (a) Keep the annotation and let clients treat an absent field as "unknown"; (b) return `0` for a rate over zero attempts; (c) add a separate boolean or a string enum (`"unknown"`) alongside the numeric rate | M19.6 had already decided that a rate over zero attempts is *unknown* rather than zero — charting it as zero shows a catastrophic outage every quiet hour — but the platform-wide `NON_NULL` convention then deleted the very signal that decision exists to send. The test asserted `successRate()).isNull()` **on the object**, which passes either way; the live response was the first thing to show what a client actually receives. (a) is where the bug lives: §4.10 tells clients to expect and ignore fields a version does not have, so silence makes "we measured and there is no answer" indistinguishable from "this API version has no such field". (b) is the error M19.6 explicitly rejected. (c) encodes in two fields what JSON's `null` already means, and every SDK in M22 would have to model both. No other field on this response is ever null, so removing the annotation changes nothing else on the wire, and the test now asserts the **serialized** form rather than the object |
+| D144 | (M19.8) `webhook_endpoints.metadata` is **deliberately not GIN-indexed**, unlike `payments.metadata` and `refunds.metadata` | (a) Add the GIN index for consistency with the other two `metadata` columns; (b) omit `metadata` from webhook endpoints entirely, leaving §4.6's third object unimplemented | §5/M19 says metadata is "indexed for filtering", and the index therefore exists exactly where the filtering does. Payments and refunds carry a GIN index because their lists expose a containment filter that is unusable without one; the endpoint list has **no filter** — it returns every endpoint a merchant has in one mode, hard-capped at 16 — so an index here would be paid for on every write to serve a query that does not exist. (a) is consistency for its own sake, and the cost is real: GIN maintenance on a table whose rows are written by endpoint registration and rewritten by auto-disable bookkeeping. (b) would leave §4.6 and §5/M19's feature list naming three objects while the code delivered two. Recorded rather than glossed over, so that a future milestone adding an endpoint filter knows the index was considered and deferred, not forgotten |
 
 ---
 
@@ -2677,7 +2690,7 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 
 - **Per-key rate limiting is not implemented yet** — API-key-authenticated `/v1/**` traffic falls through to the gateway's existing IP-based rate-limit bucket (`RateLimiterConfig`'s key resolver only recognizes `JwtAuthenticationToken`, not `MerchantContextAuthenticationToken`). Explicitly M20's job (§4's "usage metering + per-key rate limits"); left alone deliberately per Decision 4 (depth before breadth), not an oversight.
 - **`mode` is not yet enforced anywhere except the key itself.** A `sk_test_...` key resolves a `MerchantContext` with `mode="test"`, but no payment/transaction/audit/notification/analytics table has a `mode` column yet — M16 adds that. Today, a payment created via a test-mode key lands in the same `live`-only data plane as one created via a live-mode key or the unmodified JWT path. Not a security gap (only M15's own new surface exists), but the mode-isolation guarantee itself does not exist until M16 ships.
-- **No scope beyond `payments:read`/`payments:write` is enforced anywhere** — the scope vocabulary (`refunds:write`, `webhooks:manage`, `logs:read`, ...) named in §4.9 doesn't have real routes to attach to yet; each future milestone that adds a `/v1` route is expected to extend `ApiKeyAuthenticationWebFilter`'s `requiredScopeFor` mapping.
+- ~~**No scope beyond `payments:read`/`payments:write` is enforced anywhere**~~ — **superseded, and recorded rather than deleted because the expectation it set is the one that was met.** When written at M15 the scope vocabulary in §4.9 had no real routes to attach to, and the entry said each future milestone adding a `/v1` route was expected to extend `ApiKeyAuthenticationWebFilter`'s `requiredScopeFor` mapping. That is exactly what happened: M18 added `webhooks:manage`, and M19.7 added `balance:read`, `events:read` and `analytics:read`. Five scopes are now enforced at the gateway and covered by the live E2E. `logs:read` remains unattached and is M20's; `refunds:write` deliberately has no route, because §4.9 describes it as *issuing* a refund, which is `payments:write` on the payment itself (M19.7).
 - **Scope enforcement lives at the gateway only**, not defensively re-checked in payment-service — a deliberate, narrower-than-D23 choice for this milestone (D23 has downstream services independently enforce RBAC for the JWT path; API-key scope enforcement does not yet have that second layer). Revisit if a future milestone finds a reason payment-service itself needs to distrust the gateway's scope decision.
 - **The internal-context HMAC secret is `.env`-only** (`PAYMENTFLOW_INTERNAL_CONTEXT_SECRET`), with a hardcoded, clearly-insecure local-dev default (`dev-only-insecure-shared-secret-change-me`) baked into every service's `application.yaml` and `docker-compose.yml`. Secrets Manager wiring is explicitly out of scope per D113 (local-first V2, one AWS milestone at the end, M29) — this is a real, load-bearing gap for that milestone to close, not an accident.
 - **Rotate-with-grace has no explicit "list keys near grace expiry" surface** — a developer can see `graceExpiresAt` on a key via `GET /api/v1/merchants/me/api-keys`, but there's no proactive notification (email/webhook) when a grace window is about to lapse. No milestone currently owns this; flagged here as a real gap in the developer experience, not assigned anywhere yet.
@@ -2690,6 +2703,11 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **`webhook_delivery_attempts` has no retention policy.** It grows with (events × endpoints × attempts) and stores the full request and response body per attempt, which is by far the highest write volume M18 introduces. D116 established that a high-volume log table shipped without a pruner is a scheduled outage, and applied that reasoning to `api_request_log` in M20 — the same argument applies here and was not acted on. M20 is the natural place to fix it alongside its own pruner; recorded now rather than discovered under storage pressure.
 - **The Redis endpoint-list cache specified in §4.8/§5-M18 task 4 was not built.** Fan-out reads endpoints and subscriptions from Postgres on every event (two indexed queries, one of them batched). It is correct and, at current volumes, fast; the cache is a performance optimisation whose absence is invisible until measured. Deliberately left for **M28** to measure before adding, rather than adding a cache-invalidation surface on a guess — but it *is* a documented deliverable that this milestone did not deliver, so it is recorded as a gap rather than silently dropped.
 - **Not every published test card is driven through a real authorize call by an automated test** (M17, §5's completion criteria). `DecisionEngine` is data-driven with no per-token special-casing, so the risk this leaves open is narrow — a bad seed row (wrong `outcome`/`declineCode`/`captureBehaviour` in the `test_cards` migration) rather than a bad engine — but it is a real gap between the roadmap's literal completion criterion and what M17.8's test suite actually asserts. `TestCardCatalogueIntegrationTest` checks all 17 rows exist with correct metadata for 9 of them; only 4 tokens are additionally exercised through a real `decide()`/authorize call anywhere in the suite. No milestone currently owns closing this; a cheap fix would be a single parameterized integration test iterating every seeded token through `POST /internal/v1/sandbox/authorize` and asserting the response matches the catalogue's own advertised outcome for that token.
+- **Refunds and the hourly analytics series both start at M19 — there is no history behind either, and the two lists are therefore incomplete in a way no error signals.** A merchant listing `/v1/refunds` sees only refunds issued from M19 forward, because pre-M19 refunds were never stored as objects: only the running `refunded_amount_minor` accumulator on the payment ever existed, and a total cannot be decomposed into the refunds that produced it without fabricating ids and timestamps that never happened (M19.3). Identically, `/v1/analytics/payments`'s hourly series begins at M19 because which hour each past event fell in exists only in audit-service's trail, and reconstructing analytics from another service's schema would couple two things D4 keeps apart (M19.6). Both accumulators/totals remain complete and authoritative, so the *totals* are right while the *series* and the *list* are short — which is the honest representation, but it means a chart or a refund list spanning the M19 boundary silently understates the earlier side. Nothing currently marks where the data begins; a `series_starts_at` field on the analytics response, or a documented platform epoch, would make the gap visible to a client rather than merely true. No milestone owns this.
+- **`failed_count` exists only on the hourly buckets, not on the running totals**, so a success rate can be computed from the series but not from the lifetime counters. The gap became visible only when something first *read* these numbers (M19.6): a success rate needs a denominator that includes failures, and the running-total table pre-dates anything that needed one. Left un-widened deliberately — a new column there could not be honestly backfilled either, for the same reason the series cannot be — but it means the two surfaces answer different questions and only one of them can answer "what is my success rate overall?".
+- **`webhook_endpoints.metadata` is not indexed** (D144). Correct today, because the endpoint list exposes no containment filter and is hard-capped at 16 rows per merchant per mode, so a GIN index would be paid for on every write to serve a query that does not exist. Recorded because the *first* milestone to add a filter on that column must add the index with it — the absence is a considered deferral, not an oversight to be rediscovered under a sequential scan.
+- **`idx_ledger_entries_account_id` is now redundant for lookups but is deliberately retained** (M19.8, Defect 3). `idx_ledger_entries_account_created (account_id, created_at desc, id desc)` supersedes it for every query the balance API issues, and M19.2 dropped `idx_payments_merchant_mode` in exactly this situation. It is kept here because it also backs the `account_id` foreign key, and dropping the only index on an FK column makes every delete on `accounts` scan `ledger_entries`. The cost is one redundant index's write maintenance; the alternative is a table scan on a path nothing exercises today but a future account lifecycle would. Flagged so the asymmetry with M19.2 is not read as an inconsistency.
+- **`payment-service` relaxes Tomcat's query-string parser for `[` and `]`** (D142). Scoped to two characters and one service, but it *is* a widening of what the HTTP layer accepts, made to serve a documented filter syntax. Recorded as an accepted risk rather than a neutral configuration line: any future audit of input handling should know the parser is non-default here and why, and M21's error-contract work should confirm the relaxed characters still route malformed input to the JSON error handler rather than Tomcat's HTML page — which is the failure D142 exists to have fixed.
 
 ---
 
@@ -4868,6 +4886,567 @@ together on a live stack. V1 known issue #2 is closed. Four defects were found a
 milestone (D137's unhashable secret, the auto-disable notification rolling back delivery bookkeeping,
 inert `@Transactional` on self-invocation, and the unbound retry schedule), three of which would have
 been invisible until a merchant reported them.
+
+---
+
+### M19 — Public Read APIs & Query Surface ✅ (complete, 2026-07-25 – 2026-07-26)
+
+**Objective.** Per §5/M19: build the complete public read surface — payments with rich filtering,
+refunds as first-class objects, balance and ledger reads, an events API, and analytics — with
+consistent list, pagination, and error semantics across every resource. Closes V1 known issues #3 and
+#4 (§2.11): three services with no API at all.
+
+**Repository review (2026-07-25).** Seven places where §5/M19 differs from the repository as it stands
+were found before any code was written:
+
+1. **`GET /v1/payments` already exists** and returns offset `PageResponse` (M15 routed it via the
+   gateway's `RewritePath` onto `/api/v1/payments`). Moving it to cursors is a public-contract change —
+   resolved as **D139**.
+2. **`/v1` and `/api/v1` are literally the same handler**, so they cannot return different envelopes.
+   Resolved by splitting the controller and removing the rewrite (M19.7).
+3. **Task 4's "canonical `evt_` shape M18 defined"** lives in notification-service, which D4 forbids
+   audit-service from importing. Resolved as **D140** (extract to `common-dto`).
+4. **No refund history exists to back-fill** — only a running total was ever stored. Refund objects
+   exist from M19 forward; the accumulator remains authoritative for historical payments.
+5. **§4.9's scope vocabulary has no scope** for balance/events/analytics. Extended in M19.7.
+6. **`payment_stats_hourly` does not exist** and requires the only write-path change in M19.
+7. **`metadata` on webhook endpoints** puts M19 inside notification-service, one milestone after M18
+   finished it. Additive column only.
+
+**Decomposition.** Eight sub-milestones: **M19.1** shared pagination primitives; **M19.2** payments
+list (metadata, filters, cursors); **M19.3** refunds as a resource; **M19.4** transaction-service's
+first web layer; **M19.5** canonical event shape extraction + audit events API; **M19.6** analytics
+hourly buckets + query API; **M19.7** gateway routes and scopes; **M19.8** the cross-cutting isolation
+sweep, `EXPLAIN` checks, E2E and closure. Ordering: shared primitives → the resource that sets the
+conventions → resources that reuse them → the two services whose architecture changes → the gateway
+(nothing is publicly reachable until deliberately routed) → the proofs that span every endpoint.
+
+#### M19.1 — `CursorPage`, signed cursors, and `ListQuery` ✅ (2026-07-25)
+
+**Summary.** The primitives every public list endpoint in M19 is built from, in the shared modules so
+five endpoints cannot drift apart (task 1 and task 7).
+
+**Files created.** `common-dto`: `dto/page/CursorPage.java`. `common-lib`: `query/Cursor.java`,
+`query/CursorCodec.java`, `query/ListQuery.java`, `autoconfigure/QueryAutoConfiguration.java`. Tests:
+`CursorPageTest`, `CursorCodecTest`, `ListQueryTest`.
+**Files modified.** `common-lib`'s `AutoConfiguration.imports` (+`QueryAutoConfiguration`).
+
+**Design points.**
+- **`CursorPage` is a new type, not a replacement for `PageResponse`.** D107 retains offset pagination
+  for the internal tier, and rewriting it would change a contract M23's dashboard work has not been
+  written against yet.
+- **No total count**, deliberately: a cursor page cannot report one cheaply, and computing it would
+  mean a second full-table count on every request — the unbounded query M19's own risk table warns
+  about. `hasMore` answers the only question a paginating client has.
+- **The over-fetch is trimmed in one place.** Callers fetch `limit + 1`; the extra row is what
+  determines `hasMore` without a count, and `CursorPage.of` trims it so "did we remember to trim?"
+  cannot become a per-endpoint bug.
+- **Cursors are signed** (D107, **D138**), keyed on the internal-context secret. The signature is
+  defence in depth rather than the isolation boundary — every repository method takes merchant and mode
+  from the verified context and ignores what a cursor claims (D101) — but a forged cursor failing
+  loudly beats one that silently resolves to an empty page nobody can explain.
+- **`(createdAt, id)`, not `createdAt` alone.** Two rows in the same millisecond would make the
+  boundary ambiguous, and under load that is not hypothetical.
+- **`limit` is clamped, not rejected**, at 100. Failing a request for asking for too much teaches a
+  client nothing actionable; a short page plus `hasMore` is self-describing. A *non-positive* limit is
+  rejected, because clamping it up to 1 would return a page nobody asked for.
+
+**Tests.** 22 new, all green. `CursorCodecTest` (9): round-trip including millisecond precision; the
+cursor is opaque and URL-safe; an edited payload, a cursor from another merchant, a cursor from the
+other mode, and a cursor signed with a different secret are each rejected; four shapes of malformed
+cursor and one validly-signed-but-unparseable payload return 400 rather than crashing — a garbage query
+parameter is not a platform failure. `ListQueryTest` (9): defaults, clamping at and above the ceiling,
+non-positive rejection, `fetchSize` always `limit + 1`, cursor binding, and inverted/equal date ranges
+rejected. `CursorPageTest` (7): the over-fetch boundary in both directions — an exactly-full page must
+not claim `hasMore`, and the cursor must point at the last *returned* row rather than the extra one.
+
+#### M19.2 — Payments: metadata, filters, cursor list ✅ (2026-07-25)
+#### M19.3 — Refunds as a first-class resource ✅ (2026-07-25)
+
+**Implemented as one pass, documented separately.** `PaymentResponse.refunds` (the `expand=refunds`
+field) couples them at the type level, so building M19.2 alone would have meant shipping a half-wired
+field with nothing behind it.
+
+**Files created.** Migrations `V5__payments_read_api.sql`, `V6__refunds.sql`; `domain/Refund.java`,
+`domain/RefundStatus.java`; `dto/RefundResponse.java`, `dto/PaymentListFilter.java`,
+`dto/RefundListFilter.java`; `repository/RefundRepository.java`; `service/PaymentQueryService.java`;
+`web/PaymentV1Controller.java`; `PaymentReadApiIntegrationTest`.
+**Files modified.** `domain/Payment.java` (+`metadata`), `dto/PaymentResponse.java` (+`object`,
+`metadata`, `refunds`), `dto/CreatePaymentRequest.java` (+`metadata`), `dto/RefundRequest.java`
+(+`reason`, `metadata`), `mapper/PaymentMapper.java`, `repository/PaymentRepository.java`,
+`service/PaymentService.java`. Four existing test classes updated for the widened signatures.
+
+**DB.** `payments.metadata jsonb not null default '{}'` with a **GIN** index;
+`idx_payments_merchant_mode_created (merchant_id, mode, created_at desc, id desc)` replacing M16.2's
+`idx_payments_merchant_mode` (that index is this one's leftmost prefix, so keeping both would pay for
+two indexes to serve one access pattern); `idx_payments_merchant_mode_status`. New `refunds` table with
+`chk_refunds_failure_shape` making "FAILED without a reason" unrepresentable.
+
+**The platform's first native query, and why.** Two things in the list are not expressible in JPQL:
+`metadata @> :metadata` (jsonb containment, which is what makes the GIN index usable at all) and
+`(created_at, id) < (:at, :id)` (row-wise comparison, which makes the keyset predicate a single index
+range scan). The alternatives were a Hibernate function registration or a Criteria/Specification
+builder — both more machinery than one readable query, for a filter that will never be anything but
+containment. Contained to two repository methods, with the schema qualified explicitly because
+Hibernate's `default_schema` does not apply to native SQL.
+
+**Reads are a separate service from writes.** `PaymentQueryService` holds no FSM, no idempotency, no
+outbox and no merchant/sandbox client — so the read surface cannot transition a payment, because it
+holds nothing that could. M19 adds no new route into the mutation path.
+
+**`refunded_amount_minor` is retained, not replaced.** The M5 FSM reads it to decide `REFUNDED` vs
+`PARTIALLY_REFUNDED` — M19 has no business rewriting that — and pre-M19 refunds exist *only* as that
+total. New refunds write the row and the accumulator in the same transaction, so they cannot disagree.
+**No backfill**: a historical total cannot be decomposed into the refunds that produced it, and
+synthesising one object per total would fabricate an id and a timestamp that never existed.
+
+**`expand` is a closed whitelist with one value and no nesting.** M19's testing strategy asks for
+"expand depth limits"; the limit here is structural rather than enforced, because a relation that
+cannot itself be expanded has no way to form an unbounded tree. An unrecognised `expand` value is
+ignored rather than rejected — a client naming a relation this version lacks is exactly the
+forward-compatible case §4.10 requires them to tolerate.
+
+**Tests.** 111 green in payment-service (10 new). `PaymentReadApiIntegrationTest` against real Postgres:
+merchant/mode scoping; **pagination stable across concurrent inserts** (three rows inserted between
+pages, page 2 shares nothing with page 1 — the exact case offset pagination gets wrong); **the keyset
+boundary is exact when timestamps collide** (eight rows paged two at a time, each returned exactly
+once); every filter narrows and combines; an unmatched status returns nothing rather than everything
+(a filter that fails *open* would be far worse); metadata matches by containment, requires all keys,
+and never matches `{}`; `created_before` is exclusive; refunds are scoped, filterable, and ordered
+oldest-first as a history; and a cross-tenant cursor is refused before reaching the query.
+
+**Remaining M19 work.** M19.4 — transaction-service's first web layer.
+
+#### M19.4 — transaction-service's first web layer: balance and ledger reads ✅ (2026-07-25)
+
+**Summary.** `GET /v1/balance` and `GET /v1/balance_transactions`. transaction-service gains Spring
+Security (for `InternalContextFilter` only, D133's shape), a controller, and a query service — closing
+V1 known issue #3, which required `psql` to inspect ledger state.
+
+**Files created.** `config/SecurityConfig.java`; `security/{SecurityErrorWriter,
+RestAuthenticationEntryPoint, RestAccessDeniedHandler}.java`; `dto/BalanceResponse.java`,
+`dto/BalanceTransactionResponse.java`; `service/BalanceQueryService.java`; `web/BalanceController.java`;
+`BalanceApiIntegrationTest`.
+**Files modified.** `build.gradle.kts` (+security starter, +webmvc-test), `application.yaml` (the
+internal-context comment said the filter "always no-ops here", which stopped being true),
+`repository/{AccountRepository,LedgerEntryRepository,LedgerTransactionRepository}.java`.
+
+**D42's boundary is preserved by construction, not by convention.** M19's risk table flags this as the
+milestone's highest-risk change: giving the ledger a web layer could erode "written only by the Kafka
+consumer". The mitigation is that `BalanceQueryService` holds no `LedgerService`, no
+`TransactionTemplate`, and no account mutation — there is nothing a future endpoint on this controller
+could accidentally reach. Balances are *projected* from the ledger rather than kept beside it, which is
+what makes the "totals match a direct psql sum" criterion a property rather than a coincidence.
+
+**A defect found by the integration test, not by review.** The JPQL null-guard idiom
+`(:createdAfter is null or e.createdAt >= :createdAfter)` fails outright on Postgres —
+*"could not determine data type of parameter $3"* — because Postgres cannot infer a bind parameter's
+type from `? is null` alone. payment-service's list avoids it with explicit `cast(:x as …)` in native
+SQL; here the fix is **sentinel bounds** (`Instant.EPOCH` / `9999-12-31`) so every parameter carries an
+unambiguous type and the query stays JPQL. `Instant.MAX` would have been the obvious sentinel and is
+outside `timestamptz`'s range, so the bound is chosen deliberately. The same fix is applied in M19.5.
+
+**Tests.** 27 green in the module (7 new). `BalanceApiIntegrationTest`: pending and available come from
+genuinely different accounts; scoping across merchant *and* mode; a merchant with no activity gets an
+empty balance rather than a 404 (having no balance is a fact, not a missing resource); **the platform's
+own clearing account never appears** in a merchant's balance or ledger — structurally, since its owner
+is null; entries carry their payment and event type; pagination returns every entry exactly once; and
+**the reported balance equals a direct SQL sum over the ledger entries**, which is meaningful only
+because the balance is projected rather than stored.
+
+#### M19.5 — Canonical event shape extraction and the Events API ✅ (2026-07-25)
+
+**Summary.** `GET /v1/events` and `/v1/events/{id}`, served by audit-service from `audit_log`, in the
+same canonical `evt_` shape M18 defined for webhook bodies. Closes half of V1 known issue #4.
+
+**Files created.** `common-dto`: `dto/event/CanonicalEventType.java`. audit-service:
+`config/SecurityConfig.java`, `security/*` (3), `dto/EventResponse.java`,
+`service/EventQueryService.java`, `web/EventController.java`, migration `V3__events_api.sql`,
+`EventsApiIntegrationTest`.
+**Files deleted.** notification-service's `domain/WebhookEventType.java` — promoted, not copied.
+**Files modified.** notification-service (`WebhookEventFactory`, `WebhookEndpointService`,
+`WebhookDocumentationConsistencyTest` now import the shared enum), audit-service
+(`domain/AuditLogEntry.java`, `service/AuditService.java`, `repository/AuditLogEntryRepository.java`,
+`build.gradle.kts`, `application.yaml`).
+
+**The vocabulary moved to `common-dto` (D140).** M18 defined it inside notification-service, correctly,
+when that was the only service producing merchant-facing events. D4 forbids audit-service importing it,
+so the choice was to duplicate a *frozen public contract* or promote it. Promoted — that is what
+`common-dto` is for (`ApiError`, `PageResponse`, `EventEnvelope` are all there for the same reason), and
+two hand-maintained copies drifting apart is precisely the failure R10 names. The `evt_` derivation
+moved with it, so audit-service produces byte-identical ids to the ones notification-service delivered,
+with no coordination — the determinism built into M18.3 for exactly this moment.
+
+**A schema gap found while building it: `audit_log` has never had a merchant column.** That was right
+for what it was — a faithful, schema-agnostic recorder (D44) — but a merchant-facing API must be
+merchant-scoped, and scoping by digging into a jsonb field on every query is neither indexable nor a
+guarantee. `V3` adds `merchant_id`, backfilled from `payload->>'merchantId'` with a UUID-shaped guard so
+one malformed value cannot fail the migration. **Nullable**, following D126's precedent for this table:
+audit consumes streams whose events genuinely have no merchant, and inventing a value to satisfy a
+constraint is a lie in an immutable trail.
+
+**Internal events cannot leak into a merchant's feed — structurally.** The list filters on the
+canonical vocabulary rather than a deny-list, so `merchant.events` rows (`ApiKeyIssued`, …) are excluded
+because their internal type has no canonical counterpart. D126's decision to record those honestly
+rather than coerce them is what makes that correct rather than lucky. Asserted both ways: absent from
+the list *and* unreachable by direct id.
+
+**Ordered by `occurredAt`, not `recordedAt`.** A merchant asking "what happened, in order" means the
+order things happened — and under Kafka redelivery those two genuinely differ.
+
+**Tests.** 16 green in the module (7 new). Canonical shape and derived id; the isolation sweep (real id
+refused for another merchant and for the other mode, 404 not 403); an internal-only event invisible both
+ways; ordering by occurrence with records written in the opposite order; the type filter rejecting a typo
+with the vocabulary named; four malformed event ids returning 400 rather than crashing; pagination
+returning every event exactly once.
+
+#### M19.6 — Analytics: hourly buckets and the query API ✅ (2026-07-25)
+
+**Summary.** `payment_stats_hourly` plus `GET /v1/analytics/payments`, returning totals, a derived
+success rate, and the hourly series in one response. Closes the other half of V1 known issue #4. The
+only write-path change in M19.
+
+**Files created.** `domain/PaymentStatsHourly.java`, `repository/PaymentStatsHourlyRepository.java`,
+`dto/AnalyticsSummaryResponse.java`, `dto/AnalyticsBucketResponse.java`,
+`service/AnalyticsQueryService.java`, `web/AnalyticsController.java`, `config/SecurityConfig.java`,
+`security/*` (3), migration `V3__payment_stats_hourly.sql`, `AnalyticsQueryIntegrationTest`.
+**Files modified.** `service/AnalyticsService.java` (bucket written in the same transaction and the same
+retry loop as the running total, so they cannot disagree), `AnalyticsServiceTest`, `build.gradle.kts`,
+`application.yaml`.
+
+**Hourly, not daily**, because a merchant debugging "what happened this afternoon" needs finer
+resolution than a day — and hourly rolls up to daily trivially while the reverse is impossible.
+**No backfill**: which hour each past event fell in exists only in audit-service's trail, and
+reconstructing analytics from another service's schema would couple two things D4 keeps apart. The
+running totals remain complete; only the series has a start date, which is the truth.
+
+**`failed_count` is new here and absent from the running totals** — a gap that only became visible when
+something first *read* these numbers: a success rate needs a denominator that includes failures. The
+running-total table is left alone rather than widened, because it could not honestly backfill one either.
+
+**The success rate is computed by the platform, not the caller.** There is more than one defensible
+denominator, and returning raw counters invites every client to pick a different one. Published
+definition: `authorized / (authorized + failed)`. **Null, not zero, when nothing was attempted** — a
+rate over zero attempts is unknown, and charting it as zero shows a catastrophic outage every quiet hour.
+
+**A 90-day cap that rejects rather than truncates.** An uncapped range over an hourly table is the
+unbounded query M19's risk table warns about; a silently shortened series would be charted as though it
+were the whole story.
+
+**Tests.** 26 green in the module (7 new): totals and series in one response, oldest-first; the rate's
+denominator; the unknown-rate case; scoping across merchant and mode; the window cap and an inverted
+range both rejected; and a partial-hour request returning the bucket that contains it.
+
+#### M19.7 — Gateway routes and scope enforcement ✅ (2026-07-25)
+
+**Summary.** The commit where the public surface actually opens. Five new routes, three new scopes, and
+the removal of M15's `RewritePath`.
+
+**Files modified.** `gateway-service/application.yaml` (routes + three base URIs),
+`ApiKeyAuthenticationWebFilter.java` (scopes), `docker-compose.yml` (three base URIs),
+`payment-service/web/PaymentV1Controller.java` (+ the mutating endpoints),
+`ApiKeyAuthenticationIntegrationTest` (stub now answers the public path).
+
+**A defect caught before it shipped.** Removing the rewrite would have broken payment *creation*:
+`PaymentV1Controller` had only reads, while create/authorize/capture/refund/void lived on `/api/v1` and
+were reached through the rewrite. Fixed by giving the public controller the full surface, delegating to
+the same `PaymentService` — one FSM, one idempotency guard, one outbox, not a second implementation. A
+rewrite covering only non-GET verbs was rejected as the alternative: one path served by two controllers
+depending on the method is correct the day it is written and confusing forever after.
+
+**Scopes.** `balance:read`, `events:read`, `analytics:read` extend §4.9's vocabulary. Read-only
+resources, so no write counterpart is named — a scope for an operation the platform does not offer would
+be a promise rather than a permission. Refunds deliberately reuse `payments:read`: a key that may read
+payments may read their refunds, and §4.9's `refunds:write` describes *issuing* one, which is still
+`payments:write` on the payment itself.
+
+**Regression caught by the existing suite.** Three `ApiKeyAuthenticationIntegrationTest` cases failed
+immediately on the route change, because the stub answered `/api/v1/payments` and requests now arrive at
+`/v1/payments`. Exactly what that test exists to catch.
+
+#### M19.8 — Verification, closure, and the six defects it found ✅ (2026-07-25)
+
+**Summary.** The four items M19.8 originally carried as open work are closed: real `EXPLAIN` plans on
+seeded data, a live docker-compose E2E across every new route, `metadata` on webhook endpoints, and a
+merchant-facing read-API guide with a test keeping it honest. Doing them found **six defects**, four of
+which were invisible to the existing suite by construction — the strongest argument in the milestone for
+why "verified" and "designed to be correct" are different words.
+
+**Files created.** `docs/READ_APIS.md`; `common-lib`: `query/MetadataFilterParams.java` +
+`MetadataFilterParamsTest`; payment-service: `PaymentV1ReadApiHttpIntegrationTest`,
+`ReadApiDocumentationConsistencyTest`; analytics-service: `AnalyticsDocumentationConsistencyTest`;
+migrations `notification/V7__webhook_endpoint_metadata.sql`,
+`transaction/V3__balance_read_indexes.sql`.
+**Files modified.** `common-lib`: `query/ListQuery.java`. payment-service:
+`repository/{Payment,Refund}Repository.java`, `service/PaymentQueryService.java`,
+`web/PaymentV1Controller.java`, `application.yaml`, `PaymentReadApiIntegrationTest`.
+transaction-service: `repository/LedgerEntryRepository.java`, `service/BalanceQueryService.java`.
+audit-service: `repository/AuditLogEntryRepository.java`, `service/EventQueryService.java`.
+analytics-service: `service/AnalyticsQueryService.java`, `dto/AnalyticsSummaryResponse.java`,
+`AnalyticsQueryIntegrationTest`. notification-service: `domain/WebhookEndpoint.java`,
+`dto/{Create,Update}WebhookEndpointRequest.java`, `dto/WebhookEndpointResponse.java`,
+`mapper/WebhookEndpointMapper.java`, `service/WebhookEndpointService.java`,
+`web/WebhookEndpointController.java`, `docs/WEBHOOKS.md`, `WebhookEndpointApiIntegrationTest`.
+
+---
+
+##### Defect 1 — the `metadata` filter failed *open* (payments and refunds)
+
+`@RequestParam(name = "metadata") Map<String, String>` does not do what it reads like. Spring binds a
+`Map` to "every request parameter" **only when the annotation carries no name**; naming it routes the
+parameter down the ordinary single-value path, which looks for one parameter literally called
+`metadata`. So `?metadata[orderId]=A-1234` bound nothing, the filter reached the query as `null`, and
+the endpoint **returned the merchant's entire history as though it had been filtered**.
+
+That is a filter failing open on a financial list — the precise failure `PaymentListFilter` was written
+to prevent for `status`, where a typo is a 400 specifically because silently returning the wrong rows is
+worse than erroring. It shipped because M19.2's list tests call the repository directly (deliberately,
+and with good reason — the SQL is what needed proving) while M19.7's gateway tests answer from a stub.
+**No test in the milestone ever sent a query string**, so the one layer between them was the one nothing
+executed.
+
+Fixed in `common-lib` as `MetadataFilterParams`, so four list endpoints cannot each get it wrong
+differently. A malformed or bare `metadata` parameter is now a **400 naming the correct syntax** rather
+than being discarded — the same fail-loud rule the rest of the filter set already followed.
+
+##### Defect 2 — the null-guard idiom demoted every range and cursor predicate to a filter
+
+`PaymentRepository.findPage`'s javadoc claimed the row-wise comparison "lets Postgres satisfy the keyset
+predicate directly from `idx_payments_merchant_mode_created` as a single index range scan." The plan says
+otherwise. Wrapping it as `(:cursorCreatedAt is null or (created_at, id) < (…))` makes it a **`Filter`,
+not an `Index Cond`**: Postgres scans from the newest row of the merchant's partition and discards
+everything above the cursor, so a deep page costs **O(depth)** — exactly what keyset pagination exists to
+avoid. The same applied to `created_after`/`created_before`.
+
+Measured on 600,000 seeded payments, one page 150 days in:
+
+| | Buffers | Rows discarded | Time |
+|---|---|---|---|
+| Null-guarded (as shipped) | 2,512 | 2,568 | 1.09 ms |
+| Unguarded bounds | **29** | **0** | **0.045 ms** |
+
+The fix is the sentinel-bound idiom M19.4 had already adopted in transaction-service — for a *different*
+reason (Postgres cannot infer a bind parameter's type from `? is null` alone). M19.8 found that the
+choice made for type-inference reasons is also the one that produces the right plan, so the three
+sentinels moved to `ListQuery` (`EARLIEST`, `LATEST`, `LAST_ID`) with bound accessors, and payment-service
+adopted them. Three private copies of the same constants collapsed into one, which is what M19.1 said
+shared primitives were for. **D141.**
+
+Status, currency, amount and metadata keep their null guards deliberately: they do not participate in the
+ordering, so they cost only a `Filter` on rows the index already located, and there is no sentinel for
+"any status" that would not be a lie.
+
+##### Defect 3 — `GET /v1/balance_transactions` had no index for its own ordering
+
+`ledger_entries` carried `idx_ledger_entries_account_id` (from M6), which can *find* a merchant's entries
+but cannot *order* them. Every page therefore read **every entry the merchant had ever accumulated** and
+top-N sorted it. Invisible at any volume this repository produces — the seeded merchants have ~700
+entries each, where the sort is free — so a fixture with 200,000 entries on one account was built to tell
+an O(page) plan from an O(history) one:
+
+| | Plan | Buffers | Time |
+|---|---|---|---|
+| As shipped | Parallel Bitmap Heap Scan + top-N heapsort | 5,962 | 24.72 ms |
+| With `(account_id, created_at desc, id desc)` | Index Scan | **19** | **0.035 ms** |
+
+**314× fewer buffers.** `transaction/V3__balance_read_indexes.sql` adds it. The old index is deliberately
+*not* dropped, unlike M19.2's supersession of `idx_payments_merchant_mode`: it is redundant for lookups
+but it also backs the `account_id` foreign key, and dropping the only index on an FK column makes every
+delete on `accounts` scan this table.
+
+##### Defect 4 — `GET /v1/balance` was a sequential scan
+
+Resolving a merchant's accounts by `(owner_id, mode)` had no index at all. `uq_accounts_merchant` is
+unique on `(account_type, owner_id, currency, mode)`, and a leading `account_type` cannot serve a lookup
+that does not name one. Small today — two rows per merchant per mode per currency — and unbounded in the
+only direction that matters: it grows with the number of merchants, and it is the query every dashboard
+load starts with. Same migration.
+
+##### Defect 5 — the documented `metadata[key]=value` syntax returned Tomcat's HTML 400
+
+Found on the live stack, not by any test. Tomcat rejects `[` and `]` in a query string by default (RFC
+3986 reserves them), so a client sending the published form **literally** got `HTTP 400` with Tomcat's
+*HTML* error page — not merely a failure, but one that breaks the JSON error contract M21 will freeze.
+Percent-encoded brackets worked, which is why most HTTP clients never saw it and why MockMvc never could:
+it builds the request object directly and never goes through Tomcat's URI parser.
+
+`server.tomcat.relaxed-query-chars: "[,]"` in payment-service, scoped to those two characters and to the
+one service that serves the filter, so both spellings behave identically instead of one of them depending
+on which HTTP library a developer happens to use. The E2E now asserts both. **D142.**
+
+##### Defect 6 — `successRate: null` was not on the wire at all
+
+`AnalyticsSummaryResponse` carried `@JsonInclude(NON_NULL)` like every other response in the platform, so
+the field a quiet hour is supposed to report as `null` was **omitted entirely**. M19.6 asserted
+`summary.successRate()).isNull()` on the object, which passes either way; the live response was the first
+thing to show what a client actually receives.
+
+Absence is the wrong signal here. §4.10 tells clients to expect and ignore fields a version does not
+have, so silence makes "we measured and there is no answer" indistinguishable from "this API has no such
+field" — hiding the one case the null exists to communicate. The annotation is removed (no other field
+here is ever null, so nothing else changes on the wire) and a test now asserts the **serialized** form.
+**D143.**
+
+---
+
+##### Query performance verification (§5/M19's `EXPLAIN` risk mitigation)
+
+A throwaway `pf_explain` database was built from a `pg_dump --schema-only` of the **live compose stack**,
+so the tables and indexes are exactly what Flyway produced rather than a hand-written approximation, then
+seeded to volumes at which a plan means something: 600k payments, 60k refunds, 800k audit rows, 600k
+ledger entries (plus a 200k-entry single account), 864k hourly buckets.
+
+Final plans, every public read in its post-fix shape:
+
+| Endpoint | Plan | Buffers | Time |
+|---|---|---|---|
+| `GET /v1/payments` (first page) | Index Scan `idx_payments_merchant_mode_created` | 28 | 5.0 ms |
+| `GET /v1/payments` (deep cursor page) | Index Scan, same index, cursor **in the `Index Cond`** | 29 | 3.6 ms |
+| `GET /v1/payments?status=` | Index Scan + `Filter` (152 discarded) | 176 | 5.4 ms |
+| `GET /v1/payments?created_after=&created_before=` | Index Scan, range **in the `Index Cond`** | 31 | 0.06 ms |
+| `GET /v1/payments?metadata[k]=v` | BitmapAnd of the GIN index + merchant index, then Sort | 21 | 5.1 ms |
+| `GET /v1/refunds` | Index Scan `idx_refunds_merchant_mode_created` | 29 | 4.7 ms |
+| `GET /v1/payments/{id}` | Index Scan `payments_pkey` | 8 | 2.0 ms |
+| `GET /v1/balance` | Index Scan `idx_accounts_owner_mode` (new) | 3 | 1.2 ms |
+| `GET /v1/balance_transactions` (200k-entry account) | Index Scan `idx_ledger_entries_account_created` (new) | 19 | 1.1 ms |
+| `GET /v1/events` | Index Scan `idx_audit_log_merchant_mode_occurred`, range in the `Index Cond` | 28 | 9.9 ms |
+| `GET /v1/events/{id}` | Index Scan `uq_audit_log_event_id` | 8 | 1.2 ms |
+| `GET /v1/analytics/payments` (90-day maximum) | Bitmap Index Scan `idx_payment_stats_hourly_series` + Sort | 2,189 | 3.2–3.9 ms (warm) |
+
+**No unexpected sequential scan remains.** Two plans keep a `Sort` and both are correct rather than
+tolerated:
+
+- The **metadata filter** sorts because a GIN index cannot supply ordering — containment and
+  `ORDER BY created_at` cannot both come from one index. The BitmapAnd confirms the GIN index is doing
+  the selective work, which is what it exists for.
+- The **analytics series** sorts because the index is `bucket_start DESC` and a chart reads
+  ascending. 2,189 buffers is the *widest legal request* (2,160 hourly buckets), which is precisely what
+  the 90-day cap bounds — the cap is the mitigation, and it is now a measured one.
+
+**Keyset pagination confirmed correct at the plan level**, not just behaviourally: the row-wise comparison
+appears inside `Index Cond`, so page 500 costs what page 1 costs. That was the property M19.1 claimed and
+M19.8 is the first thing to check.
+
+---
+
+##### Live docker-compose E2E — 83 checks, 0 failures
+
+Images rebuilt for all nine services; every M19 migration applied against the **populated** database
+(`payment` V5/V6, `audit` V3, `analytics` V3, `notification` V7, `transaction` V3, all `success = t`);
+all 13 containers healthy. Driven entirely over the real gateway on `:8080` with two freshly registered
+merchants and their own onboarding-issued keys — no test-only bypass, no direct service call.
+
+- **Payments list** — envelope (`object: "list"`), `limit`, `hasMore`, cursor round-trip across a page
+  boundary with no overlap, status/currency/amount filters, unknown status → 400, `limit` clamped above
+  the ceiling but rejected at 0, forged cursor → 400.
+- **`metadata` filter** — both the literal and percent-encoded spellings narrow to exactly one payment;
+  a value nothing carries returns **0**, not everything; a bare `metadata=` is 400.
+- **`expand=refunds`** — attaches the refund with its own `object: "refund"`; absent (not `[]`) without
+  `expand`; an unrecognised `expand` value is ignored rather than rejected.
+- **Refunds** — list, by id, filtered by payment (including a payment with none → 0), metadata filter.
+- **Balance** — pending and available per currency; **the reported available balance equals a direct SQL
+  sum over the ledger entries** (M19's completion criterion, verified against the live database, not a
+  fixture); the platform's clearing account never appears; entries carry the payment that caused them.
+- **Events** — canonical `evt_` ids, retrievable by that id, type filter, unknown type → 400, malformed
+  id → 400 rather than a crash.
+- **Analytics** — totals plus the hourly series in one response, the 90-day cap and an inverted range
+  both rejected, and an idle merchant reporting `successRate: null` explicitly.
+- **Merchant isolation** — 7 checks, every resource, both directions: a real id from the other merchant
+  is **404, never 403** (D102), and neither merchant's list, balance, or ledger contains the other's rows.
+- **Mode isolation** — 8 checks: test ids invisible to the live key and vice versa across payments,
+  refunds, events and the ledger; a live list contains only `mode: "live"` rows; and a **client-supplied
+  `X-PF-Mode: live` cannot cross the boundary**, because the gateway strips it (M16.2's defence in depth,
+  now demonstrated rather than asserted).
+- **Scope enforcement** — a `payments:read` key reads payments and refunds (200) and is refused balance,
+  events, analytics and webhooks (403) and payment creation (403); no credential and a garbage key are
+  both 401.
+- **Gateway routing** — all four previously unroutable paths reach their services.
+- **Webhook endpoint metadata** — stored at registration, readable afterwards, replaced wholesale by
+  `PATCH`, and left untouched when the field is omitted.
+
+##### `metadata` on webhook endpoints (§4.6's third object)
+
+§4.6 and §5/M19's feature list both name payments, refunds **and endpoints**; M19.2/M19.3 delivered the
+first two. `webhook_endpoints.metadata jsonb not null default '{}'` closes the third, exposed on create,
+update and every read.
+
+**Deliberately not indexed**, and recorded rather than glossed over: payments and refunds carry a GIN
+index because their lists expose a containment filter that is unusable without one. The endpoint list has
+no filter — it returns every endpoint a merchant has in one mode, hard-capped at 16 — so a GIN index here
+would be paid for on every write to serve a query that does not exist. §5/M19 says metadata is "indexed
+for filtering"; the index exists exactly where the filtering does. **D144.**
+
+##### Documentation
+
+`docs/READ_APIS.md` — the merchant-facing guide for all five read APIs, at repository root rather than
+under a service because it spans five of them. Endpoint overview and required scopes, authentication and
+mode binding, the list envelope and cursor semantics (including *why* there is no total count), time-range
+tiling, the full filter set per resource, `metadata`, `expand`, the error table and the 404-masking rule,
+then a section per resource, and the forward-compatibility contract.
+
+Kept honest by two tests, following M18.9's precedent of asserting against running configuration rather
+than literals: `ReadApiDocumentationConsistencyTest` (payment-service) checks the published page sizes
+against `ListQuery`'s constants, that **every** `PaymentStatus`, `RefundStatus` and `CanonicalEventType`
+value appears, the inclusive/exclusive range semantics, and — the one that would have caught Defect 1 —
+**round-trips the exact filter string the guide prints back through the parser that has to accept it**.
+`AnalyticsDocumentationConsistencyTest` checks the default and maximum windows against
+`AnalyticsQueryService`'s constants and the published success-rate formula.
+`WebhookDocumentationConsistencyTest` and `WEBHOOKS.md` were updated for endpoint metadata.
+
+---
+
+##### Regression verification (2026-07-26)
+
+`.\gradlew.bat build --rerun-tasks --no-parallel --max-workers=1` — **BUILD SUCCESSFUL in 12m 28s**,
+`74 actionable tasks: 74 executed`. Aggregated from each module's JUnit XML rather than the task summary
+(M18.1's trap): **566 tests, 0 failures, 0 errors, 0 skipped** across all 11 test-bearing modules —
+notification 152, payment 126, sandbox 78, common-lib 46, gateway 31, analytics 30, transaction 27,
+common-dto 24, merchant 24, audit 16, identity 12.
+
+**+84 tests over M18's 482**, and the growth lands where M19 did the work: common-lib +24 (the cursor,
+`ListQuery` and `MetadataFilterParams` primitives), payment +25, analytics +11, and +7 each in
+common-dto, transaction and audit.
+
+**That every test genuinely re-executed was checked rather than assumed**, because a build cache that
+restores a green result is indistinguishable from a green build until it hides a real failure. All 12
+`:test` tasks appear in the log as executed; the only 22 `UP-TO-DATE`/`FROM-CACHE`/`NO-SOURCE` entries
+are empty `processTestResources` directories and the two source-less modules (`platform-bom`, and
+`load-tests`, whose Gatling simulations carry no JUnit tests). No test task was served from cache.
+
+**A deliberate note on the wall-clock time**, since it invites a wrong conclusion: M18.9's equivalent run
+took 1h 17m and this one took 12m 28s. The difference is environmental, not a reduction in what ran —
+the Testcontainers images were already resident and the full compose stack was up from M19.8's E2E, so
+this run paid no image-pull or cold-start cost, and Gradle reported `Configuration cache entry reused`.
+The task and test counts above are the honest signal; the clock is not.
+
+##### Completion criteria (§5/M19)
+
+| Criterion | Status |
+|---|---|
+| Every V1 "no query API" known issue is closed | ✅ §2.11 #3 (transaction-service) and #4 (audit + analytics) closed |
+| Cursor pagination is stable under concurrent writes | ✅ `PaymentReadApiIntegrationTest` pages with three rows inserted between pages, and the keyset boundary is exact when timestamps collide; re-confirmed on the live stack |
+| Ledger totals returned by the balance API match a direct `psql` sum exactly | ✅ Asserted in `BalanceApiIntegrationTest` and again in the E2E **against the live database**, not a fixture — meaningful only because the balance is projected from the ledger rather than stored |
+| Every endpoint enforces merchant and mode isolation, verified endpoint by endpoint | ✅ Per-module isolation tests plus the E2E's 7 merchant-isolation and 8 mode-isolation checks; a real id from the other merchant is 404, never 403 (D102) |
+| List, error, and pagination semantics are identical across all resources | ✅ Structural rather than reviewed — one `CursorPage`, one `ListQuery`, one `MetadataFilterParams` and one `CursorCodec` serve all five resources, and `ReadApiDocumentationConsistencyTest` round-trips the published filter syntax through the parser that must accept it |
+
+Additionally, §5/M19's `EXPLAIN` risk mitigation is satisfied by measured plans on production-scale
+seeded data rather than assumption: no unexpected sequential scan remains, and keyset pagination is
+confirmed correct *at the plan level* — the row-wise comparison appears inside `Index Cond`, so page 500
+costs what page 1 costs.
+
+**M19 status: complete.** All eight sub-milestones implemented, verified independently, and validated
+together on a live stack over the real gateway. V1 known issues #3 and #4 are closed, and with them the
+last of the "three services with no API at all" that D42 deferred in V1. **Six defects were found and
+fixed during M19.8**, four of which were invisible to the existing suite by construction — a `metadata`
+filter that failed *open* and returned a merchant's entire history (Defect 1), two missing indexes that
+made reads O(history) instead of O(page) (Defects 3 and 4), a published filter syntax that returned
+Tomcat's HTML error page (Defect 5), and a `null` the API was supposed to report but never put on the
+wire (Defect 6). The milestone's own testing strategy is what found none of them: M19.2's list tests call
+the repository directly and M19.7's gateway tests answer from a stub, so **no test in the milestone ever
+sent a query string** until M19.8 added one. That gap — between "designed to be correct" and "observed to
+be correct" — is the most transferable thing M19 produced.
+
+**Next milestone: M20** — API request logging, usage metering, and per-key rate limits.
 
 ---
 

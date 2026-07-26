@@ -18,6 +18,9 @@ dependencies {
     implementation(project(":common-lib"))
 
     implementation("org.springframework.boot:spring-boot-starter-web")
+    // M19.6: the analytics query API. Security for InternalContextFilter only —
+    // no OAuth2 resource server (D133).
+    implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
@@ -31,6 +34,7 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-webmvc-test")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.springframework.kafka:spring-kafka-test")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")

@@ -51,6 +51,13 @@ public class AuditLogEntry {
     @Column(updatable = false, length = 4)
     private String mode;
 
+    // M19.5: extracted from the payload so the Events API can scope by merchant with an
+    // indexed predicate rather than a jsonb dig. Nullable for the same reason mode is
+    // (D126): audit consumes streams whose events genuinely belong to no merchant, and
+    // inventing a value to satisfy a constraint would be a lie in an immutable trail.
+    @Column(name = "merchant_id", updatable = false)
+    private UUID merchantId;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload", nullable = false, updatable = false, columnDefinition = "jsonb")
     private String payload;
@@ -64,19 +71,21 @@ public class AuditLogEntry {
     }
 
     private AuditLogEntry(UUID eventId, String eventType, String aggregateId, Instant occurredAt,
-                          String correlationId, String mode, String payload) {
+                          String correlationId, String mode, UUID merchantId, String payload) {
         this.eventId = eventId;
         this.eventType = eventType;
         this.aggregateId = aggregateId;
         this.occurredAt = occurredAt;
         this.correlationId = correlationId;
         this.mode = mode;
+        this.merchantId = merchantId;
         this.payload = payload;
     }
 
     public static AuditLogEntry of(UUID eventId, String eventType, String aggregateId, Instant occurredAt,
-                                   String correlationId, String mode, String payload) {
-        return new AuditLogEntry(eventId, eventType, aggregateId, occurredAt, correlationId, mode, payload);
+                                   String correlationId, String mode, UUID merchantId, String payload) {
+        return new AuditLogEntry(eventId, eventType, aggregateId, occurredAt, correlationId, mode, merchantId,
+                payload);
     }
 
     public UUID getId() {
@@ -101,6 +110,10 @@ public class AuditLogEntry {
 
     public String getCorrelationId() {
         return correlationId;
+    }
+
+    public UUID getMerchantId() {
+        return merchantId;
     }
 
     public String getMode() {

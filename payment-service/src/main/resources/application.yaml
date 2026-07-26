@@ -49,6 +49,22 @@ spring:
 
 server:
   port: 8083
+  tomcat:
+    # M19.8. The public metadata filter is spelled `metadata[orderId]=A-1234` — the
+    # convention every comparable API uses, and the one docs/READ_APIS.md publishes.
+    # Tomcat rejects `[` and `]` in a query string by default (RFC 3986 reserves them),
+    # so a client that sends the documented form literally got HTTP 400 with Tomcat's
+    # *HTML* error page — not merely a failure, but one that breaks the JSON error
+    # contract M21 is going to freeze.
+    #
+    # Found by M19.8's live compose run, not by any test: every in-process test builds
+    # the request through MockMvc, which does not go through Tomcat's URI parser at all.
+    #
+    # Most HTTP clients percent-encode the brackets and worked already; relaxing the
+    # parser means both spellings behave identically instead of one of them depending on
+    # which library a developer happens to use. Scoped to these two characters, and only
+    # in the service that serves the filter.
+    relaxed-query-chars: "[,]"
 
 paymentflow:
   services:

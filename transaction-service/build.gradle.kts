@@ -18,6 +18,10 @@ dependencies {
     implementation(project(":common-lib"))
 
     implementation("org.springframework.boot:spring-boot-starter-web")
+    // M19.4: the ledger's first REST layer (read-only, §5/M19 task 3). Spring Security
+    // is here solely to host common-lib's InternalContextFilter (D100) — no OAuth2 resource
+    // server, since this service never sees a JWT (D133's precedent from notification-service).
+    implementation("org.springframework.boot:spring-boot-starter-security")
     // common-lib's GlobalExceptionHandler (auto-activated for any servlet app, D11) has
     // a ConstraintViolationException handler method — that class must resolve at
     // class-load time even though this service does no request-body validation itself.
@@ -34,6 +38,7 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-webmvc-test")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.springframework.kafka:spring-kafka-test")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")

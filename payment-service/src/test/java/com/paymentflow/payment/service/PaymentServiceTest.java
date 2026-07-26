@@ -20,6 +20,7 @@ import com.paymentflow.payment.mode.RequestModeResolver;
 import com.paymentflow.payment.repository.OutboxEventRepository;
 import com.paymentflow.payment.repository.PaymentRepository;
 import com.paymentflow.payment.repository.ProcessedEventRepository;
+import com.paymentflow.payment.repository.RefundRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,8 +55,13 @@ class PaymentServiceTest {
 
     @Mock
     private PaymentRepository paymentRepository;
+    // M19.3: refunds became objects, so the refund path now writes a row alongside the
+    // accumulator. Mocked rather than asserted here — this suite is about the FSM and the
+    // published event type; the row itself is covered by the integration tests.
+    @Mock
+    private RefundRepository refundRepository;
     @Spy
-    private PaymentMapper paymentMapper = new PaymentMapper();
+    private PaymentMapper paymentMapper = new PaymentMapper(tools.jackson.databind.json.JsonMapper.builder().build());
     @Mock
     private PaymentEventPublisher eventPublisher;
     @Mock
@@ -104,7 +110,7 @@ class PaymentServiceTest {
 
     @Test
     void createRequiresAnIdempotencyKey() {
-        CreatePaymentRequest request = new CreatePaymentRequest(1000, "USD", "x", null);
+        CreatePaymentRequest request = new CreatePaymentRequest(1000, "USD", "x", null, null);
 
         assertThatThrownBy(() -> paymentService.create(request, null)).isInstanceOf(BadRequestException.class);
         assertThatThrownBy(() -> paymentService.create(request, "  ")).isInstanceOf(BadRequestException.class);
@@ -114,7 +120,7 @@ class PaymentServiceTest {
     void createSavesAPendingPaymentAndPublishesAnEvent() {
         when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        PaymentResponse response = paymentService.create(new CreatePaymentRequest(5000, "USD", "desc", null), "key-1");
+        PaymentResponse response = paymentService.create(new CreatePaymentRequest(5000, "USD", "desc", null, null), "key-1");
 
         assertThat(response.amountMinor()).isEqualTo(5000);
         assertThat(response.status()).isEqualTo("CREATED");
@@ -125,7 +131,7 @@ class PaymentServiceTest {
 
     @Test
     void authorizeTransitionsTheCallersOwnedPayment() {
-        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null);
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null, null);
         when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
                 .thenReturn(Optional.of(payment));
 
@@ -137,7 +143,7 @@ class PaymentServiceTest {
 
     @Test
     void authorizeFailsThePaymentOnADeclinedDecision() {
-        Payment payment = Payment.create(merchantId, "test", 5000, "USD", "pm_card_chargeDeclined", null);
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", "pm_card_chargeDeclined", null, null);
         when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
                 .thenReturn(Optional.of(payment));
         when(authorizationAdvisor.advise(any())).thenReturn(AuthorizationDecision.declined("card_declined"));
@@ -151,7 +157,7 @@ class PaymentServiceTest {
 
     @Test
     void authorizeFailsThePaymentOnAnErrorDecision() {
-        Payment payment = Payment.create(merchantId, "test", 5000, "USD", "pm_card_processingError", null);
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", "pm_card_processingError", null, null);
         when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
                 .thenReturn(Optional.of(payment));
         when(authorizationAdvisor.advise(any())).thenReturn(AuthorizationDecision.error("processing_error"));
@@ -165,7 +171,7 @@ class PaymentServiceTest {
 
     @Test
     void authorizeNeverCallsTheAdvisorWhenThePaymentCannotBeAuthorized() {
-        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null);
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null, null);
         payment.authorize();
         when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
                 .thenReturn(Optional.of(payment));
@@ -187,13 +193,13 @@ class PaymentServiceTest {
 
     @Test
     void captureThenRefundWithNoAmountRefundsTheFullCapturedAmount() {
-        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null);
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null, null);
         payment.authorize();
         payment.capture();
         when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
                 .thenReturn(Optional.of(payment));
 
-        PaymentResponse response = paymentService.refund(UUID.randomUUID(), new RefundRequest(null), "key-4");
+        PaymentResponse response = paymentService.refund(UUID.randomUUID(), new RefundRequest(null, null, null), "key-4");
 
         assertThat(response.status()).isEqualTo("REFUNDED");
         assertThat(response.refundedAmountMinor()).isEqualTo(5000);
@@ -202,13 +208,13 @@ class PaymentServiceTest {
 
     @Test
     void partialRefundPublishesThePartiallyRefundedEventType() {
-        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null);
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null, null);
         payment.authorize();
         payment.capture();
         when(paymentRepository.findByIdAndMerchantIdAndMode(any(), eq(merchantId), eq("test")))
                 .thenReturn(Optional.of(payment));
 
-        PaymentResponse response = paymentService.refund(UUID.randomUUID(), new RefundRequest(2000L), "key-5");
+        PaymentResponse response = paymentService.refund(UUID.randomUUID(), new RefundRequest(2000L, null, null), "key-5");
 
         assertThat(response.status()).isEqualTo("PARTIALLY_REFUNDED");
         verify(eventPublisher).publish(payment, "PaymentPartiallyRefunded", PaymentStatus.CAPTURED, 2000L, merchant);
@@ -248,7 +254,7 @@ class PaymentServiceTest {
     @Test
     void applyDeferredCaptureIsANoOpForAModeMismatch() {
         UUID paymentId = UUID.randomUUID();
-        Payment payment = Payment.create(merchantId, "live", 5000, "USD", null, null);
+        Payment payment = Payment.create(merchantId, "live", 5000, "USD", null, null, null);
         payment.authorize();
         when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(payment));
 
@@ -262,7 +268,7 @@ class PaymentServiceTest {
     @Test
     void applyDeferredCaptureIsANoOpWhenThePaymentIsAlreadyCaptured() {
         UUID paymentId = UUID.randomUUID();
-        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null);
+        Payment payment = Payment.create(merchantId, "test", 5000, "USD", null, null, null);
         payment.authorize();
         payment.capture();
         when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(payment));

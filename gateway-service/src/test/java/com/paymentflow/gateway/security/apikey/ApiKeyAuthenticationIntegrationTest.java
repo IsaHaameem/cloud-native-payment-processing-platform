@@ -87,6 +87,14 @@ class ApiKeyAuthenticationIntegrationTest {
         paymentStub = HttpServer.create()
                 .port(0)
                 .route(routes -> routes
+                        // M19.7: the gateway no longer rewrites /v1/payments onto
+                        // /api/v1/payments (D139 split the tiers into separate
+                        // controllers), so the stub now answers the public path directly.
+                        // The /api/v1 routes stay because the JWT-path test still uses them.
+                        .get("/v1/payments", ApiKeyAuthenticationIntegrationTest::paymentStubResponse)
+                        .get("/v1/payments/**", ApiKeyAuthenticationIntegrationTest::paymentStubResponse)
+                        .post("/v1/payments", ApiKeyAuthenticationIntegrationTest::paymentStubResponse)
+                        .post("/v1/payments/**", ApiKeyAuthenticationIntegrationTest::paymentStubResponse)
                         .get("/api/v1/payments", ApiKeyAuthenticationIntegrationTest::paymentStubResponse)
                         .get("/api/v1/payments/**", ApiKeyAuthenticationIntegrationTest::paymentStubResponse)
                         .post("/api/v1/payments", ApiKeyAuthenticationIntegrationTest::paymentStubResponse)

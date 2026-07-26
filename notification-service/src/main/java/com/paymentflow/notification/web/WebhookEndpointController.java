@@ -64,7 +64,8 @@ public class WebhookEndpointController {
                 context.merchantId(), context.mode(), request.url(), request.description(), request.enabledEvents(),
                 // Carried on the verified context (D118) so notification-service never has
                 // to call merchant-service to learn where to send an auto-disable notice.
-                context.contactEmail());
+                context.contactEmail(),
+                mapper.writeMetadata(request.metadata()));
         return new WebhookEndpointCreatedResponse(
                 mapper.toResponse(registered.endpoint(), registered.subscriptions()), registered.rawSecret());
     }
@@ -92,7 +93,11 @@ public class WebhookEndpointController {
                                           @Valid @RequestBody UpdateWebhookEndpointRequest request) {
         MerchantContext context = requireContext();
         WebhookEndpoint endpoint = webhookEndpointService.update(context.merchantId(), context.mode(), id,
-                request.description(), request.enabled(), request.enabledEvents());
+                request.description(), request.enabled(), request.enabledEvents(),
+                // The map and the "was it sent at all?" flag are both needed: an omitted
+                // `metadata` leaves the stored value alone, while `"metadata": {}` clears
+                // it, and writeMetadata collapses both to null.
+                mapper.writeMetadata(request.metadata()), request.metadata() != null);
         return mapper.toResponse(endpoint, webhookEndpointService.subscriptionsOf(endpoint.getId()));
     }
 

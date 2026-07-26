@@ -12,7 +12,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -26,6 +28,9 @@ import java.util.UUID;
 @Entity
 @Table(name = "payments")
 public class Payment {
+
+    /** Metadata is never null on the wire or at rest — an absent object, not an absent value. */
+    private static final String EMPTY_METADATA = "{}";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -70,6 +75,18 @@ public class Payment {
     @Column(name = "failure_reason", length = 500)
     private String failureReason;
 
+    // Free-form merchant-supplied key/value data (M19, §4.6), stored as jsonb and
+    // filterable via containment against a GIN index. Never interpreted by this service:
+    // it exists so a merchant can correlate a payment with their own order id without
+    // this platform inventing a field for every integration.
+    //
+    // Mutable, unlike most of this aggregate: metadata is annotation, not state, so
+    // correcting it must not require a new payment. It carries no lifecycle meaning and
+    // no event is published for a metadata change.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "metadata", nullable = false, columnDefinition = "jsonb")
+    private String metadata;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -86,21 +103,27 @@ public class Payment {
     }
 
     private Payment(UUID merchantId, String mode, long amountMinor, String currency, String description,
-                   String paymentMethodToken) {
+                   String paymentMethodToken, String metadata) {
         this.merchantId = merchantId;
         this.mode = mode;
         this.amountMinor = amountMinor;
         this.currency = currency;
         this.description = description;
         this.paymentMethodToken = paymentMethodToken;
+        this.metadata = (metadata == null || metadata.isBlank()) ? EMPTY_METADATA : metadata;
         this.status = PaymentStatus.CREATED;
         this.capturedAmountMinor = 0;
         this.refundedAmountMinor = 0;
     }
 
     public static Payment create(UUID merchantId, String mode, long amountMinor, String currency, String description,
-                                 String paymentMethodToken) {
-        return new Payment(merchantId, mode, amountMinor, currency, description, paymentMethodToken);
+                                 String paymentMethodToken, String metadata) {
+        return new Payment(merchantId, mode, amountMinor, currency, description, paymentMethodToken, metadata);
+    }
+
+    /** Replaces the metadata wholesale. Annotation, not state — no event, no FSM effect. */
+    public void updateMetadata(String metadata) {
+        this.metadata = (metadata == null || metadata.isBlank()) ? EMPTY_METADATA : metadata;
     }
 
     public void authorize() {
@@ -189,6 +212,10 @@ public class Payment {
 
     public String getFailureReason() {
         return failureReason;
+    }
+
+    public String getMetadata() {
+        return metadata;
     }
 
     public Instant getCreatedAt() {

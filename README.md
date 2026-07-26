@@ -612,6 +612,12 @@ All routes below are reached through `gateway-service`; only `/api/v1/auth/**` a
 
 Every service also exposes `/actuator/health`, `/actuator/metrics`, and `/actuator/prometheus`.
 
+**The public `/v1` API (Version 2)**
+
+The table above documents the `/api/v1` surface — the JWT-authenticated tier the dashboard uses. Version 2 adds a separate, API-key-authenticated public tier at `/v1`, which is the one external developers and the SDKs consume: scoped `sk_`/`pk_` keys with test/live mode binding, signed webhooks with a full delivery log, a sandbox simulation engine, and read APIs for payments, refunds, balance, ledger entries, events, and analytics. The two tiers are deliberately distinct — `/v1` is a versioned public promise, `/api/v1` is undocumented and freely changeable.
+
+That surface is documented separately rather than duplicated here: see `docs/READ_APIS.md` for the read APIs and their list, filter, and pagination semantics, `notification-service/docs/WEBHOOKS.md` for the webhook guide and signature specification, and `PROJECT_CONTEXT_2.md` for the full V2 architecture and milestone history. A generated OpenAPI 3.1 description of the whole `/v1` surface is planned.
+
 ---
 
 ## Event-Driven Workflow
@@ -712,9 +718,6 @@ docs/images/gatling-report.png                — A Gatling HTML load-test repor
 - A dedicated OpenTelemetry Collector
 
 **Known limitations**
-- No merchant-API-key-based authentication path exists for payment creation yet — only JWT-via-gateway is supported, deferred until a real server-to-server caller needs it.
-- Ledger, audit, and analytics data have no query API yet; verifying that data currently requires a direct database query.
-- Webhook deliveries are not yet cryptographically signed — no HMAC scheme.
 - The notification service's email channel is a simulated, durably-logged send; no real SMTP/SES provider is wired up.
 - The observability stack runs locally only and has not yet been deployed alongside the AWS environment.
 - The CD pipeline is implemented but has not yet been exercised with live repository secrets — images have so far been pushed to ECR by hand.

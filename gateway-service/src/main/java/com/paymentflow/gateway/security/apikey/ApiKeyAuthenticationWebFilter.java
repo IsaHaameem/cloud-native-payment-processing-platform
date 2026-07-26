@@ -44,9 +44,16 @@ public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
     private static final String PAYMENTS_PATH_PREFIX = "/v1/payments";
     private static final String WEBHOOK_ENDPOINTS_PATH_PREFIX = "/v1/webhook_endpoints";
     private static final String WEBHOOK_DELIVERIES_PATH_PREFIX = "/v1/webhook_deliveries";
+    private static final String REFUNDS_PATH_PREFIX = "/v1/refunds";
+    private static final String BALANCE_PATH_PREFIX = "/v1/balance";
+    private static final String EVENTS_PATH_PREFIX = "/v1/events";
+    private static final String ANALYTICS_PATH_PREFIX = "/v1/analytics";
     private static final String SCOPE_PAYMENTS_READ = "payments:read";
     private static final String SCOPE_PAYMENTS_WRITE = "payments:write";
     private static final String SCOPE_WEBHOOKS_MANAGE = "webhooks:manage";
+    private static final String SCOPE_BALANCE_READ = "balance:read";
+    private static final String SCOPE_EVENTS_READ = "events:read";
+    private static final String SCOPE_ANALYTICS_READ = "analytics:read";
     private static final String ERROR_CODE_INSUFFICIENT_SCOPE = "INSUFFICIENT_SCOPE";
 
     private final ApiKeyCacheService cacheService;
@@ -170,6 +177,25 @@ public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
     private static String requiredScopeFor(HttpMethod method, String path) {
         if (path.startsWith(WEBHOOK_ENDPOINTS_PATH_PREFIX) || path.startsWith(WEBHOOK_DELIVERIES_PATH_PREFIX)) {
             return SCOPE_WEBHOOKS_MANAGE;
+        }
+        // M19: three new read scopes, extending §4.9's vocabulary. Read-only resources, so
+        // there is no write counterpart to name — a scope for an operation the platform
+        // does not offer would be a promise rather than a permission.
+        if (path.startsWith(BALANCE_PATH_PREFIX)) {
+            return SCOPE_BALANCE_READ;
+        }
+        if (path.startsWith(EVENTS_PATH_PREFIX)) {
+            return SCOPE_EVENTS_READ;
+        }
+        if (path.startsWith(ANALYTICS_PATH_PREFIX)) {
+            return SCOPE_ANALYTICS_READ;
+        }
+        // Refunds are part of the payments resource family rather than a scope of their
+        // own: a key that may read payments may read their refunds, and §4.9's
+        // `refunds:write` is about *issuing* one, which is still a payments:write
+        // operation on the payment itself (POST /v1/payments/{id}/refund).
+        if (path.startsWith(REFUNDS_PATH_PREFIX)) {
+            return SCOPE_PAYMENTS_READ;
         }
         if (!path.startsWith(PAYMENTS_PATH_PREFIX)) {
             return null;

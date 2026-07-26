@@ -216,7 +216,7 @@ class MerchantResilienceIntegrationTest {
                         .header("Idempotency-Key", idempotencyKey)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new com.paymentflow.payment.dto.CreatePaymentRequest(1000, "USD", "resilience test", null))))
+                                new com.paymentflow.payment.dto.CreatePaymentRequest(1000, "USD", "resilience test", null, null))))
                 .andReturn().getResponse().getContentAsString();
     }
 
@@ -226,7 +226,7 @@ class MerchantResilienceIntegrationTest {
                         .header("Idempotency-Key", idempotencyKey)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new com.paymentflow.payment.dto.CreatePaymentRequest(1000, "USD", "resilience test", null))))
+                                new com.paymentflow.payment.dto.CreatePaymentRequest(1000, "USD", "resilience test", null, null))))
                 .andReturn().getResponse().getStatus();
     }
 
@@ -255,7 +255,7 @@ class MerchantResilienceIntegrationTest {
                         .header("Idempotency-Key", "jwt-forward-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new com.paymentflow.payment.dto.CreatePaymentRequest(1000, "USD", "x", null))))
+                                new com.paymentflow.payment.dto.CreatePaymentRequest(1000, "USD", "x", null, null))))
                 .andExpect(status().isCreated());
 
         assertThat(lastAuthorizationHeaderSeen).isEqualTo("Bearer " + token);
@@ -271,7 +271,7 @@ class MerchantResilienceIntegrationTest {
                         .header("Idempotency-Key", "down-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new com.paymentflow.payment.dto.CreatePaymentRequest(1000, "USD", "x", null))))
+                                new com.paymentflow.payment.dto.CreatePaymentRequest(1000, "USD", "x", null, null))))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code")
                         .value("SERVICE_UNAVAILABLE"));
@@ -316,7 +316,7 @@ class MerchantResilienceIntegrationTest {
                         .header("Idempotency-Key", "flaky-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new com.paymentflow.payment.dto.CreatePaymentRequest(1000, "USD", "x", null))))
+                                new com.paymentflow.payment.dto.CreatePaymentRequest(1000, "USD", "x", null, null))))
                 .andExpect(status().isCreated());
 
         assertThat(callCount.get()).isEqualTo(3);

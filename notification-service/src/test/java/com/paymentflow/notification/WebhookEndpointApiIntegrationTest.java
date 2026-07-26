@@ -212,6 +212,80 @@ class WebhookEndpointApiIntegrationTest {
     }
 
     @Test
+    void metadataSurvivesRegistrationAndIsReturnedOnEveryRead() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+
+        // §4.6 lists metadata on payments, refunds *and* endpoints; M19.8 closes the third.
+        String body = mockMvc.perform(signed(post(PATH), merchantId, "test")
+                        .content("""
+                                {"url":"http://sink.test/tagged","enabledEvents":["*"],
+                                 "metadata":{"team":"payments","deploy":"blue"}}"""))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.endpoint.metadata.team").value("payments"))
+                .andExpect(jsonPath("$.endpoint.metadata.deploy").value("blue"))
+                .andReturn().getResponse().getContentAsString();
+        UUID endpointId = UUID.fromString(jsonField(body, "id"));
+
+        // Present on the single read and on the list — a field that only appears in the
+        // creation response would be useless for the thing merchants want it for.
+        mockMvc.perform(signed(get(PATH + "/" + endpointId), merchantId, "test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.metadata.team").value("payments"));
+        mockMvc.perform(signed(get(PATH), merchantId, "test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].metadata.deploy").value("blue"));
+    }
+
+    @Test
+    void anEndpointRegisteredWithoutMetadataReportsAnEmptyObjectRatherThanNull() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        UUID endpointId = createEndpoint(merchantId, "test", "http://sink.test/untagged");
+
+        // The whole reason the column is `not null default '{}'`: a client should never
+        // have to distinguish "no metadata" from "null metadata".
+        mockMvc.perform(signed(get(PATH + "/" + endpointId), merchantId, "test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.metadata").isMap())
+                .andExpect(jsonPath("$.metadata").isEmpty());
+    }
+
+    @Test
+    void patchingMetadataReplacesItWholesaleAndAnEmptyObjectClearsIt() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        String body = mockMvc.perform(signed(post(PATH), merchantId, "test")
+                        .content("""
+                                {"url":"http://sink.test/retag","enabledEvents":["*"],
+                                 "metadata":{"team":"payments","deploy":"blue"}}"""))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID endpointId = UUID.fromString(jsonField(body, "id"));
+
+        // Replacement, not a merge: `deploy` is gone because it was not re-sent. A merge
+        // would leave a merchant no way to remove a key they no longer want.
+        mockMvc.perform(signed(patch(PATH + "/" + endpointId), merchantId, "test")
+                        .content("""
+                                {"metadata":{"team":"platform"}}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.metadata.team").value("platform"))
+                .andExpect(jsonPath("$.metadata.deploy").doesNotExist());
+
+        // Omitted entirely — PATCH semantics, so it must survive untouched.
+        mockMvc.perform(signed(patch(PATH + "/" + endpointId), merchantId, "test")
+                        .content("""
+                                {"description":"Renamed"}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.metadata.team").value("platform"));
+
+        // An explicit empty object is the documented way to clear it, and is a different
+        // request from omitting the field — the distinction `metadataSupplied` exists for.
+        mockMvc.perform(signed(patch(PATH + "/" + endpointId), merchantId, "test")
+                        .content("""
+                                {"metadata":{}}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.metadata").isEmpty());
+    }
+
+    @Test
     void disablingAndReEnablingAnEndpointWorksThroughTheApi() throws Exception {
         UUID merchantId = UUID.randomUUID();
         UUID endpointId = createEndpoint(merchantId, "test", "http://sink.test/toggle");

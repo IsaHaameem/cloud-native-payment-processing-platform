@@ -1,0 +1,32 @@
+-- M19.8: metadata on webhook endpoints.
+--
+-- §4.6 lists metadata on three developer-visible objects — "payments, refunds, endpoints"
+-- — and §5/M19's feature list repeats all three. M19.2/M19.3 gave payments and refunds
+-- theirs; this closes the third. It lands in notification-service one milestone after M18
+-- finished that service, which the M19 repository review anticipated (item 7): the column
+-- is purely additive, so nothing M18 shipped changes behaviour.
+--
+-- Why a merchant wants it here and not just on payments: an endpoint is infrastructure a
+-- merchant manages programmatically. Tagging one with the deploy, environment, or service
+-- that owns it is how they answer "which of our systems registered this?" months later,
+-- without the platform having to invent a field for every organisational scheme.
+--
+-- Defaulted to an empty object rather than left nullable, exactly as payments.metadata is:
+-- a caller reading `metadata` should never have to distinguish "no metadata" from "null
+-- metadata", and every existing row gets `{}` rather than a null that each reader would
+-- have to guard.
+alter table webhook_endpoints add column metadata jsonb not null default '{}'::jsonb;
+
+-- Deliberately NOT indexed, unlike payments.metadata and refunds.metadata.
+--
+-- Those two carry a GIN index because their list endpoints expose a `metadata` filter
+-- backed by the jsonb containment operator (@>), which is unusable without one. The
+-- endpoint list has no filter at all: it returns every endpoint a merchant has in one
+-- mode, and that set is hard-capped at paymentflow.webhooks.max-endpoints-per-mode (16),
+-- enforced in WebhookEndpointService.register. A GIN index here would be paid for on
+-- every write to serve a query that does not exist, over a set small enough that it
+-- would never be chosen anyway.
+--
+-- §5/M19 says metadata is "indexed for filtering" — the index exists precisely where the
+-- filtering does. If a future milestone adds a metadata filter to this resource, it adds
+-- the index with it, in the same change that makes it necessary.

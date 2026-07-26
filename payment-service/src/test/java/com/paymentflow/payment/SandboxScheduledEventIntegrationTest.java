@@ -207,7 +207,7 @@ class SandboxScheduledEventIntegrationTest {
     }
 
     private UUID seedAuthorizedPayment(String mode) {
-        Payment payment = Payment.create(UUID.randomUUID(), mode, 5000, "USD", null, "pm_card_delayedSettlement");
+        Payment payment = Payment.create(UUID.randomUUID(), mode, 5000, "USD", null, "pm_card_delayedSettlement", null);
         payment = paymentRepository.save(payment);
         payment.authorize();
         payment = paymentRepository.save(payment);

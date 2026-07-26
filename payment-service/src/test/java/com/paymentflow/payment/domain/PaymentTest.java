@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PaymentTest {
 
     private static Payment newPayment() {
-        return Payment.create(UUID.randomUUID(), "test", 10_000, "USD", "test payment", null);
+        return Payment.create(UUID.randomUUID(), "test", 10_000, "USD", "test payment", null, null);
     }
 
     @Test

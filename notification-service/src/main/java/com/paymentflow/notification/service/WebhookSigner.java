@@ -46,7 +46,7 @@ import java.util.List;
  * This one signs an arbitrary body with a per-endpoint secret and is a frozen, publicly
  * documented, third-party-implemented contract. Sharing an implementation would couple a
  * changeable internal format to an unchangeable external one — the same reason
- * {@code WebhookEventType} does not reuse payment-service's internal event names.
+ * {@code CanonicalEventType} does not reuse payment-service's internal event names.
  */
 @Component
 public class WebhookSigner {

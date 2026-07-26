@@ -313,6 +313,10 @@ services:
       PAYMENTFLOW_SERVICES_PAYMENT_BASE_URI: http://payment-service:8083
       PAYMENTFLOW_SERVICES_SANDBOX_BASE_URI: http://sandbox-service:8094
       PAYMENTFLOW_SERVICES_NOTIFICATION_BASE_URI: http://notification-service:8092
+      # M19: the three services that had no gateway route until now.
+      PAYMENTFLOW_SERVICES_TRANSACTION_BASE_URI: http://transaction-service:8084
+      PAYMENTFLOW_SERVICES_AUDIT_BASE_URI: http://audit-service:8091
+      PAYMENTFLOW_SERVICES_ANALYTICS_BASE_URI: http://analytics-service:8093
       PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:

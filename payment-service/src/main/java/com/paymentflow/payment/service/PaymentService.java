@@ -10,6 +10,7 @@ import com.paymentflow.payment.authorization.AuthorizationRequest;
 import com.paymentflow.payment.domain.OutboxEvent;
 import com.paymentflow.payment.domain.Payment;
 import com.paymentflow.payment.domain.PaymentStatus;
+import com.paymentflow.payment.domain.Refund;
 import com.paymentflow.payment.dto.CreatePaymentRequest;
 import com.paymentflow.payment.dto.PaymentResponse;
 import com.paymentflow.payment.dto.RefundRequest;
@@ -25,6 +26,7 @@ import com.paymentflow.payment.mode.RequestModeResolver;
 import com.paymentflow.payment.repository.OutboxEventRepository;
 import com.paymentflow.payment.repository.PaymentRepository;
 import com.paymentflow.payment.repository.ProcessedEventRepository;
+import com.paymentflow.payment.repository.RefundRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -52,6 +54,7 @@ public class PaymentService {
     private static final long DEFERRED_CAPTURE_BACKOFF_BASE_MILLIS = 20;
 
     private final PaymentRepository paymentRepository;
+    private final RefundRepository refundRepository;
     private final PaymentMapper paymentMapper;
     private final PaymentEventPublisher eventPublisher;
     private final IdempotencyService idempotencyService;
@@ -63,13 +66,15 @@ public class PaymentService {
     private final ProcessedEventRepository processedEventRepository;
     private final ObjectMapper objectMapper;
 
-    public PaymentService(PaymentRepository paymentRepository, PaymentMapper paymentMapper,
+    public PaymentService(PaymentRepository paymentRepository, RefundRepository refundRepository,
+                          PaymentMapper paymentMapper,
                           PaymentEventPublisher eventPublisher, IdempotencyService idempotencyService,
                           MerchantResolver merchantResolver, RequestModeResolver requestModeResolver,
                           TransactionTemplate transactionTemplate, AuthorizationAdvisor authorizationAdvisor,
                           OutboxEventRepository outboxEventRepository, ProcessedEventRepository processedEventRepository,
                           ObjectMapper objectMapper) {
         this.paymentRepository = paymentRepository;
+        this.refundRepository = refundRepository;
         this.paymentMapper = paymentMapper;
         this.eventPublisher = eventPublisher;
         this.idempotencyService = idempotencyService;
@@ -93,7 +98,7 @@ public class PaymentService {
                 transactionTemplate.execute(status -> {
                     Payment payment = paymentRepository.save(Payment.create(
                             merchantId, mode, request.amountMinor(), request.currency(), request.description(),
-                            request.paymentMethodToken()));
+                            request.paymentMethodToken(), paymentMapper.writeMetadata(request.metadata())));
                     eventPublisher.publish(payment, "PaymentCreated", null, payment.getAmountMinor(), merchant);
                     PaymentResponse response = paymentMapper.toResponse(payment);
                     idempotencyService.record(merchantId, mode, idempotencyKey, fingerprint, 201, response);
@@ -275,7 +280,16 @@ public class PaymentService {
         return mutate(paymentId, idempotencyKey, "refund", request, payment -> {
             long remaining = payment.getCapturedAmountMinor() - payment.getRefundedAmountMinor();
             long amount = (request != null && request.amountMinor() != null) ? request.amountMinor() : remaining;
+            // The FSM decides first — an illegal or over-large refund throws here, before
+            // any refund row exists, so a rejected refund leaves no trace of having been
+            // attempted (which is the same behaviour as before M19).
             payment.refund(amount);
+            // M19.3: the refund becomes an object. Written in the same transaction as the
+            // accumulator it increments, so the row and payments.refunded_amount_minor can
+            // never disagree about what was refunded.
+            refundRepository.save(Refund.succeeded(payment, amount,
+                    request == null ? null : request.reason(),
+                    paymentMapper.writeMetadata(request == null ? null : request.metadata())));
             String eventType = payment.getStatus() == PaymentStatus.REFUNDED ? "PaymentRefunded" : "PaymentPartiallyRefunded";
             return new MutationOutcome(eventType, amount);
         });

@@ -19,7 +19,8 @@ Content-Type: application/json
 {
   "url": "https://your-app.example/webhooks/paymentflow",
   "description": "Production order pipeline",
-  "enabledEvents": ["payment.authorized", "payment.captured"]
+  "enabledEvents": ["payment.authorized", "payment.captured"],
+  "metadata": { "team": "payments", "deploy": "blue" }
 }
 ```
 
@@ -33,7 +34,8 @@ Content-Type: application/json
     "enabledEvents": ["payment.authorized", "payment.captured"],
     "signingSecretPrefix": "whsec_9fK2",
     "apiVersion": "2026-08-01",
-    "consecutiveFailureCount": 0
+    "consecutiveFailureCount": 0,
+    "metadata": { "team": "payments", "deploy": "blue" }
   },
   "signingSecret": "whsec_9fK2…"
 }
@@ -50,6 +52,21 @@ are refused (§8). One registration per URL per mode; up to 16 endpoints per mod
 Your key needs the `webhooks:manage` scope. Test-mode and live-mode endpoints are
 separate: an `sk_test_` key can only ever see and manage test endpoints, and a test event
 can never reach a live endpoint.
+
+### `metadata`
+
+`metadata` is an optional string-to-string map you can attach to an endpoint and read back
+on every response. We never interpret it — use it to record which of your systems owns an
+endpoint, which deploy registered it, or whatever your own tooling needs to correlate.
+
+It behaves the same way on payments and refunds (see the [read-API
+guide](../../docs/READ_APIS.md)), with one difference: endpoint metadata is **not
+filterable**. The endpoint list always returns every endpoint you have in a mode, and that
+set is capped at 16, so there is nothing to filter down.
+
+`PATCH` replaces `metadata` wholesale rather than merging it, so send the complete map you
+want stored. Omitting the field leaves what is there untouched; sending `{}` clears it. An
+endpoint you never gave metadata reports `{}`, never `null`.
 
 ### Event types
 

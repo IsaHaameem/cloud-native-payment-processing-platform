@@ -17,6 +17,9 @@ dependencies {
     implementation(project(":common-lib"))
 
     implementation("org.springframework.boot:spring-boot-starter-web")
+    // M19.5: the merchant-facing Events API. Security for InternalContextFilter only —
+    // no OAuth2 resource server (D133).
+    implementation("org.springframework.boot:spring-boot-starter-security")
     // common-lib's GlobalExceptionHandler (auto-activated for any servlet app, D11) has
     // a ConstraintViolationException handler method that must resolve at class-load time.
     implementation("org.springframework.boot:spring-boot-starter-validation")
@@ -32,6 +35,7 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-webmvc-test")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.springframework.kafka:spring-kafka-test")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")

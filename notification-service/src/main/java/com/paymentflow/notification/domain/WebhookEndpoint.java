@@ -10,7 +10,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -42,6 +44,9 @@ import java.util.UUID;
 @Entity
 @Table(name = "webhook_endpoints")
 public class WebhookEndpoint {
+
+    /** What {@code metadata} holds when a merchant supplies none — never null (M19.8). */
+    private static final String EMPTY_METADATA = "{}";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -105,6 +110,15 @@ public class WebhookEndpoint {
     @Column(name = "contact_email", length = 255)
     private String contactEmail;
 
+    // Free-form merchant-supplied annotation (M19.8, §4.6). Mutable and outside the
+    // factories deliberately: metadata carries no lifecycle meaning, participates in no
+    // invariant, and defaults to an empty object — so unlike url/mode/secret it is not
+    // part of what makes an endpoint well-formed, and a caller that never sets it still
+    // gets a valid row. The same reasoning Payment.updateMetadata records.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "metadata", nullable = false, columnDefinition = "jsonb")
+    private String metadata = EMPTY_METADATA;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -158,6 +172,15 @@ public class WebhookEndpoint {
 
     public void updateDescription(String description) {
         this.description = description;
+    }
+
+    /**
+     * Replaces the metadata wholesale (M19.8). A wholesale replacement rather than a
+     * merge, matching payments and refunds: a merchant clearing one key would otherwise
+     * have no way to express it, since the map has no representation for "remove this".
+     */
+    public void updateMetadata(String metadata) {
+        this.metadata = (metadata == null || metadata.isBlank()) ? EMPTY_METADATA : metadata;
     }
 
     /** Merchant-initiated disable — leaves {@code disabledAt}/{@code disabledReason} clear (see {@link EndpointDisableReason}). */
@@ -269,6 +292,10 @@ public class WebhookEndpoint {
 
     public String getContactEmail() {
         return contactEmail;
+    }
+
+    public String getMetadata() {
+        return metadata;
     }
 
     public Instant getCreatedAt() {

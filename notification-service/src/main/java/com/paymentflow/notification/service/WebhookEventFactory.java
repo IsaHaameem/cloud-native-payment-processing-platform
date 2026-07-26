@@ -3,7 +3,7 @@ package com.paymentflow.notification.service;
 import com.paymentflow.common.dto.event.EventEnvelope;
 import com.paymentflow.notification.config.WebhookProperties;
 import com.paymentflow.notification.domain.WebhookEvent;
-import com.paymentflow.notification.domain.WebhookEventType;
+import com.paymentflow.common.dto.event.CanonicalEventType;
 import com.paymentflow.notification.event.CanonicalPaymentObject;
 import com.paymentflow.notification.event.PaymentNotificationEventPayload;
 import com.paymentflow.notification.event.WebhookEventBody;
@@ -24,7 +24,7 @@ import java.util.UUID;
  *
  * <ol>
  *   <li><b>Not every internal event is a merchant-facing one.</b> An internal type with
- *       no {@link WebhookEventType} mapping yields {@link Optional#empty()} and is
+ *       no {@link CanonicalEventType} mapping yields {@link Optional#empty()} and is
  *       silently ignored, never treated as an error — {@code merchant.events}' key
  *       lifecycle events are audit's business, not a webhook, and a future internal event
  *       must be addable without notification-service rejecting it.</li>
@@ -66,7 +66,7 @@ public class WebhookEventFactory {
      * or a crash between them would leave an event that is never re-derivable.
      */
     public Optional<WebhookEvent> createFrom(EventEnvelope<PaymentNotificationEventPayload> envelope) {
-        Optional<WebhookEventType> eventType = WebhookEventType.fromInternal(envelope.eventType());
+        Optional<CanonicalEventType> eventType = CanonicalEventType.fromInternal(envelope.eventType());
         if (eventType.isEmpty()) {
             return Optional.empty();
         }
