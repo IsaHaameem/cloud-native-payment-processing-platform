@@ -39,6 +39,30 @@ paymentflow:
     # Matches payment.events' partition count (KafkaTopicConfig in payment-service) so
     # every partition can be consumed in parallel within this one consumer group.
     listener-concurrency: 3
+    # M20.3: the request-log stream. Its own topic, group and concurrency rather than
+    # sharing the payment listener's — this topic carries one message per API request
+    # against one per payment event, and coupling them would let request-log backlog
+    # delay payment aggregates. Concurrency matches the topic's 6 partitions.
+    api-request-events-topic: api.request.events
+    api-request-events-group-id: analytics-service-api.request.events
+    api-request-listener-concurrency: 6
+  request-log:
+    # M20.3: partition maintenance. Hourly rather than daily — a daily job has exactly one
+    # chance to succeed before the table it maintains starts rejecting writes.
+    partition-interval-ms: 3600000
+    partition-initial-delay-ms: 60000
+    # M20.4 (§4.6, D116). The raw log keeps 30 days; api_usage_daily keeps everything.
+    # Rollup runs before retention and retention refuses to drop a day the rollup has not
+    # recorded — so a broken rollup costs disk, which is visible and recoverable, rather
+    # than data nobody aggregated, which is not.
+    retention-days: 30
+    rollup-interval-ms: 3600000
+    rollup-initial-delay-ms: 90000
+    retention-interval-ms: 3600000
+    # Staggered after the rollup's delay rather than equal to it: on a cold start the
+    # ordering that matters is rollup-then-prune, and offsetting the first tick is cheaper
+    # than coordinating them.
+    retention-initial-delay-ms: 120000
   internal-context:
     # M19.6: no longer inert. The gateway routes /v1/analytics* here, so
     # InternalContextFilter is this service's actual (and only) authentication mechanism,

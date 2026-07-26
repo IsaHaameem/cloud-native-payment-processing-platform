@@ -24,9 +24,14 @@
 > independently, `EXPLAIN`-checked against seeded production-scale data, and E2E-validated
 > together on the running docker-compose stack over the real gateway. Closes V1 known
 > issues #3 and #4 (three services with no query API).
-> **M20 is the next milestone.**
+> **M20 (API Request Logging, Usage Metering & Per-Key Rate Limits) — complete**
+> (2026-07-26): repository reviewed against §5/M20 (five divergences resolved as D145/D146
+> and in M20.3), decomposed into M20.1–M20.8; all eight sub-milestones implemented, verified
+> independently, load-proved with the broker wedged, and E2E-validated together on the running
+> docker-compose stack over the real gateway. Closes V1 known issue #9 (Resilience4j meters).
+> **M21 is the next milestone.**
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D144**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D146**.
 
 ---
 
@@ -467,7 +472,7 @@ lingering note:
 | 6 | No README badge target, no diagrams, no frontend | **M23/M24/M30** |
 | 7 | Gateway does not honour `X-Forwarded-*` behind the ALB | **M15** (edge work) |
 | 8 | Deployed gateway runs `SPRING_PROFILES_ACTIVE=local`, so CORS allows only `localhost:3000` | **M23** |
-| 9 | Resilience4j meters are absent from `/actuator/prometheus` despite the dependency being present (V1 §11, re-confirmed during M14) | **M20** (observability work) |
+| 9 | Resilience4j meters are absent from `/actuator/prometheus` despite the dependency being present (V1 §11, re-confirmed during M14) | **M20 ✅ closed** (2026-07-26, M20.7 — a Spring Boot 4 package relocation; 58 meter lines now, measured at 0 before) |
 | 10 | Email delivery is simulated only (D45) | **Remains open** — a real provider is still not chosen; see §13-Q5 |
 | 11 | The async event pipeline was never *directly* confirmed end-to-end on AWS (no `psql`/ECS Exec access) | **M29** (enable ECS Exec during the V2 deploy) |
 
@@ -2639,6 +2644,8 @@ decisions are appended as milestones are implemented.
 | D142 | (M19.8) payment-service sets `server.tomcat.relaxed-query-chars: "[,]"` so the **documented** `metadata[key]=value` filter syntax works literally as published, not only percent-encoded | (a) Publish only the percent-encoded spelling (`metadata%5BorderId%5D=A-1234`); (b) change the wire syntax to something RFC 3986 permits unreserved, e.g. `metadata.orderId=` or a repeated `metadata=k:v`; (c) relax Tomcat globally across every service | Found on the live stack, not by any test: Tomcat rejects `[` and `]` in a query string by default, so a client sending the published form got **HTTP 400 with Tomcat's HTML error page** — not merely a failure, but one that breaks the JSON error contract M21 will freeze. MockMvc could never have caught it, because it builds the request object directly and never goes through Tomcat's URI parser. (a) is honest but hostile: `metadata[k]=v` is the spelling every comparable platform uses and the one an integrator will type first, and "it works but only if your HTTP library happens to encode brackets" is a support ticket generator rather than a contract. (b) avoids the character class entirely and was genuinely tempting, but changes a syntax already published in `docs/READ_APIS.md` and already asserted by `ReadApiDocumentationConsistencyTest` for no gain beyond avoiding one configuration line. (c) widens the parser's accepted input on eight services to fix one — scoped to the two characters and the one service that serves the filter, both spellings now behave identically instead of one of them depending on which HTTP library a developer happens to use |
 | D143 | (M19.8) `AnalyticsSummaryResponse` drops `@JsonInclude(NON_NULL)` so `successRate: null` is **explicitly on the wire** when no payment was attempted, rather than the field being omitted | (a) Keep the annotation and let clients treat an absent field as "unknown"; (b) return `0` for a rate over zero attempts; (c) add a separate boolean or a string enum (`"unknown"`) alongside the numeric rate | M19.6 had already decided that a rate over zero attempts is *unknown* rather than zero — charting it as zero shows a catastrophic outage every quiet hour — but the platform-wide `NON_NULL` convention then deleted the very signal that decision exists to send. The test asserted `successRate()).isNull()` **on the object**, which passes either way; the live response was the first thing to show what a client actually receives. (a) is where the bug lives: §4.10 tells clients to expect and ignore fields a version does not have, so silence makes "we measured and there is no answer" indistinguishable from "this API version has no such field". (b) is the error M19.6 explicitly rejected. (c) encodes in two fields what JSON's `null` already means, and every SDK in M22 would have to model both. No other field on this response is ever null, so removing the annotation changes nothing else on the wire, and the test now asserts the **serialized** form rather than the object |
 | D144 | (M19.8) `webhook_endpoints.metadata` is **deliberately not GIN-indexed**, unlike `payments.metadata` and `refunds.metadata` | (a) Add the GIN index for consistency with the other two `metadata` columns; (b) omit `metadata` from webhook endpoints entirely, leaving §4.6's third object unimplemented | §5/M19 says metadata is "indexed for filtering", and the index therefore exists exactly where the filtering does. Payments and refunds carry a GIN index because their lists expose a containment filter that is unusable without one; the endpoint list has **no filter** — it returns every endpoint a merchant has in one mode, hard-capped at 16 — so an index here would be paid for on every write to serve a query that does not exist. (a) is consistency for its own sake, and the cost is real: GIN maintenance on a table whose rows are written by endpoint registration and rewritten by auto-disable bookkeeping. (b) would leave §4.6 and §5/M19's feature list naming three objects while the code delivered two. Recorded rather than glossed over, so that a future milestone adding an endpoint filter knows the index was considered and deferred, not forgotten |
+| D145 | (M20.5) Per-merchant rate limits and daily quotas **ride on the API-key verify response** the gateway already caches (`apikey:v1:<sha256>`), rather than being read from a settings store at request time | (a) Configuration-only defaults in the gateway, with no per-merchant override; (b) build §4.6's `merchant_settings` table and have the gateway read it | Confirmed with the user before implementing. §5/M20 lists "configurable per-merchant limits" as a feature, but §4.6's `merchant_settings` table **was never built** — merchant-service is at V1–V4 and none of them is a settings table — so the plan named a store that does not exist. The gateway already resolves and caches a verified key context on every API-key request, so attaching the limits to that payload makes them free on the hot path: no second round trip, no second cache to invalidate. (a) would quietly drop a listed feature, and a limit nobody can vary per merchant is not really a limit policy. (b) is the cleanest long-term shape and remains the documented upgrade path, but it pulls a merchant-service migration, a new internal endpoint, and a second cache into a milestone that already changes the gateway's charter by making it a Kafka producer. The cost accepted is that an M15 cross-service contract is extended for a *new feature* rather than a defect — which is precisely why it was confirmed rather than assumed |
+| D146 | (M20.5) Per-key rate limiting is a **custom gateway filter scoped to `/v1/**`**, not Spring Cloud Gateway's built-in `RequestRateLimiter`; D24's JWT/IP keying and the built-in filter are retained for every other route | (a) Swap only the `KeyResolver` so the built-in filter keys on key id; (b) replace the built-in filter platform-wide | (a) is what §5/M20 task 3's wording ("replacing D24's key resolver") literally describes, and it delivers **none** of the features the same milestone's own list requires: `RedisRateLimiter` emits `X-RateLimit-*` rather than the standard `RateLimit-Limit`/`-Remaining`/`-Reset` that M22's SDKs will back off on, and it has no concept of a daily quota, a per-merchant limit, or separate test/live budgets. Following the task list literally would have shipped a milestone whose own feature list was unmet — the divergence is recorded here rather than silently resolved either way. (b) would put V1's tested and load-tested rate-limiting behaviour at risk for traffic this milestone is not about; M20's risk table names V1's Gatling rate-limit scenario as the regression gate precisely because that behaviour must not move. Scoping the custom filter to `/v1/**` keeps the two paths independent: the JWT/IP path keeps the behaviour V1 proved, and the key path gets semantics V1 never needed |
 
 ---
 
@@ -2688,7 +2695,7 @@ milestone by which it must be decided.
 Populated as V2 progresses. V1's known issues remain recorded in `PROJECT_CONTEXT.md` §11;
 those that V2 closes are tabulated in §2.11 above with their closing milestone.
 
-- **Per-key rate limiting is not implemented yet** — API-key-authenticated `/v1/**` traffic falls through to the gateway's existing IP-based rate-limit bucket (`RateLimiterConfig`'s key resolver only recognizes `JwtAuthenticationToken`, not `MerchantContextAuthenticationToken`). Explicitly M20's job (§4's "usage metering + per-key rate limits"); left alone deliberately per Decision 4 (depth before breadth), not an oversight.
+- ~~**Per-key rate limiting is not implemented yet**~~ — **closed by M20.5** (2026-07-26). API-key traffic no longer falls into the shared IP bucket: `rateLimitKeyResolver` now returns an empty key for API-key requests so the built-in filter skips them (`deny-empty-key: false`), and `ApiKeyRateLimitWebFilter` owns that traffic with per-key token buckets, per-merchant/per-mode daily quotas, and standard `RateLimit-*`/`Retry-After` headers (D146). D24's IP/JWT bucket is unchanged for dashboard and unauthenticated routes, so V1's Gatling rate-limit scenario remains a valid regression gate. Per-merchant overrides ride on the API-key verify response (D145). Kept as a struck-through entry rather than deleted, because the gap it described — one merchant's server competing for an allowance sized for browsers — is the reason the design took the shape it did.
 - **`mode` is not yet enforced anywhere except the key itself.** A `sk_test_...` key resolves a `MerchantContext` with `mode="test"`, but no payment/transaction/audit/notification/analytics table has a `mode` column yet — M16 adds that. Today, a payment created via a test-mode key lands in the same `live`-only data plane as one created via a live-mode key or the unmodified JWT path. Not a security gap (only M15's own new surface exists), but the mode-isolation guarantee itself does not exist until M16 ships.
 - ~~**No scope beyond `payments:read`/`payments:write` is enforced anywhere**~~ — **superseded, and recorded rather than deleted because the expectation it set is the one that was met.** When written at M15 the scope vocabulary in §4.9 had no real routes to attach to, and the entry said each future milestone adding a `/v1` route was expected to extend `ApiKeyAuthenticationWebFilter`'s `requiredScopeFor` mapping. That is exactly what happened: M18 added `webhooks:manage`, and M19.7 added `balance:read`, `events:read` and `analytics:read`. Five scopes are now enforced at the gateway and covered by the live E2E. `logs:read` remains unattached and is M20's; `refunds:write` deliberately has no route, because §4.9 describes it as *issuing* a refund, which is `payments:write` on the payment itself (M19.7).
 - **Scope enforcement lives at the gateway only**, not defensively re-checked in payment-service — a deliberate, narrower-than-D23 choice for this milestone (D23 has downstream services independently enforce RBAC for the JWT path; API-key scope enforcement does not yet have that second layer). Revisit if a future milestone finds a reason payment-service itself needs to distrust the gateway's scope decision.
@@ -2707,6 +2714,8 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **`failed_count` exists only on the hourly buckets, not on the running totals**, so a success rate can be computed from the series but not from the lifetime counters. The gap became visible only when something first *read* these numbers (M19.6): a success rate needs a denominator that includes failures, and the running-total table pre-dates anything that needed one. Left un-widened deliberately — a new column there could not be honestly backfilled either, for the same reason the series cannot be — but it means the two surfaces answer different questions and only one of them can answer "what is my success rate overall?".
 - **`webhook_endpoints.metadata` is not indexed** (D144). Correct today, because the endpoint list exposes no containment filter and is hard-capped at 16 rows per merchant per mode, so a GIN index would be paid for on every write to serve a query that does not exist. Recorded because the *first* milestone to add a filter on that column must add the index with it — the absence is a considered deferral, not an oversight to be rediscovered under a sequential scan.
 - **`idx_ledger_entries_account_id` is now redundant for lookups but is deliberately retained** (M19.8, Defect 3). `idx_ledger_entries_account_created (account_id, created_at desc, id desc)` supersedes it for every query the balance API issues, and M19.2 dropped `idx_payments_merchant_mode` in exactly this situation. It is kept here because it also backs the `account_id` foreign key, and dropping the only index on an FK column makes every delete on `accounts` scan `ledger_entries`. The cost is one redundant index's write maintenance; the alternative is a table scan on a path nothing exercises today but a future account lifecycle would. Flagged so the asymmetry with M19.2 is not read as an inconsistency.
+- **notification-service's Kafka producer sets no `max.block.ms`, so a broker outage becomes a database outage.** Found during the M20 CI investigation, with evidence rather than by inspection. `WebhookRetryRelay.relay()` is `@Scheduled(fixedDelay=1s)` **and** `@Transactional`, and it calls `kafkaTemplate.send`. With no reachable broker each `send` blocks for the 60-second default while the relay holds a JDBC connection, and the observed result is `HikariPool-7 - Connection is not available, request timed out` — a Kafka outage escalating into connection-pool exhaustion in a service that would otherwise be merely degraded. The same default makes `POST /v1/webhook_deliveries/{id}/replay` hang a servlet thread for 60 seconds before returning 500, which under a broker outage exhausts the servlet pool. The gateway's M20.2 producer sets `max.block.ms=1000` for exactly this reason. **Not fixed here deliberately**: failing fast changes delivery semantics, and whether an undispatched `PENDING` delivery is recoverable by the retry relay or silently lost must be established first — that analysis does not belong inside a CI fix. No milestone owns it yet; it is a genuine production robustness defect, not a test artefact.
+- **Integration tests can depend on the developer's docker-compose stack without declaring it, and the failure mode is invisible locally.** `WebhookDeliveryLogAndReplayIntegrationTest` passed for two milestones only because `application.yaml`'s default `localhost:59092` happened to reach a running compose broker; in CI it failed. Fixed for that class (M20's CI investigation), but the underlying hazard is structural: every service's `application.yaml` carries a working localhost default for Kafka, Redis and Postgres, so *any* test that omits a container silently borrows the developer's stack. The cost is not only red CI — the same gap made `WebhookEndpointApiIntegrationTest` take **1063.9s** instead of **10.7s**, ~18 minutes of CI time attributable to blocked producer calls that were swallowed rather than failed. A structural guard (a test-profile Kafka/Redis/datasource pointing at an unroutable address, so an undeclared dependency fails loudly and immediately instead of blocking for 60 seconds) would prevent the next one. Not owned by any milestone; M27 or a dedicated stability pass is the natural home.
 - **`payment-service` relaxes Tomcat's query-string parser for `[` and `]`** (D142). Scoped to two characters and one service, but it *is* a widening of what the HTTP layer accepts, made to serve a documented filter syntax. Recorded as an accepted risk rather than a neutral configuration line: any future audit of input handling should know the parser is non-default here and why, and M21's error-contract work should confirm the relaxed characters still route malformed input to the JSON error handler rather than Tomcat's HTML page — which is the failure D142 exists to have fixed.
 
 ---
@@ -5447,6 +5456,714 @@ sent a query string** until M19.8 added one. That gap — between "designed to b
 be correct" — is the most transferable thing M19 produced.
 
 **Next milestone: M20** — API request logging, usage metering, and per-key rate limits.
+
+---
+
+### M20 — API Request Logging, Usage Metering & Per-Key Rate Limits ✅ (complete, 2026-07-26)
+
+**Objective.** Per §5/M20: capture every API request as a first-class, developer-visible object; build
+usage aggregates; and move rate limiting from per-user to per-key, per-mode, with standard response
+headers and quotas. Closes V1 known issue #9 (§2.11) — Resilience4j meters absent from
+`/actuator/prometheus`.
+
+**Repository review (2026-07-26).** Five places where §5/M20 differs from the repository as it stands
+were found before any code was written:
+
+1. **§4.6's `merchant_settings` table was never built.** merchant-service is at V1–V4 and none of them
+   is a settings table, so "configurable per-merchant limits" names a store that does not exist.
+   Resolved as **D145**.
+2. **The gateway has no Kafka dependency at all.** Task 1 makes the reactive edge a producer — its
+   first Kafka usage and its first stateful outbound dependency beyond Redis.
+3. **Spring Cloud Gateway's built-in `RequestRateLimiter` cannot deliver task 3's features.**
+   `RedisRateLimiter` emits `X-RateLimit-*` rather than §5/M20's standard `RateLimit-*`, and has no
+   concept of a daily quota, a per-merchant limit, or separate test/live budgets. Resolved as **D146**.
+4. **Day-partitioning needs a partition manager.** Postgres declarative partitioning does not create
+   tomorrow's partition by itself, and an unmanaged partitioned table stops accepting inserts at
+   midnight. Implied by "daily-partitioned" but absent from the task list.
+5. **Task 7's Resilience4j gap is a Spring Boot 4 relocation**, root-caused during this review rather
+   than assumed — see M20.7.
+
+**A repository defect found during the review, unrelated to M20's own work.** `analytics-service`,
+`transaction-service` and `audit-service` each opened their `build.gradle.kts` with *"Deliberately no
+REST API, no Spring Security, no OpenFeign … its only inbound interface is the Kafka stream."*
+M19.4/19.5/19.6 gave all three exactly that; analytics-service's header even contradicted a comment ten
+lines below it citing M19.6. Corrected in M20.3 as a defect fix (three comment blocks, no behaviour) —
+a repository that argues with itself about a service's charter is how the next milestone gets that
+charter wrong.
+
+**Decomposition.** Eight sub-milestones: **M20.1** redaction in `common-lib`; **M20.2** the
+`api.request.events` contract and the gateway producer; **M20.3** `api_request_log`, day-partitioned,
+with its partition manager and consumer; **M20.4** `api_usage_daily`, the rollup job and the retention
+pruner (D116 requires all three in the same milestone as the log); **M20.5** per-key/per-mode token
+buckets, daily quotas and standard headers; **M20.6** `/v1/usage` and `/v1/request_logs` plus routes and
+the `logs:read` scope; **M20.7** the Resilience4j meters fix; **M20.8** the load proof, E2E and closure.
+Ordering: redaction → emission → storage → lifecycle → enforcement → read surface → the standalone
+observability fix → the proofs. Nothing may be logged before the thing that scrubs it exists, and
+nothing is enforced before the log can show what was rejected.
+
+#### M20.1 — Redaction in `common-lib` ✅ (2026-07-26)
+
+**Summary.** `RequestRedactor` — the thing every logged body passes through before anything serializes
+it (task 2). Built first because M20's risk table names "a secret leaks into a stored request body" as
+the failure worth engineering against, and the mitigation it specifies is *ordering*.
+
+**Files created.** `common-lib`: `redaction/RequestRedactor.java`, `RequestRedactorTest`.
+**Files modified.** `common-lib/build.gradle.kts` (+`tools.jackson.core:jackson-databind`, `compileOnly`
+for the same reason as every other dependency in that module — consumers already have Jackson via a Boot
+starter).
+
+**Two independent layers, and why both are mandatory.** Field-name matching catches
+`{"password": "hunter2"}` — a secret whose *value* has no recognisable shape. Pattern matching catches
+`{"note": "my key is sk_test_…"}` — a secret in a field no list would think to name. Either alone leaves
+a whole class of leak intact.
+
+**Patterns match what this platform actually issues**, not a generic guess: `{pk|sk}_{test|live}_<base62>`
+from merchant-service's `ApiKeySecretGenerator`, `whsec_<base62>` from notification-service's
+`WebhookSecretGenerator`, compact JWTs, and PAN-shaped digit runs. The `X-PF-Internal-*` family is
+redacted wholesale because a stored copy of the signature plus its companions is a **replayable
+credential**, not merely sensitive metadata.
+
+**PANs are Luhn-checked before redaction.** Without it, any 13–19 digit run — a microsecond timestamp, an
+order reference, an amount in minor units — would be destroyed, and a request log that eats legitimate
+identifiers is not a debugging tool. Luhn is what distinguishes "looks like a card" from "is long".
+
+**Bare `key` is deliberately not a sensitive field name.** It is the name most likely to hold something
+harmless (`Idempotency-Key`, a `metadata` entry literally named "key"), and redacting it would destroy
+exactly the debugging information a request log exists to provide. The patterns still catch a real
+credential that lands there.
+
+**Redaction runs before truncation, never the reverse.** Cutting first could sever a secret mid-token so
+neither half matches a pattern, leaving a recognisable prefix of a live credential in the stored row.
+
+**Failure is closed.** No path returns input unexamined: a body that is not JSON, is malformed, or is too
+large to parse cheaply (>256 KB) falls back to text scrubbing. The oversized case is *cheaper*, not
+laxer — which matters because D109 promises this path never slows a request.
+
+##### Bug discovered: field-name redaction only ran on the JSON path
+
+The corpus sweep caught it on its first execution, and no targeted test would have. A form-encoded
+`grant_type=password&password=hunter2-correct-horse` is not JSON, so it took the text fallback — and a
+password has no *shape* for a pattern to match. **The value survived redaction entirely.**
+
+Same class of failure as M19.8's Defect 1: a protection that reads as though it applies everywhere, but
+whose coverage silently depends on which branch the input takes. Fixed by giving `redactText` a
+`name=value` pass, so field-name matching applies to unstructured bodies too — otherwise "which layer
+protects this body?" depends on a content type the caller may not have set correctly. The fix also makes
+the method safe to point at a query string, where the identical risk exists and where M20.2 now uses it.
+
+**Tests.** 28 new, all green. The corpus sweep is load-bearing: ten realistic payloads (flat, nested
+three deep, arrays of objects, arrays of bare strings, card data, prose containing a spaced PAN, form
+encoding, a truncated capture, a top-level array) are each asserted to contain **none of the seven known
+secrets**, rather than each case asserting only what its author expected. Adding a payload without
+registering its secret weakens nothing; adding a secret without handling it fails loudly. Alongside it:
+every credential shape parameterized; Luhn positives and negatives; truncation ordering proved by
+asserting the secret's *prefix* is absent too; and the four closed-failure paths.
+
+#### M20.2 — `api.request.events` and the gateway producer ✅ (2026-07-26)
+
+**Summary.** The edge starts emitting (task 1). A global filter times every exchange, captures its
+outcome, and hands an event to a bounded buffer that drops rather than blocks.
+
+**Files created.** `gateway-service`: `logging/ApiRequestEventPayload.java`,
+`logging/ApiRequestEventPublisher.java`, `logging/ApiRequestLoggingFilter.java`,
+`config/RequestLoggingProperties.java`, `config/KafkaProducerConfig.java`;
+`ApiRequestEventPublisherTest`, `ApiRequestLoggingFilterTest`.
+**Files modified.** `gateway-service/build.gradle.kts` (+`spring-boot-starter-kafka`, +Awaitility),
+`application.yaml` (Kafka producer + `request-logging` block),
+`security/apikey/ApiKeyAuthenticationWebFilter.java` (+`RESOLVED_KEY_CONTEXT_ATTRIBUTE`),
+`docker-compose.yml` (gateway gains `SPRING_KAFKA_BOOTSTRAP_SERVERS` and a `kafka` dependency).
+
+**Kafka.** New topic `api.request.events` (§4.7), 6 partitions, declared by the gateway since broker
+auto-create is off (D10). Six rather than three — matching `webhook.deliveries` rather than the payment
+topics — because this is the highest-volume topic on the platform by construction, one message per API
+request, and messages are keyed by merchant so partitions let one merchant's traffic be consumed in
+parallel with another's while each merchant's own requests stay ordered.
+
+**The gateway becomes a producer, and only a producer.** Its first Kafka usage and first stateful
+outbound dependency beyond Redis. Producer-only is the point: no consumer group, no rebalancing, nothing
+on a request path that can wait for a broker.
+
+**`acks=1`, deliberately different from the payment topics' `acks=all`.** A request-log event is
+explicitly droppable (D109), so paying full-ISR latency for a durability guarantee the design does not
+claim would be the wrong trade. **`max.block.ms=1000` matters more than the ack level**: the default is
+60 seconds of blocking when the producer's buffer is full or metadata is unavailable — exactly the
+"observability infrastructure stalls the platform" failure D89 records. (The CI investigation below
+found this same default causing a real 60-second stall in notification-service.)
+
+**Why a bounded queue and a drain thread, not a Reactor `Sinks` pipeline.** A sink would look more
+idiomatic in a reactive gateway, but `KafkaTemplate` is a blocking-capable API and putting it on a
+Reactor scheduler risks parking a thread the event loop shares. The request path does exactly one thing —
+a non-blocking `offer` onto an `ArrayBlockingQueue` — and never calls Kafka, waits on a future, allocates
+unboundedly, or throws into the filter chain.
+
+**Drops are counted, never silent.** `api_request_log_events_total{outcome=published|dropped|failed}`
+plus an `api_request_log_buffer_depth` gauge. The drop warning is rate-limited to one line per 1,000
+drops: a full buffer means the platform is already under stress, and a log line per dropped event turns
+a metrics problem into a disk problem.
+
+**Only attributable requests are logged — a scoping decision worth stating.** The request log is a
+*merchant-facing* object, read through `GET /v1/request_logs` scoped to the caller's merchant and mode.
+A request whose API key never resolved has no merchant, so it cannot be filed without either inventing
+an owner or creating a bucket every merchant can read — the second being a cross-tenant leak in a
+feature built for debugging. Unauthenticated and JWT/dashboard traffic is out of scope for the same
+reason; operator-facing visibility for those already exists in M13's Prometheus and Tempo. A request
+that resolved a key and was *then* refused — 403 for scope, 429 for rate limit — **is** logged, because
+that is precisely the outcome a developer needs explained. §5/M20's criterion "every request through the
+gateway appears in the developer-visible log" is read as every request that *has* a developer.
+
+**The filter runs ahead of authentication, so attribution flows backwards through an attribute.** It must
+wrap the whole exchange to measure real latency and see the final status — including responses written
+by the security layer, which never reach a later filter — so it cannot read the internal-context headers
+authentication produces on a mutated request only the downstream chain sees.
+`ApiKeyAuthenticationWebFilter` therefore publishes its resolved `ApiKeyVerifyResult` on
+`exchange.getAttributes()`, which flows the other way because `mutate()` shares the attribute map. The
+attribute is written **before** the scope check, deliberately, so a 403 is still attributable.
+
+**Body capture reads without consuming.** The single most important detail in the filter: request and
+response are decorated with tees that copy bytes out of each `DataBuffer` **without moving its read
+position**. Consuming it would deliver an empty body to the real destination — an observability feature
+turned into data loss — so a test asserts the client still receives the exact original body. Capture is
+capped per body (4 KB default), stops copying once full while the body keeps flowing, and is skipped for
+content types that are not inspectable text.
+
+**Tests.** 14 new, all green (5 publisher, 9 filter). The load-bearing one is
+`dropsRatherThanBlocksWhenTheProducerStalls`: the drain thread is held inside `send()` until the bounded
+queue fills, then 54 `publish` calls are asserted to complete in **under a second** and to report the
+drops — the completion criterion in unit form, ahead of M20.8 proving it under real load. Also: the drain
+thread survives a poisoned event and keeps publishing; failures are counted, never thrown; unattributable
+requests produce nothing; a 403 after key resolution produces an event; query strings and credential
+headers are redacted; and the response body survives capture intact.
+
+#### M20.3 — `api_request_log`, the partition manager, and the consumer ✅ (2026-07-26)
+
+**Summary.** Storage for the request log (task 5, first of three parts). analytics-service gains its
+second consumer role, the platform's first partitioned table, and the component §5/M20 never mentions
+but the table cannot survive without.
+
+**Files created.** `analytics-service`: `db/migration/V4__api_request_log.sql`,
+`domain/ApiRequestLogEntry.java`, `event/ApiRequestEventPayload.java`,
+`repository/ApiRequestLogRepository.java`, `service/ApiRequestLogService.java`,
+`service/RequestLogPartitionManager.java`, `listener/ApiRequestEventListener.java`;
+`ApiRequestLogIngestIntegrationTest`.
+**Files modified.** `AnalyticsServiceApplication` (+`@EnableScheduling`), `application.yaml` (topic,
+group, concurrency, partition schedule), and the three stale `build.gradle.kts` headers noted above.
+
+**DB.** `api_request_log`, **range-partitioned by day on `occurred_at`** — the platform's first
+partitioned table. Primary key `(id, occurred_at)` and unique `(event_id, occurred_at)`, both carrying
+the partition key because Postgres requires it of every unique constraint on a partitioned table. Two
+partitioned indexes declared on the parent so future partitions inherit them. Seven days of partitions
+seeded by the migration, plus a **DEFAULT partition**.
+
+**Partitioning only pays off if the pruner drops partitions.** Dropping one is a metadata operation;
+deleting 30 days of rows from one large table is hours of vacuum pressure on the busiest table in the
+system. M20.4 collects that benefit — the partitioning here is the setup, not the payoff.
+
+##### The gap §5/M20 does not mention: a partitioned table needs a manager
+
+The task list says "daily-partitioned" and stops. Postgres declarative partitioning creates nothing on
+its own, and a range-partitioned table with no partition covering an incoming row **does not degrade — it
+rejects the insert**. Shipped as written, the request log would have worked perfectly until midnight and
+then stopped recording, presenting as a Kafka problem for the first hour of any investigation.
+
+Two independent defences, because this runs unattended: `RequestLogPartitionManager` keeps seven days
+ahead, and the DEFAULT partition catches anything it misses so even total failure of the component costs
+a housekeeping benefit rather than a row. It runs **hourly, not daily** — a daily job has exactly one
+chance to succeed before the table it maintains stops accepting writes; an hourly one has twenty-four.
+Idempotent by construction, which makes it safe on every instance without leader election, exactly as the
+outbox relays already are.
+
+**`on conflict do nothing` replaces the `processed_events` marker every other consumer writes.** That
+pattern (D2/M6) exists because those consumers do a *read-modify-write* on an aggregate — incrementing a
+total twice is invisible afterwards, so a marker row is the only way to know. This consumer performs a
+pure insert of an immutable row that already carries the event id, so the table's own unique constraint
+answers the same question with no second row, no second write, and no way for marker and effect to
+disagree.
+
+**Not a JPA entity, unlike everything else persistent in this service.** The composite primary key
+partitioning forces would need an `@IdClass`, bought for nothing since no row is ever loaded by primary
+key — and this is an append-only log, written by one path, never updated, never deleted row-by-row, never
+part of an object graph. Hibernate's identity map, dirty checking and flush machinery are pure overhead
+on that access pattern. The aggregates stay on JPA precisely because they *are* read-modify-write rows
+with optimistic locking (M16.4), the opposite case.
+
+**Bodies are stored as `text`, not `jsonb`**, deliberately: a captured body may be truncated
+mid-structure or may not be JSON at all, and `jsonb` would reject exactly the malformed payloads a
+developer most needs to see.
+
+##### Bug discovered: JDBC does not inherit Hibernate's `default_schema`
+
+Every insert failed with `relation "api_request_log" does not exist`. analytics-service sets
+`hibernate.default_schema: analytics`, which applies to JPA only — a raw JDBC connection resolves against
+`search_path` and finds nothing. **M19.2 already recorded this exact fact** about native queries in
+payment-service, and M20.3 rediscovered it the moment the first JDBC-backed table appeared. Fixed by
+qualifying the schema explicitly on every statement, with the constant and the reason stated in
+`ApiRequestLogRepository` so a third rediscovery is less likely.
+
+##### Bug discovered: scheduled housekeeping logged a connection failure on every test run
+
+The manager's 5-second initial delay meant it fired inside short-lived test contexts as their
+Testcontainers database was torn down, logging a stack trace per context. Harmless — the build was green
+throughout — and that is precisely the problem: noise explained away on every build is how a real failure
+stops being noticed, the lesson D89 already paid for. The initial delay is now 60 seconds, which costs
+nothing because V4 seeds a week of partitions.
+
+**Its own consumer group, not the existing one.** `analytics-service-api.request.events` at concurrency
+6, matching the topic's partitions. Sharing the payment listener's group would let request-log backlog
+delay payment aggregates — two failure domains with no reason to be coupled, and wildly different volume
+profiles.
+
+**Tests.** 7 new, all green, against real Postgres. `tableoid::regclass` proves rows land in the
+*physical* partition covering their timestamp rather than assuming partitioning works; a redelivered
+event produces exactly one row; the manager is idempotent across runs; and a far-future row lands in the
+DEFAULT partition **rather than being rejected**, which is the safety valve's whole purpose.
+
+#### CI investigation — a green build that depended on the developer's laptop (2026-07-26)
+
+GitHub Actions failed on `WebhookDeliveryLogAndReplayIntegrationTest.aReplayIsPermittedEvenWhenTheOriginalAlreadySucceeded()`
+while the repository built and tested cleanly locally. Recorded here rather than folded into M20 because
+the defect is M18's, the lesson is about the test suite as a whole, and the fix is what unblocked M20.
+
+**Root cause: `replay` is not a read — it produces to Kafka, and the test class declared no broker.**
+`WebhookDeliveryQueryService.replay` persists the new delivery and then calls `WebhookDispatcher.dispatch`,
+which publishes to `webhook.deliveries`. The class set `spring.kafka.listener.auto-startup=false`, which
+disables the **consumer**, not the **producer**. With no broker, `KafkaProducer.send` blocked for
+`max.block.ms` and threw `TimeoutException: Timed out waiting for a node assignment`; the endpoint
+returned 500 and the `status().isCreated()` assertion failed. The failing test recorded **60.096s** —
+`max.block.ms` to the millisecond — so the failure is squarely inside the test, long before any context
+shutdown. The Postgres connection-refused messages in the CI log are teardown noise and unrelated.
+
+**Why it passed locally and only locally.** `application.yaml`'s default `spring.kafka.bootstrap-servers`
+is `localhost:59092` — the docker-compose broker's host-published port. On a developer machine with the
+stack up, the test reached a real broker it never declared. **The suite depended on ambient local state**,
+which is exactly what a CI runner does not have. Classified as an undeclared test dependency: production
+logic is correct, the 201 expectation is correct, and the failure is fully deterministic rather than a
+timing flake.
+
+**Reproduced before fixing, by stopping the compose broker:**
+
+| Condition | Result | Duration |
+|---|---|---|
+| Broker up (as originally written) | 10/10 pass | 26s |
+| Broker **stopped** (= CI) | **2 failed** | 3m 3s |
+| Broker stopped, after the fix | **10/10 pass** | 52s |
+
+**Two tests fail, not one.** `replayCreatesANewDeliveryAndLeavesTheOriginalExactlyAsItWas` fails
+identically — those are exactly the two that reach `dispatch()`, while the other three replay tests throw
+400/404 earlier and never get there.
+
+**Fix.** A `ConfluentKafkaContainer` with `@DynamicPropertySource`, matching `NotificationIntegrationTest`
+and `WebhookRetryAndAutoDisableIntegrationTest` in the same package. The listener stays disabled, so the
+class's stated intent — assertions about the API, not about timing — is preserved: nothing consumes, and
+the broker exists only so the producer has metadata to fetch. **No assertion was weakened or removed.**
+`@MockitoBean` on the dispatcher was considered and rejected: this repository has zero bean-overriding
+precedent and consistently prefers real infrastructure via Testcontainers.
+
+**The same undeclared dependency was costing ~18 minutes of CI time, silently.** With no broker,
+`WebhookEndpointApiIntegrationTest` took **1063.9s**; with one, **10.7s** — a 99× difference, measured
+both ways. Three sibling classes showed the same ~60s stall once each. The mechanism is worse than slow
+tests: `WebhookRetryRelay.relay()` is `@Scheduled(fixedDelay=1s)` **and** `@Transactional`, and it calls
+`kafkaTemplate.send`. With no broker it holds a JDBC connection for the full 60s block on every tick, and
+the run log shows the consequence directly — `HikariPool-7 - Connection is not available, request timed
+out`. **A Kafka outage escalates into database connection-pool exhaustion.**
+
+**Verification.** `:notification-service:test` — **152 tests, 0 failures**, run on a quiet machine with no
+ambient broker (the truest CI simulation available locally). An earlier run of the same suite showed
+`WebhookRetryAndAutoDisableIntegrationTest` timing out at 633s; that was a self-inflicted artefact —
+stopping the broker left nine compose services in permanent reconnect and outbox-retry loops, burning CPU
+on the same Docker VM. On the quiet machine the same class takes **27.5s**. Worth recording because all
+nine services still reported `healthy` throughout: their healthcheck is `/actuator/health`, which does not
+test Kafka reachability.
+
+**Not fixed, and deliberately so.** notification-service's producer sets no `max.block.ms`, so with Kafka
+unreachable `POST /v1/webhook_deliveries/{id}/replay` hangs a servlet thread for 60 seconds before
+returning 500, and the retry relay holds a database connection for the same 60 seconds every tick. The
+gateway's new M20.2 producer sets 1s for exactly this reason. Left alone because failing fast changes
+notification-service's delivery semantics — whether an undispatched `PENDING` delivery is recoverable by
+the retry relay or simply lost needs verifying first — and that analysis does not belong inside a CI fix.
+**Recorded in §14 as an open defect with an owner still to be assigned.**
+
+#### M20.4 — `api_usage_daily`, the rollup, and the retention pruner ✅ (2026-07-26)
+
+**Summary.** The other two thirds of task 5. D116 required all three parts in the same milestone as the
+log itself, and this is where M20.3's partitioning stops being setup and starts paying off.
+
+**Files created.** `analytics-service`: `db/migration/V5__api_usage_daily.sql`,
+`service/ApiUsageRollupService.java`, `service/RequestLogRetentionService.java`;
+`ApiUsageRollupAndRetentionIntegrationTest`.
+**Files modified.** `application.yaml` (retention window, rollup and retention schedules).
+
+**DB.** `api_usage_daily` — one row per (merchant, key, mode, day, route), with request counts, **split**
+client/server error counts, duration sum and max, and p50/p95/p99. Plus `api_usage_rollup_state`,
+recording which days have been aggregated.
+
+**`unique nulls not distinct` is load-bearing, not stylistic.** `key_id` is nullable — a key can be
+revoked and deleted while its traffic remains a fact about the merchant's day — and under Postgres's
+default `nulls distinct` two rollups of the same keyless day would both be accepted, silently
+double-counting usage. Postgres 15+ syntax, and the platform is on 17.
+
+**Percentiles are computed at rollup time, from the raw rows, because that is the only moment they are
+knowable.** Percentiles cannot be averaged or recombined: given daily p95s there is no arithmetic that
+recovers a weekly p95, and given only sums and counts there is no arithmetic that recovers a percentile
+at all. Computing them once while the raw rows still exist is what lets the raw rows be dropped without
+losing the answer. Sum and count are stored alongside so the mean survives too.
+
+**Error counts are split into 4xx and 5xx** rather than a single `error_count`: 4xx is the developer's
+problem and 5xx is ours, and one number cannot answer "is my integration broken or is the platform?".
+
+**Routes, not paths.** `/v1/payments/<uuid>` is a different string for every payment, so grouping on the
+raw path would produce one aggregate row per request — the exact opposite of an aggregate, and a table
+that grows faster than the log it summarises. The rollup normalises three id shapes out of the path
+(UUIDs, the platform's prefixed public ids, and bare numeric segments) in SQL rather than Java, so the
+whole rollup stays a single pass over the day's partition instead of streaming every row into the
+application.
+
+##### The ordering guarantee: retention never runs ahead of the rollup
+
+Every candidate partition must appear in `api_usage_rollup_state` before it can be dropped. If the
+rollup is broken the log keeps growing — a disk problem, visible and recoverable — rather than losing
+the only copy of data nobody aggregated, which is not recoverable at all. The asymmetry between those
+two failures is the whole reason the check exists, and it is asserted in both directions.
+
+**Completion is recorded explicitly rather than inferred**, and that distinction matters: a "does
+`api_usage_daily` have rows for that day?" test cannot work, because a day with no traffic legitimately
+produces no rows and is indistinguishable from a day whose rollup never ran. Inferring it would mean
+deleting exactly the days that were never processed.
+
+**Dropping partitions rather than deleting rows is the entire reason M20.3 partitioned the table.**
+`delete from api_request_log where occurred_at < …` on the platform's busiest table is hours of
+row-by-row deletion plus vacuum pressure, reclaiming no disk until it finishes; `drop table` on a day
+partition is a catalogue update that returns immediately. Candidates come from `pg_inherits` rather than
+a date loop, so a partition created by any means is considered, and the **DEFAULT partition is excluded
+by name** — it holds rows of arbitrary dates, so dropping it would discard data no date test cleared.
+
+**Both jobs run hourly and are idempotent.** The rollup upserts, so a re-run recomputes a day from
+scratch and catching up needs no special path; a day that fails is logged and skipped without stopping
+the others, because an un-rolled-up day blocks retention and silently giving up would eventually fill
+the disk. Today is deliberately never rolled up — it is still accumulating, and publishing a figure that
+changes under the reader is worse than publishing it a day later.
+
+**Tests.** 8 new, all green, against real Postgres. The two that matter most are the retention pair: a
+rolled-up partition past the window **is** dropped while its aggregate survives, and an un-rolled-up
+partition past the window **is kept**, with the retention counter asserted so the refusal is visible
+rather than silent. Alongside: exact percentiles and split error classes over a known 10-request
+distribution; route normalisation collapsing four distinct paths into two routes; rollup idempotency
+across three runs; mode separation; a partition inside the window untouched; and the DEFAULT partition
+surviving a 1-day retention setting.
+
+#### M20.7 — The Resilience4j meters fix, and why they were missing ✅ (2026-07-26)
+
+**Summary.** Task 7, closing **V1 known issue #9** (§2.11) — "Resilience4j meters are absent from
+`/actuator/prometheus` despite the dependency being present", which V1 recorded and M14 re-confirmed
+without either finding the cause. Taken out of numeric order deliberately: the decomposition already
+marks it independent of the request-log pipeline, which is what makes its regression signal unambiguous.
+
+**Files created.** `common-lib`: `autoconfigure/ResilienceMetricsAutoConfiguration.java`,
+`ResilienceMetricsAutoConfigurationTest`.
+**Files modified.** `common-lib/build.gradle.kts` (Resilience4j `compileOnly` + test deps),
+`AutoConfiguration.imports`.
+
+##### The cause: a Spring Boot 4 package relocation, diagnosed rather than guessed
+
+Measured on the running stack first: **gateway-service exposed 29 `resilience4j_*` meter lines;
+payment-service exposed 0** out of 229 meter families — with the same `resilience4j-micrometer`
+dependency and the same `registerHealthIndicator: true`. That asymmetry is what made the issue look
+arbitrary for two milestones.
+
+`resilience4j-spring-boot3:2.3.0`'s metrics auto-configurations order themselves with
+`@AutoConfigureAfter` against Boot **3** class names:
+
+```
+org.springframework.boot.actuate.autoconfigure.metrics.MetricsAutoConfiguration
+org.springframework.boot.actuate.autoconfigure.metrics.export.simple.SimpleMetricsExportAutoConfiguration
+```
+
+Boot 4 moved both to `org.springframework.boot.micrometer.metrics.autoconfigure`. Confirmed by reading
+the jars directly: the new package is present in `spring-boot-micrometer-metrics-4.0.2.jar`, and
+`spring-boot-actuator-autoconfigure-4.0.2.jar` contains **zero** matches for the old path. Spring
+*silently drops* an ordering hint naming a class it cannot resolve, so Resilience4j's metrics
+auto-configuration loses its guarantee of running after the `MeterRegistry` exists, and its
+`@ConditionalOnBean(MeterRegistry.class)` evaluates at whatever point it happens to be reached. The
+gateway has few enough auto-configurations to win that race; payment-service, with Kafka, JPA and Feign,
+loses it.
+
+**The fix stops depending on ordering at all.** Each binder takes `MeterRegistry` as a constructor
+argument, so the dependency graph — not an annotation naming a class that no longer exists — guarantees
+the registry is present. `bindTo` is both retroactive and prospective: it meters instances that already
+exist *and* subscribes for ones created later, which matters because Resilience4j normally creates
+instances lazily on first use — exactly the breakers under load would otherwise have been the ones
+missing.
+
+**Placed in `common-lib` rather than fixed twice.** `@ConditionalOnClass` keeps it inert in the six
+services that do not use Resilience4j, and `ObjectProvider` makes each registry optional, so a service
+with only a circuit breaker gets exactly the circuit-breaker meters.
+
+**Tests.** 5 new, all green, and deliberately asserting **meters present in a real registry** rather
+than beans created. The issue V1 recorded was precisely that the dependency and configuration were
+present while the meters were not — a test checking wiring rather than output would have passed
+throughout the entire period the meters were missing. Also covered: an instance created *after* startup
+is still metered; a service with a meter registry but no Resilience4j registries starts cleanly; and the
+binding can be switched off.
+
+**Live confirmation on `/actuator/prometheus` is M20.8's**, following the same pattern as every prior
+milestone, where compose-level validation happens at closure rather than per sub-milestone.
+
+#### M20.5 — Per-key rate limiting, daily quotas, and standard headers ✅ (2026-07-26)
+
+**Summary.** Tasks 3 and 4, and the milestone's only cross-service change. Closes the §14 gap M15
+recorded: API-key traffic no longer falls into D24's shared IP bucket.
+
+**Files created.** `merchant-service`: `db/migration/V5__merchant_rate_limits.sql`.
+`gateway-service`: `config/RateLimitProperties.java`, `ratelimit/ApiKeyRateLimitWebFilter.java`,
+`ratelimit/RateLimitScriptConfig.java`, `resources/scripts/api-key-rate-limit.lua`;
+`ApiKeyRateLimitWebFilterTest`.
+**Files modified.** `merchant-service`: `domain/Merchant.java`, `dto/ApiKeyVerifyResponse.java`,
+`web/ApiKeyInternalController.java`. `gateway-service`: `security/apikey/ApiKeyVerifyResult.java`,
+`config/RateLimiterConfig.java`, `application.yaml`.
+
+**DB.** Three nullable columns on `merchants` — `rate_limit_per_second`, `rate_limit_burst`,
+`daily_quota` — with check constraints rejecting non-positive values. **Nullable is the design**: null
+means "use the platform default for this mode", so defaults live in one place and change for everyone
+without a data migration, while a non-null value is an explicit decision someone made about that
+merchant. The constraints matter because a zero limit would not mean "unlimited" to a token bucket — it
+would mean *refuse everything*, turning one misconfigured row into a total outage for one merchant.
+
+**D145 in practice.** The limits ride out on the API-key verify response the gateway already resolves
+and caches per request, so per-merchant enforcement costs no extra round trip and no second cache. The
+new fields are nullable on `ApiKeyVerifyResult` too, which makes the cache change **backwards compatible
+by construction**: an `apikey:v1:` entry written before this deploy deserializes with three nulls,
+resolves to the defaults, and ages out normally — no cache flush, no failed requests during rollout.
+
+**D146 in practice: the two limiters are kept apart by an empty key.** `rateLimitKeyResolver` now
+returns `Mono.empty()` for API-key requests, and `deny-empty-key: false` makes the built-in
+`RequestRateLimiter` skip them rather than 403 them (its default would have rejected every API-key
+request outright). D24's IP/JWT bucket is otherwise untouched, so V1's Gatling rate-limit scenario
+remains a valid regression gate — which M20's own risk table names as the mitigation. Classification is
+by credential *shape* via M15's pure `ApiKeyFormat`, so the resolver stays I/O-free and does not depend
+on authentication having run.
+
+**Why the whole decision is one Lua script.** The bucket is a read-modify-write, and two gateway
+instances refilling from a stale read would each grant tokens the other already spent — correct on one
+laptop, wrong under concurrency. Redis executes a script atomically, so bucket refill, quota check and
+quota increment are a single serialized step regardless of how many gateways run.
+
+**Three deliberate asymmetries inside the script**, each recorded because each is a decision rather than
+an implementation detail:
+- **A quota refusal does not consume a token.** A caller already out of daily budget should not also be
+  drained of burst capacity, or their *first request tomorrow* would be refused for a reason that no
+  longer applies.
+- **The quota counts admitted requests only.** Counting refused ones would let a client burn their daily
+  allowance on requests the platform never served.
+- **`max(0, now - lastRefreshed)`** guards against clock skew between instances handing the bucket a
+  negative delta, which would otherwise *remove* tokens nobody spent.
+
+**Buckets are per key; quotas are per merchant and mode.** A runaway script on one key cannot starve
+another, but issuing a second key must not multiply the merchant's daily budget. Test and live budgets
+are separate counters, extending M16's isolation guarantee from data to capacity — a sandbox load test
+can never exhaust the allowance production traffic depends on.
+
+**Headers report the quota, not the bucket, and that is a forced choice.** There are two limits and the
+draft `RateLimit-*` standard describes one window. The daily quota is what a client can plan around and
+its reset is a real moment; the per-second bucket's "reset" is under a second away and would put
+`RateLimit-Reset: 0` on nearly every response. The bucket therefore surfaces only when it refuses
+something, as a 429 with `Retry-After`. The two causes carry **different error codes**
+(`RATE_LIMIT_EXCEEDED` vs `DAILY_QUOTA_EXCEEDED`) because they need different fixes — slow down, versus
+you are out of budget until midnight.
+
+**Redis unavailability fails open, deliberately.** Rate limiting guards against excess load; refusing
+every request because the limiter is unreachable converts a capacity safeguard into a total outage,
+which is strictly worse than briefly serving unlimited traffic. Counted as
+`api_key_rate_limit_total{outcome="error"}` so it is never invisible.
+
+##### Bug discovered (third occurrence): a second constructor silently breaks bean creation
+
+Adding a clock-injecting constructor for testability gave the class two constructors, and Spring refuses
+to choose — `No default constructor found`, which fails **context startup**, so 22 gateway tests failed
+at once with a message naming neither the real cause nor the class that introduced it. This is the third
+time in M20 (after `RequestLogPartitionManager` and `ApiUsageRollupService`) that the
+inject-a-`Clock`-for-tests pattern has needed an explicit `@Autowired`. Recorded as a pattern rather than
+three incidents: on this codebase, adding a test-only constructor to a Spring-managed bean requires
+annotating the injection constructor, every time.
+
+**Tests.** 11 new, all green, against a **real Redis** — the Lua atomicity and refill arithmetic are the
+substance of this filter and neither survives being mocked; a fake would assert that the test author
+understood the algorithm rather than that Redis executes it. A frozen clock makes the burst boundary
+exact rather than dependent on machine speed. Covered: the burst boundary and `Retry-After`; refill over
+time; the quota refusing with its own code and a reset computed to midnight UTC (3600s from 23:00);
+standard headers on a success; a merchant override beating the platform default; a quota refusal leaving
+the bucket intact; per-key buckets with a shared per-merchant quota; test and live counted separately;
+non-key traffic passing straight through; the master switch; and **an unreachable Redis failing open**.
+
+**Regression check.** `:gateway-service:test` and `:merchant-service:test` — **BUILD SUCCESSFUL**.
+
+#### M20.6 — `/v1/request_logs` and `/v1/usage` ✅ (2026-07-26)
+
+**Summary.** Task 6, and the half of M20 that makes the rest of it useful: everything before this
+captured, stored and aggregated requests that no developer could actually see.
+
+**Files created.** `analytics-service`: `dto/RequestLogResponse.java`, `dto/UsageSummaryResponse.java`,
+`service/RequestLogQueryService.java`, `web/RequestLogController.java`; `RequestLogQueryIntegrationTest`.
+**Files modified.** `gateway-service`: `application.yaml` (new route),
+`security/apikey/ApiKeyAuthenticationWebFilter.java` (+`logs:read`).
+
+**API.** `GET /v1/request_logs` — cursor-paginated, merchant- and mode-scoped, filterable by
+`status_code` and `method`, with `created_after`/`created_before`. `GET /v1/usage` — totals plus per-day,
+per-key, per-route buckets with mean and percentiles.
+
+**Built entirely from M19's primitives.** `ListQuery`, `CursorPage`, `CursorCodec` — so list semantics
+here are identical to payments, refunds, events and the ledger rather than a sixth dialect. The keyset
+predicate is written **unguarded**, applying D141 directly: the null-guarded form M19.2 shipped demoted
+the row-wise comparison from an index condition to a filter, and this endpoint queries the
+highest-volume table on the platform, where that difference is largest.
+
+**`logs:read` finally has a route.** It was the last name in §4.9's original vocabulary still unattached
+— §14 recorded it as such after M19 attached the other four. The request log and usage share one scope
+deliberately: they are two views of the same data, individual requests and their daily aggregate, so a
+key permitted one and refused the other would be a distinction without a security difference.
+
+**`/v1/usage` takes dates, not timestamps**, because the aggregate is per UTC day — accepting an instant
+would imply a precision the stored data does not have. The 90-day cap and the reject-rather-than-truncate
+rule are M19.6's, applied again for the same reason.
+
+##### Bug discovered: the usage response could not distinguish two rows from one another
+
+The test expected one bucket for a day's `/v1/payments` traffic and got **two**, because
+`api_usage_daily` groups by `key_id` as well as route — which is correct, since §5/M20 asks for usage
+"per key, per endpoint, per day". The defect was on the response: `UsageBucketResponse` had **no
+`keyId`**, so a merchant using two keys against one route on one day received two rows with identical
+day, identical route, different numbers, and nothing explaining why.
+
+Aggregating across keys instead was rejected for two reasons: it discards the per-key breakdown the
+milestone lists as a feature, and the percentiles could not be combined anyway — summing counts is
+valid, averaging p95s is not. The field is nullable, because usage recorded against a since-deleted key
+remains a fact about the merchant's day.
+
+**A test that asserted nothing, caught by strengthening it.** The forged-cursor case seeded one row, so
+the first page was complete, `nextCursor` was null, and the "cursor from another merchant" it then fed
+to the decoder was `null` — which is simply "no cursor" and correctly throws nothing. The assertion
+passed while proving nothing. Fixed by seeding two rows and asserting the cursor is non-null *before*
+using it, so the test fails if it ever stops exercising the path it names.
+
+**Tests.** 8 new, all green, against real Postgres. The isolation sweep is load-bearing here beyond the
+usual: this endpoint returns paths, query strings and redacted bodies for every request a merchant made,
+so a scoping mistake leaks more than on any other read surface. Covered: merchant and mode scoping in
+both directions; a forged cursor refused before reaching the query; pagination returning every row
+exactly once across boundaries; status and method filters, including one that matches nothing returning
+nothing rather than everything; usage totals with a derived mean and per-key buckets; a merchant with no
+usage getting an empty report rather than a 404; and both window bounds rejected rather than truncated.
+
+**Regression check.** `:analytics-service:test` and `:gateway-service:test` — **BUILD SUCCESSFUL**.
+
+#### M20.8 — Load proof, live E2E, and the misconfiguration only the E2E could find ✅ (2026-07-26)
+
+**Files created.** `gateway-service`: `ApiRequestLoggingLoadTest`.
+**Files modified.** `docker-compose.yml` (gateway Kafka address — see the defect below).
+
+##### The load proof (§5/M20's "most worth proving by experiment")
+
+With the broker **wedged** — accepting the connection and never responding, the worst realistic case —
+**4,000 requests across 16 threads**: every one completed, **mean added latency 1.4 ms, p99 7.9 ms**,
+**2,999 events dropped and counted**, **zero failures**.
+
+That is a stronger claim than M20.2's unit test, and deliberately so: a design can drop correctly and
+still serialise every caller on a lock while doing it. The p99 assertion is what a blocking regression —
+a lock, a synchronous send, an unbounded queue growing into GC pressure — would break.
+
+##### The live docker-compose E2E — 45 checks, 0 failures
+
+Images rebuilt for the four changed services; all three M20 migrations applied against the populated
+database (`analytics` V4/V5, `merchant` V5, all `success = t`); all 13 containers healthy. Driven
+entirely over the real gateway on `:8080` with freshly registered merchants and their own
+onboarding-issued keys — no test-only bypass, no direct service call, no seeded rows.
+
+- **Rate-limit headers** — `RateLimit-Limit`/`-Remaining`/`-Reset` on ordinary responses.
+- **`logs:read` enforcement** — a `payments:read` key is refused both `/v1/request_logs` and `/v1/usage`
+  with 403 while a full key reads them.
+- **Requests appear in the developer-visible log within seconds**, in the standard list envelope, with
+  method, status, duration and mode — and the 404 carrying its error code.
+- **Redaction proved at rest, twice**: `Authorization` stored as `[REDACTED]`, and a direct SQL sweep of
+  `api_request_log` for `sk_test_` in headers or bodies returning **0**.
+- **Cross-merchant isolation** — with a guard asserting the caller's own log is non-empty first, so the
+  check cannot pass vacuously.
+- **Mode isolation** — a live key sees no test-mode rows.
+- **A merchant override of 1 rps / burst 2 produces a real 429** with `Retry-After`, the JSON error
+  contract, code `RATE_LIMIT_EXCEEDED`, and no HTML error page — exercising D145's whole path from the
+  `merchants` column through the verify response and the gateway cache to the bucket.
+- **The 429 itself appears in the request log**, which is the point of logging refusals (M20.2).
+- **Usage API** with its window cap rejected at 400; forged cursor 400; no credential and a garbage key
+  both 401.
+- **V1 known issue #9 confirmed closed on the wire**: payment-service's `/actuator/prometheus` now
+  exposes **58 `resilience4j_*` lines**, measured at **0** before M20.7.
+
+Gateway counters after the run: `api_request_log_events_total{published=22, dropped=0, failed=0}` and
+`api_key_rate_limit_total{allowed=19, throttled=1}`.
+
+##### Defect found by the E2E, and invisible to every other form of verification
+
+The gateway's compose entry pointed at `kafka:9092`. **That is not a listener** — the in-cluster
+PLAINTEXT listener is `kafka:19092`, which all eight other services already used, and `9092` was simply
+a port nothing was bound to. Introduced in M20.2.
+
+Every request-log publish had been failing since the stack restarted: `published=0, failed=54`, with
+`Topic api.request.events not present in metadata after 1000 ms` — the producer timing out against an
+address with no broker behind it.
+
+**Nothing detected it, and nothing could have.** 648 unit and integration tests passed, because they use
+Testcontainers with a correct address. No request failed, no latency moved, no user-visible error
+occurred — because a failed request-log publish is *designed* to be silent (D109). The only symptoms
+were a counter and an empty table.
+
+That is the cost of the drop-rather-than-block guarantee stated plainly: **the property that stops
+observability from breaking the platform also stops a broken observability pipeline from announcing
+itself.** The counters are not decoration; on this pipeline they are the only alarm, which is the
+strongest argument in the milestone for M20.2's decision to count drops and failures separately rather
+than logging and forgetting. A follow-up worth its own milestone would be an alert on
+`api_request_log_events_total{outcome="failed"} > 0`, since that rate should be zero in a healthy system
+and was 100% here.
+
+**Also fixed in the E2E harness itself**, recorded because both would have produced false confidence:
+the merchant id was read as `response.id` when onboarding returns `{merchant, apiKeys}` (M15), so the
+rate-limit override would have updated **zero rows** and the 429 would have failed for an unrelated
+reason; and the cross-merchant and cross-mode isolation checks originally passed **vacuously** while the
+log was empty — asserting absence proves nothing when everything is absent. A non-emptiness guard now
+precedes them.
+
+##### Regression verification (2026-07-26)
+
+`.\gradlew.bat build --rerun-tasks --no-parallel --max-workers=1` — **BUILD SUCCESSFUL in 11m 34s**,
+`83 actionable tasks: 83 executed`. Aggregated from each module's JUnit XML rather than the task summary:
+**648 tests, 0 failures, 0 errors, 0 skipped** across all 11 test-bearing modules — notification 152,
+payment 126, common-lib 79, sandbox 78, gateway 57, analytics 53, transaction 27, common-dto 24,
+merchant 24, audit 16, identity 12.
+
+**+82 tests over M19's 566**, landing where M20 did the work: common-lib +33 (redaction and the
+Resilience4j binder), gateway +26 (publisher, filter, rate limiter, load proof), analytics +23 (ingest,
+rollup and retention, the read APIs). **No `:test` task was served from cache** — verified, not assumed.
+
+##### Completion criteria (§5/M20)
+
+| Criterion | Status |
+|---|---|
+| Every request through the gateway appears in the developer-visible log within seconds | ✅ E2E §6, over the real gateway. Scoped to *attributable* requests — a request whose key never resolved has no merchant to file it under (M20.2) |
+| No secret ever appears in a logged body — verified against a deliberately secret-laden corpus | ✅ 10-payload corpus sweep asserting none of seven known secrets survives, plus a live SQL sweep of `api_request_log` returning 0 |
+| Rate limits are per key and per mode; headers are correct at the boundary | ✅ Per-key buckets and per-merchant/mode quotas on real Redis; boundary proved with a frozen clock; headers confirmed live |
+| A stalled log pipeline degrades to dropped events with zero request impact, proven under load | ✅ 4,000 requests, broker wedged, p99 7.9 ms, 2,999 dropped, 0 failures |
+| Retention pruning works and `/actuator/prometheus` exposes Resilience4j meters again | ✅ Pruner drops rolled-up partitions and provably refuses un-rolled-up ones; 58 meter lines on payment-service, measured at 0 beforehand |
+
+**M20 status: complete.** All eight sub-milestones implemented, verified independently, and validated
+together on a live stack. **V1 known issue #9 is closed** — and explained, which two milestones of
+re-confirming it had not managed. `logs:read` was the last name in §4.9's original scope vocabulary
+without a route, and now has one.
+
+**Six defects were found during M20**, five of them by tests or the E2E rather than by review: redaction
+that only covered the JSON path so a form-encoded password survived; JDBC not inheriting Hibernate's
+`default_schema` (a rediscovery of M19.2's own lesson); scheduled housekeeping logging a stack trace on
+every build; a usage response that could not distinguish two rows from each other; a Kafka address that
+was wrong in a way only a live stack could reveal; and — three times over — a test-only constructor
+silently breaking Spring bean creation. Separately, the **CI investigation** during this milestone found
+an integration test that had been passing for two milestones only because it borrowed the developer's
+docker-compose broker.
+
+**Next milestone: M21** — OpenAPI 3.1, versioning, and the error contract.
 
 ---
 

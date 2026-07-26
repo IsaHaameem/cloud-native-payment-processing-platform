@@ -21,11 +21,14 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
@@ -43,8 +46,23 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <p>Rows are seeded directly rather than produced by driving Kafka: the delivery
  * *pipeline* is already proven end to end by {@code NotificationIntegrationTest}, and what
- * this suite is about is the read surface and the replay semantics. Kafka is disabled so
- * the assertions are about the API rather than about timing.
+ * this suite is about is the read surface and the replay semantics. The Kafka
+ * <b>listener</b> stays disabled so the assertions are about the API rather than about
+ * timing — nothing is consumed here.
+ *
+ * <p><b>A broker is still required, and the reason is easy to miss.</b> Replay is not a pure
+ * read: {@code WebhookDeliveryQueryService.replay} persists the new delivery and then calls
+ * {@code WebhookDispatcher.dispatch}, which <em>produces</em> to {@code webhook.deliveries}.
+ * Disabling the listener does not disable the producer. Without a broker,
+ * {@code KafkaProducer.send} blocks for {@code max.block.ms} (60s by default) waiting for
+ * cluster metadata and then throws, the endpoint returns 500, and the two replay tests fail.
+ *
+ * <p>This class originally declared only Postgres, so those two tests passed on a developer
+ * machine purely because {@code application.yaml}'s default {@code localhost:59092} happened
+ * to reach the docker-compose broker — an undeclared dependency on ambient local state, which
+ * is exactly what CI does not have. Declaring the container makes the dependency explicit and
+ * the suite self-contained, matching {@code NotificationIntegrationTest} and
+ * {@code WebhookRetryAndAutoDisableIntegrationTest}, which both already do this.
  */
 @SpringBootTest(properties = {
         "spring.kafka.listener.auto-startup=false",
@@ -64,6 +82,19 @@ class WebhookDeliveryLogAndReplayIntegrationTest {
     @ServiceConnection
     static PostgreSQLContainer<?> postgres =
             new PostgreSQLContainer<>(DockerImageName.parse("postgres:17-alpine"));
+
+    /**
+     * Present so the producer inside {@code replay} has a broker to reach — see the class
+     * javadoc. Nothing consumes from it: the listener is disabled above.
+     */
+    @Container
+    static ConfluentKafkaContainer kafka =
+            new ConfluentKafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.7.1"));
+
+    @DynamicPropertySource
+    static void registerKafka(DynamicPropertyRegistry registry) {
+        registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+    }
 
     @Autowired
     private MockMvc mockMvc;

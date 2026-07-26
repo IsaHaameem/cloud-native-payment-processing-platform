@@ -3,10 +3,12 @@
  * consumer of payment.events with optimistic-lock retry on the shared aggregate row
  * (mirrors transaction-service's LedgerService pattern, M6).
  *
- * Deliberately no REST API, no Spring Security, no OpenFeign (same scope discipline as
- * transaction-service/audit-service, D42): its only inbound interface is the Kafka
- * stream. A read API for the aggregates is deferred until a real consumer needs one
- * (same YAGNI call as D31/D42).
+ * D42 originally scoped this service to a Kafka stream and nothing else, deferring a read
+ * API until a real consumer existed. M19.6 is that consumer: the service now serves
+ * /v1/analytics with Spring Security wired for InternalContextFilter only (no OAuth2
+ * resource server, D133). M20 adds the API request log and its usage aggregates, making it
+ * the owner of the platform's highest-volume table. Still no OpenFeign — it makes no
+ * synchronous outbound call to any service.
  */
 plugins {
     id("paymentflow.java-conventions")

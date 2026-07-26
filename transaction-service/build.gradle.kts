@@ -2,11 +2,12 @@
  * transaction-service — double-entry ledger; idempotent consumer of payment.events;
  * optimistic locking on account balances. The platform's first real Kafka consumer.
  *
- * Deliberately no REST API, no Spring Security, no OpenFeign: the roadmap scopes this
- * service to exactly "double-entry ledger, idempotent consumer, optimistic locking" —
- * its only inbound interface is the event stream. spring-boot-starter-web is still
- * needed for actuator's HTTP transport (health, matching every other service, for M9's
- * container healthchecks).
+ * D42 originally scoped this service to the event stream alone, with web present only for
+ * actuator's HTTP transport. M19.4 gave it its first real web layer — GET /v1/balance and
+ * /v1/balance_transactions, with Spring Security wired for InternalContextFilter only
+ * (D133's shape). The ledger remains **write-only via Kafka**: BalanceQueryService holds no
+ * LedgerService, no TransactionTemplate and no account mutation, so D42's boundary is
+ * preserved by construction rather than by convention. Still no OpenFeign.
  */
 plugins {
     id("paymentflow.java-conventions")

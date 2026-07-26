@@ -35,6 +35,20 @@ dependencies {
     // transitive dependency onto a module that doesn't want actuator at all.
     compileOnly("io.micrometer:micrometer-core")
     compileOnly("org.springframework.boot:spring-boot-micrometer-metrics")
+    // M20.1: RequestRedactor walks a JSON body structurally (field-name redaction) rather
+    // than only regex-scrubbing its text. compileOnly for the same reason as everything
+    // above — every consumer already has Jackson on the classpath via a Boot starter.
+    compileOnly("tools.jackson.core:jackson-databind")
+    // M20.7: ResilienceMetricsAutoConfiguration binds Resilience4j's Micrometer meters
+    // explicitly, closing V1 known issue #9 (see that class for the Boot 4 relocation that
+    // caused it). compileOnly like everything above — only the two services that actually use
+    // Resilience4j bring it, and @ConditionalOnClass keeps the auto-config inert everywhere else.
+    compileOnly("io.github.resilience4j:resilience4j-micrometer")
+    compileOnly("io.github.resilience4j:resilience4j-circuitbreaker")
+    compileOnly("io.github.resilience4j:resilience4j-retry")
+    compileOnly("io.github.resilience4j:resilience4j-bulkhead")
+    compileOnly("io.github.resilience4j:resilience4j-timelimiter")
+    compileOnly("io.github.resilience4j:resilience4j-ratelimiter")
 
     // Generates auto-configuration metadata so condition evaluation is fast/lazy.
     // The annotationProcessor configuration doesn't extend implementation, so it needs
@@ -47,5 +61,12 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-actuator")
     testImplementation("org.springframework.boot:spring-boot-starter-security")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // M20.7: ResilienceMetricsAutoConfigurationTest asserts meters land in a real registry.
+    testImplementation("io.github.resilience4j:resilience4j-micrometer")
+    testImplementation("io.github.resilience4j:resilience4j-circuitbreaker")
+    testImplementation("io.github.resilience4j:resilience4j-retry")
+    testImplementation("io.github.resilience4j:resilience4j-bulkhead")
+    testImplementation("io.github.resilience4j:resilience4j-timelimiter")
+    testImplementation("io.github.resilience4j:resilience4j-ratelimiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

@@ -44,6 +44,7 @@ public class ApiKeyInternalController {
 
         return new ApiKeyVerifyResponse(
                 key.getMerchantId(), key.getId(), key.getMode(), key.getScopes(),
-                merchant.getContactEmail(), merchant.getWebhookUrl());
+                merchant.getContactEmail(), merchant.getWebhookUrl(),
+                merchant.getRateLimitPerSecond(), merchant.getRateLimitBurst(), merchant.getDailyQuota());
     }
 }

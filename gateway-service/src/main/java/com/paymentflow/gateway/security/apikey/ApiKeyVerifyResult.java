@@ -17,9 +17,27 @@ public record ApiKeyVerifyResult(
         String mode,
         List<String> scopes,
         String contactEmail,
-        String webhookUrl) {
+        String webhookUrl,
+        /*
+         * M20.5 / D145. Null means "use the platform default for this mode" — these are
+         * overrides, not settings, so an absent value is the normal case rather than an error.
+         *
+         * Nullability also makes the cache change backwards-compatible: an `apikey:v1:` entry
+         * written before this milestone deserializes with all three null and simply resolves to
+         * the defaults, so no cache flush is needed on deploy and no request fails while old
+         * entries age out.
+         */
+        Integer rateLimitPerSecond,
+        Integer rateLimitBurst,
+        Integer dailyQuota) {
 
     public ApiKeyVerifyResult {
         mode = mode == null ? null : mode.toLowerCase(Locale.ROOT);
+    }
+
+    /** Pre-M20.5 shape, retained so existing tests and call sites compile unchanged. */
+    public ApiKeyVerifyResult(UUID merchantId, UUID keyId, String mode, List<String> scopes,
+                              String contactEmail, String webhookUrl) {
+        this(merchantId, keyId, mode, scopes, contactEmail, webhookUrl, null, null, null);
     }
 }

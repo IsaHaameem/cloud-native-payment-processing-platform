@@ -1,11 +1,13 @@
 /*
  * audit-service — immutable audit trail; idempotent event sink consuming payment.events.
  *
- * Deliberately no REST API, no Spring Security, no OpenFeign (same scope discipline as
- * transaction-service, D42): its only inbound interface is the Kafka stream. Payload is
- * stored as an opaque JSON tree rather than a typed payload class — audit's entire job is
- * to record whatever event came through verbatim, so it has no business reason to know
- * the shape of any specific event type (see D44).
+ * D42 originally scoped this service to the Kafka stream alone. M19.5 added the merchant-
+ * facing events API (GET /v1/events), with Spring Security wired for InternalContextFilter
+ * only (D133's shape), projecting the stored trail into the canonical evt_ shape M18 defined.
+ * Still no OpenFeign. The payload is still stored as an opaque JSON tree rather than a typed
+ * class — audit's entire job is to record whatever event came through verbatim, so it has no
+ * business reason to know the shape of any specific event type (see D44); the read API
+ * projects that tree rather than requiring it to have been parsed on the way in.
  */
 plugins {
     id("paymentflow.java-conventions")

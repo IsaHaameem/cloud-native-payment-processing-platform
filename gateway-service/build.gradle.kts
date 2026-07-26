@@ -27,6 +27,11 @@ dependencies {
     implementation("io.github.resilience4j:resilience4j-spring-boot3")
     implementation("io.github.resilience4j:resilience4j-reactor")
     implementation("io.github.resilience4j:resilience4j-micrometer")
+    // M20.2: the gateway's first Kafka usage — producer only, for api.request.events
+    // (§4.7). Producer only is the whole point: the edge emits and never consumes, so this
+    // adds no consumer group, no rebalancing, and nothing that can make a request wait on a
+    // broker. ApiRequestEventPublisher keeps every Kafka call on its own drain thread (D109).
+    implementation("org.springframework.boot:spring-boot-starter-kafka")
     // Concrete Micrometer registry backend + distributed tracing (M13) — same
     // additions as every servlet service; Boot's tracing/metrics autoconfiguration
     // is stack-agnostic (WebFlux gets its own observation autoconfig automatically).
@@ -39,5 +44,9 @@ dependencies {
     // Testcontainers 2.x: core module keeps its unprefixed coordinates.
     testImplementation("org.testcontainers:testcontainers")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    // M20.2: the request-log publisher drains on its own thread, so its tests assert on an
+    // outcome that arrives asynchronously — the same reason every other module here uses
+    // Awaitility rather than a sleep.
+    testImplementation(libs.awaitility)
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

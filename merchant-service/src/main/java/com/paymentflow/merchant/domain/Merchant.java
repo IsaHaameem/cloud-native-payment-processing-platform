@@ -35,6 +35,21 @@ public class Merchant {
     @Column(name = "webhook_url")
     private String webhookUrl;
 
+    /**
+     * Per-merchant rate-limit and quota overrides (M20.5, D145). Null means "use the platform
+     * default for this mode", so defaults live in the gateway's configuration and can change
+     * for everyone without a data migration; a non-null value is an explicit decision someone
+     * made about this merchant.
+     */
+    @Column(name = "rate_limit_per_second")
+    private Integer rateLimitPerSecond;
+
+    @Column(name = "rate_limit_burst")
+    private Integer rateLimitBurst;
+
+    @Column(name = "daily_quota")
+    private Integer dailyQuota;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -84,6 +99,18 @@ public class Merchant {
 
     public String getContactEmail() {
         return contactEmail;
+    }
+
+    public Integer getRateLimitPerSecond() {
+        return rateLimitPerSecond;
+    }
+
+    public Integer getRateLimitBurst() {
+        return rateLimitBurst;
+    }
+
+    public Integer getDailyQuota() {
+        return dailyQuota;
     }
 
     public String getWebhookUrl() {

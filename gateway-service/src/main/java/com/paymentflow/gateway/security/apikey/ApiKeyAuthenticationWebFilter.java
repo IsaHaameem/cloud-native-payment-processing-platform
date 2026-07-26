@@ -41,6 +41,15 @@ import java.util.Set;
 @Component
 public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
 
+    /**
+     * Exchange attribute carrying the {@link ApiKeyVerifyResult} this filter resolved (M20.2).
+     * The request-logging filter reads it to attribute a request to a merchant, a key and a
+     * mode; a request whose key never resolved has no merchant and is deliberately absent
+     * from every merchant's log rather than being attributed to a guess.
+     */
+    public static final String RESOLVED_KEY_CONTEXT_ATTRIBUTE =
+            ApiKeyAuthenticationWebFilter.class.getName() + ".resolvedKeyContext";
+
     private static final String PAYMENTS_PATH_PREFIX = "/v1/payments";
     private static final String WEBHOOK_ENDPOINTS_PATH_PREFIX = "/v1/webhook_endpoints";
     private static final String WEBHOOK_DELIVERIES_PATH_PREFIX = "/v1/webhook_deliveries";
@@ -48,12 +57,19 @@ public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
     private static final String BALANCE_PATH_PREFIX = "/v1/balance";
     private static final String EVENTS_PATH_PREFIX = "/v1/events";
     private static final String ANALYTICS_PATH_PREFIX = "/v1/analytics";
+    private static final String REQUEST_LOGS_PATH_PREFIX = "/v1/request_logs";
+    private static final String USAGE_PATH_PREFIX = "/v1/usage";
     private static final String SCOPE_PAYMENTS_READ = "payments:read";
     private static final String SCOPE_PAYMENTS_WRITE = "payments:write";
     private static final String SCOPE_WEBHOOKS_MANAGE = "webhooks:manage";
     private static final String SCOPE_BALANCE_READ = "balance:read";
     private static final String SCOPE_EVENTS_READ = "events:read";
     private static final String SCOPE_ANALYTICS_READ = "analytics:read";
+    /**
+     * M20.6. The last name in §4.9's original vocabulary to gain a real route — §14 recorded it
+     * as still unattached after M19 attached the other four.
+     */
+    private static final String SCOPE_LOGS_READ = "logs:read";
     private static final String ERROR_CODE_INSUFFICIENT_SCOPE = "INSUFFICIENT_SCOPE";
 
     private final ApiKeyCacheService cacheService;
@@ -110,6 +126,18 @@ public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
 
     private Mono<Void> authenticateAndProceed(ServerWebExchange exchange, WebFilterChain chain, String rawKey,
                                               ApiKeyVerifyResult result) {
+        // M20.2: publish the resolved context on the exchange so the request-logging filter
+        // can attribute the request to a merchant and mode. That filter runs *ahead* of this
+        // one (it has to, to time the whole exchange and see the final status), so it cannot
+        // read the internal-context headers this method is about to set — those live on a
+        // mutated request only the downstream chain sees. Attributes are the one channel
+        // that flows the other way: ServerWebExchange.mutate() shares the attribute map with
+        // every decorated exchange, so a value put here is visible to the filter that
+        // wrapped us. Written before the scope check below deliberately — a 403 for
+        // insufficient scope is exactly the outcome a developer needs the request log to
+        // explain, and it is attributable because the key itself resolved.
+        exchange.getAttributes().put(RESOLVED_KEY_CONTEXT_ATTRIBUTE, result);
+
         HttpMethod method = exchange.getRequest().getMethod();
         String path = exchange.getRequest().getPath().value();
         String requiredScope = requiredScopeFor(method, path);
@@ -189,6 +217,12 @@ public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
         }
         if (path.startsWith(ANALYTICS_PATH_PREFIX)) {
             return SCOPE_ANALYTICS_READ;
+        }
+        // M20.6: the request log and usage share one scope. They are two views of the same
+        // data — individual requests and their daily aggregate — so a key permitted one and
+        // refused the other would be a distinction without a security difference.
+        if (path.startsWith(REQUEST_LOGS_PATH_PREFIX) || path.startsWith(USAGE_PATH_PREFIX)) {
+            return SCOPE_LOGS_READ;
         }
         // Refunds are part of the payments resource family rather than a scope of their
         // own: a key that may read payments may read their refunds, and §4.9's

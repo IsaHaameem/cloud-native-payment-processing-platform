@@ -318,11 +318,20 @@ services:
       PAYMENTFLOW_SERVICES_AUDIT_BASE_URI: http://audit-service:8091
       PAYMENTFLOW_SERVICES_ANALYTICS_BASE_URI: http://analytics-service:8093
       PAYMENTFLOW_INTERNAL_CONTEXT_SECRET: ${INTERNAL_CONTEXT_SECRET:-dev-only-insecure-shared-secret-change-me}
+      # M20.2: the gateway produces api.request.events (§4.7) — its first Kafka usage.
+      # kafka:19092 is the in-cluster PLAINTEXT listener (docker-compose.infra.yml); 9092 is
+      # not a listener at all. Every other service here uses 19092 — this one did not, and
+      # because a failed request-log publish is *designed* to be silent (D109), nothing broke
+      # loudly: no request failed, no user saw an error, and only the drop/fail counters and
+      # an empty api_request_log revealed it during M20.8's E2E.
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8080:8080"
     depends_on:
       redis:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
       identity-service:
         condition: service_healthy

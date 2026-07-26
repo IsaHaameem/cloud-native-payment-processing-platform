@@ -15,6 +15,11 @@ spring:
                 redis-rate-limiter.burstCapacity: ${paymentflow.gateway.rate-limit.burst-capacity}
                 redis-rate-limiter.requestedTokens: ${paymentflow.gateway.rate-limit.requested-tokens}
                 key-resolver: "#{@rateLimitKeyResolver}"
+                # M20.5 (D146). rateLimitKeyResolver returns an empty key for API-key
+                # traffic so this filter skips it and ApiKeyRateLimitWebFilter owns it
+                # instead — without this the default (deny-empty-key: true) would turn
+                # "not my traffic" into a 403 on every API-key request.
+                deny-empty-key: false
           routes:
             - id: identity-service
               uri: ${paymentflow.services.identity.base-uri}
@@ -125,6 +130,16 @@ spring:
                 - Path=/v1/analytics/**
               filters:
                 - RemoveRequestHeader=X-PF-Mode
+            # M20.6: the request log and usage APIs — analytics-service's second and third
+            # public routes. Their own entry rather than a broadened /v1/analytics predicate,
+            # following the one-route-per-resource precedent M17.5/M17.8/M18.8 set: "what is
+            # publicly reachable" stays answerable by reading this list.
+            - id: analytics-service-request-logs
+              uri: ${paymentflow.services.analytics.base-uri}
+              predicates:
+                - Path=/v1/request_logs/**,/v1/usage
+              filters:
+                - RemoveRequestHeader=X-PF-Mode
           # V1 known issue #7 (M15 fix, D-noted): the gateway now sits behind an ALB in
           # AWS, so X-Forwarded-* must be honored for scheme-dependent behavior (HSTS
           # etc.) to see the real, not the internal-hop, scheme. Trusts only the ALB/
@@ -137,6 +152,25 @@ spring:
       host: localhost
       port: 56379
       password: paymentflow
+  kafka:
+    # M20.2: the gateway's first Kafka usage — producer only (api.request.events, §4.7).
+    # Local default points at the compose Kafka's host-published listener, matching every
+    # other producing service.
+    bootstrap-servers: localhost:59092
+    producer:
+      # acks=1, not acks=all as the payment topics use. A request-log event is explicitly
+      # droppable (D109) — the whole pipeline is built to lose events rather than slow a
+      # request — so paying full-ISR latency for durability the design does not claim would
+      # be the wrong trade. The producer runs off the request path either way; this keeps its
+      # buffer draining faster under load, which is what actually reduces drops.
+      acks: "1"
+      properties:
+        # Never let a full producer buffer become a blocking wait. If Kafka is unreachable
+        # the send fails fast, the drain thread counts it, and the request path — which is
+        # nowhere near this call — is unaffected. The default is 60s of blocking.
+        max.block.ms: 1000
+        delivery.timeout.ms: 5000
+        request.timeout.ms: 2000
 
 server:
   port: 8080
@@ -165,9 +199,37 @@ paymentflow:
     cors:
       allowed-origins: http://localhost:3000
     rate-limit:
+      # D24's IP/JWT bucket, unchanged. It now protects dashboard and unauthenticated
+      # traffic only — API-key traffic moved to api-key-rate-limit below (M20.5/D146) —
+      # so V1's Gatling rate-limit scenario stays a valid regression gate.
       replenish-rate: 20
       burst-capacity: 40
       requested-tokens: 1
+    api-key-rate-limit:
+      # M20.5. Per-key token bucket plus a per-merchant, per-mode daily quota.
+      enabled: true
+      test:
+        # Sandbox is bursty by nature — looping over test cards is what test mode is for —
+        # so the sustained rate is generous and the quota deliberately smaller than live:
+        # a runaway test script should exhaust its own budget, not the merchant's real one.
+        requests-per-second: 50
+        burst: 200
+        daily-quota: 100000
+      live:
+        requests-per-second: 50
+        burst: 100
+        daily-quota: 500000
+    request-logging:
+      # M20.2. Bounded by design (D109): when the buffer fills, events are dropped and
+      # counted rather than made to wait, because observability that can fail a customer
+      # request is worse than no observability.
+      enabled: true
+      buffer-capacity: 10000
+      capture-bodies: true
+      # 4 KB per body, request and response independently. Large enough to hold a realistic
+      # payment payload whole; small enough that 10,000 buffered events cannot become a heap
+      # problem on the edge.
+      max-body-bytes: 4096
     api-key-cache:
       # Negative caching (task 5, §4.8) stays short — long enough to blunt a burst of
       # invalid-key enumeration, short enough that a key created moments ago (or
