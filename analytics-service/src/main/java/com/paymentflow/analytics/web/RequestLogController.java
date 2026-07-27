@@ -9,6 +9,7 @@ import com.paymentflow.common.query.CursorCodec;
 import com.paymentflow.common.query.ListQuery;
 import com.paymentflow.common.security.MerchantContext;
 import com.paymentflow.common.security.MerchantContextHolder;
+import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -31,6 +32,15 @@ import java.time.LocalDate;
 @RestController
 public class RequestLogController {
 
+    /**
+     * Two tags on one controller, declared with their descriptions in
+     * {@code OpenApiConfig}. This is exactly the case a class-level {@code @Tag} gets
+     * wrong: springdoc adds it to every operation rather than treating it as an
+     * overridable default, so both operations would be filed under both resources (M21.1).
+     */
+    static final String REQUEST_LOGS_TAG = "Request logs";
+    static final String USAGE_TAG = "Usage";
+
     private final RequestLogQueryService requestLogQueryService;
     private final CursorCodec cursorCodec;
 
@@ -40,6 +50,7 @@ public class RequestLogController {
     }
 
     @GetMapping("/v1/request_logs")
+    @Operation(tags = REQUEST_LOGS_TAG)
     public CursorPage<RequestLogResponse> requestLogs(
             @RequestParam(name = "limit", required = false) Integer limit,
             @RequestParam(name = "starting_after", required = false) String startingAfter,
@@ -63,6 +74,7 @@ public class RequestLogController {
      * instant would imply a precision the stored data does not have.
      */
     @GetMapping("/v1/usage")
+    @Operation(tags = USAGE_TAG)
     public UsageSummaryResponse usage(
             @RequestParam(name = "from", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,

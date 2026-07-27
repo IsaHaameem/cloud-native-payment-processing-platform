@@ -7,6 +7,8 @@ import com.paymentflow.common.security.MerchantContextHolder;
 import com.paymentflow.sandbox.dto.DecisionLogEntryResponse;
 import com.paymentflow.sandbox.mapper.DecisionLogMapper;
 import com.paymentflow.sandbox.service.DecisionLogQueryService;
+import io.swagger.v3.oas.annotations.Operation;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,13 +38,24 @@ public class DecisionLogController {
     private final DecisionLogQueryService decisionLogQueryService;
     private final DecisionLogMapper mapper;
 
+    /**
+     * Declared with its description in {@code OpenApiConfig}. Set per operation rather
+     * than as a class-level {@code @Tag}, which springdoc adds to every operation instead
+     * of treating as an overridable default (M21.1).
+     */
+    static final String DECISIONS_TAG = "Decisions";
+
     public DecisionLogController(DecisionLogQueryService decisionLogQueryService, DecisionLogMapper mapper) {
         this.decisionLogQueryService = decisionLogQueryService;
         this.mapper = mapper;
     }
 
     @GetMapping
-    public PageResponse<DecisionLogEntryResponse> list(Pageable pageable) {
+    @Operation(tags = DECISIONS_TAG)
+    // M21.2: see WebhookDeliveryController.list — without @ParameterObject springdoc
+    // publishes the `Pageable` binding type itself as a required `pageable` object
+    // parameter that does not exist on the wire.
+    public PageResponse<DecisionLogEntryResponse> list(@ParameterObject Pageable pageable) {
         MerchantContext context = requireContext();
         Page<DecisionLogEntryResponse> page = decisionLogQueryService
                 .list(context.merchantId(), context.mode(), pageable)
@@ -51,6 +64,7 @@ public class DecisionLogController {
     }
 
     @GetMapping("/payments/{paymentId}")
+    @Operation(tags = DECISIONS_TAG)
     public List<DecisionLogEntryResponse> forPayment(@PathVariable UUID paymentId) {
         MerchantContext context = requireContext();
         return decisionLogQueryService.forPayment(context.merchantId(), context.mode(), paymentId).stream()

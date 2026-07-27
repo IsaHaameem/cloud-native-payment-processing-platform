@@ -8,6 +8,7 @@ import com.paymentflow.common.query.CursorCodec;
 import com.paymentflow.common.query.ListQuery;
 import com.paymentflow.common.security.MerchantContext;
 import com.paymentflow.common.security.MerchantContextHolder;
+import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,6 +27,15 @@ import java.time.Instant;
 @RestController
 public class EventController {
 
+    /**
+     * Declared with its description in {@code OpenApiConfig}. Set per operation rather
+     * than as a class-level {@code @Tag}, which springdoc <em>adds</em> to every operation
+     * instead of treating as an overridable default (M21.1) — harmless with one tag, but
+     * the pattern is uniform across the platform's controllers so that adding a second
+     * resource here later does not quietly file both under both.
+     */
+    static final String EVENTS_TAG = "Events";
+
     private final EventQueryService eventQueryService;
     private final CursorCodec cursorCodec;
 
@@ -35,6 +45,7 @@ public class EventController {
     }
 
     @GetMapping("/v1/events")
+    @Operation(tags = EVENTS_TAG)
     public CursorPage<EventResponse> list(
             @RequestParam(name = "limit", required = false) Integer limit,
             @RequestParam(name = "starting_after", required = false) String startingAfter,
@@ -52,6 +63,7 @@ public class EventController {
 
     /** Accepts the {@code evt_…} id a merchant received in a webhook body. */
     @GetMapping("/v1/events/{id}")
+    @Operation(tags = EVENTS_TAG)
     public EventResponse get(@PathVariable String id) {
         MerchantContext context = requireContext();
         return eventQueryService.get(context.merchantId(), context.mode(), id);

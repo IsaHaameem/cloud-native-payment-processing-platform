@@ -26,6 +26,13 @@ dependencies {
     // a ConstraintViolationException handler method that must resolve at class-load time.
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // M21.2: the OpenAPI 3.1 description of this service's public /v1 surface. The -api
+    // starter and NOT -ui, for the reason M21.1 recorded on payment-service: the document
+    // is an artefact other things consume (M21.3's merge task, M22's SDK generators,
+    // M25's docs site), and the interactive console is the portal's job (M23/M24),
+    // rendered against the merged spec rather than six per-service Swagger pages behind a
+    // gateway that routes none of them.
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-api")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-kafka")
     // Concrete Micrometer registry backend + distributed tracing (M13).

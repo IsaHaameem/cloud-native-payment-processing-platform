@@ -1,0 +1,30 @@
+package com.paymentflow.notification.config;
+
+import com.paymentflow.common.openapi.PublicApiDocument;
+import io.swagger.v3.oas.models.OpenAPI;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * notification-service's fragment of the public API document (M21.2).
+ *
+ * <p>The document-level contract — title, version, server, and the {@code SecretKey}
+ * scheme — comes from {@link PublicApiDocument}; see its javadoc for why that is shared
+ * rather than repeated here.
+ *
+ * <p>Two tags, because registering where webhooks go and inspecting whether they arrived
+ * are separate tasks a developer does at separate times — the first once during
+ * integration, the second every time something looks wrong.
+ */
+@Configuration
+public class OpenApiConfig {
+
+    @Bean
+    public OpenAPI notificationOpenApi() {
+        return PublicApiDocument.forService(
+                PublicApiDocument.tag("Webhook endpoints",
+                        "Register and manage the URLs PaymentFlow sends events to."),
+                PublicApiDocument.tag("Webhook deliveries",
+                        "Inspect and replay individual webhook delivery attempts."));
+    }
+}

@@ -42,6 +42,37 @@ spring:
 server:
   port: 8094
 
+# M21.2 — the OpenAPI description of this service's public surface. The document-level
+# metadata (title, contract version, server, the SecretKey scheme) is not here: it is
+# shared by every service via common-lib's PublicApiDocument, so the six fragments M21.3
+# merges cannot disagree. What is per-service is which paths get published.
+springdoc:
+  api-docs:
+    # OpenAPI 3.1 (§5/M21). springdoc emits a 3.0.1 *document* by default whatever its own
+    # version, and 3.1 is what aligns the schemas with JSON Schema 2020-12 — which is the
+    # dialect M22's generators and M25's site read.
+    version: openapi_3_1
+    # The default path, kept explicit because M21.3's merge task and the contract tests
+    # both address it by name.
+    path: /v3/api-docs
+  # The restriction to the public tier. `/api/v1` (the dashboard tier, D98) and
+  # `/internal/v1` are not published: §9.5 states that documenting them "would imply a
+  # promise the platform does not intend to make" (D148).
+  paths-to-match: /v1/**
+  # Every response this service produces is JSON. Without this, springdoc infers the media
+  # type from each handler's `produces` attribute — absent on every mapping here — and
+  # publishes `*/*`, which makes the Accept header an SDK author's guess. Configuration
+  # rather than adding `produces` to the mappings, because that attribute also changes
+  # *runtime* content negotiation and this is a documentation problem.
+  default-produces-media-type: application/json
+  # Stable key order, so the committed openapi.yaml baseline and CI's spec-diff (M21.6)
+  # see a real change as a real change and reordering as nothing at all.
+  writer-with-order-by-keys: true
+  # Swagger UI is not on the classpath at all (the -api starter, not -ui); this only makes
+  # that explicit for anyone reading the configuration rather than the build file.
+  swagger-ui:
+    enabled: false
+
 paymentflow:
   simulated-acquirer:
     # D104/M17.7 — deliberately "configurable per environment" (§8.4): small enough

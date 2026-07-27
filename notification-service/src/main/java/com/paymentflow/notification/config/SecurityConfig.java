@@ -48,6 +48,24 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**", "/actuator/info",
                                 "/actuator/prometheus", "/actuator/metrics", "/actuator/metrics/**").permitAll()
+                        // M21.2: the OpenAPI description of the public /v1 tier (D148).
+                        // Permitted for the same reason the Prometheus scrape is — it is
+                        // read by infrastructure holding no merchant credential: M21.3's
+                        // merge task, the contract tests, and CI's breaking-change diff.
+                        //
+                        // It discloses nothing a caller is not already entitled to know:
+                        // its entire content is the public API surface, which M21.3
+                        // commits as `openapi.yaml` and M25 publishes. Requiring a key to
+                        // fetch the description of how to use a key would be circular.
+                        //
+                        // Not reachable from outside regardless: the gateway routes only
+                        // its explicit path predicates, and /v3/api-docs is not among them.
+                        //
+                        // `/v3/api-docs.yaml` is listed separately and is not a
+                        // redundancy: springdoc serves YAML from a *sibling* path, not a
+                        // child, so `/v3/api-docs/**` does not cover it.
+                        .requestMatchers(HttpMethod.GET,
+                                "/v3/api-docs", "/v3/api-docs.yaml", "/v3/api-docs/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(authenticationEntryPoint)

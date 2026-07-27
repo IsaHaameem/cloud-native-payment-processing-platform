@@ -31,13 +31,18 @@
 > docker-compose stack over the real gateway. Closes V1 known issue #9 (Resilience4j meters).
 > **M21 (OpenAPI 3.1, Versioning & the Error Contract) — in progress** (from 2026-07-27):
 > seven implementation decisions approved up front (§17/M21), decomposed into independently
-> reviewable sub-milestones. **M21.1 complete** (2026-07-27): springdoc verified against — and
-> pinned to leave unchanged — the Boot 4.0.2 / Jackson 3 platform (D147), integrated into
-> payment-service, and generating an OpenAPI 3.1 document restricted to the public `/v1` tier
-> (D148). Three defects in the generated document and two undocumented springdoc behaviours
-> were found and fixed.
+> reviewable sub-milestones (M21.1–M21.7, §17/M21). **M21.1 complete** (2026-07-27): springdoc
+> verified against — and pinned to leave unchanged — the Boot 4.0.2 / Jackson 3 platform
+> (D147), integrated into payment-service, and generating an OpenAPI 3.1 document restricted
+> to the public `/v1` tier (D148). Three defects in the generated document and two
+> undocumented springdoc behaviours were found and fixed. **M21.2 complete** (2026-07-27):
+> springdoc on the remaining five public-API services, with the document-level contract
+> shared through `common-lib` so the six fragments M21.3 merges cannot disagree (D149). All
+> **26 public `/v1` path items across six services** are now described. Closes V1 known issue
+> #5. Two further document defects were found and fixed, and one public-contract
+> inconsistency was found and recorded (§14) rather than silently changed.
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D148**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D149**.
 
 ---
 
@@ -474,7 +479,7 @@ lingering note:
 | 2 | Webhooks are unsigned — merchants cannot verify authenticity | **M18 ✅ closed** (2026-07-25) |
 | 3 | transaction-service has no query API; ledger state needs `psql` (D42) | **M19 ✅ closed** (2026-07-26) |
 | 4 | audit-service and analytics-service have no query APIs | **M19 ✅ closed** (2026-07-26) |
-| 5 | `springdoc` is in the tech-stack table but is not a dependency of any module | **M21** 🚧 in progress (2026-07-27, M21.1 — payment-service only; the other five public-API services are M21.2) |
+| 5 | `springdoc` is in the tech-stack table but is not a dependency of any module | **M21 ✅ closed** (2026-07-27, M21.1–M21.2 — springdoc now on all six services exposing a public `/v1` tier, each generating an OpenAPI 3.1 document; the merge into one published spec is M21.3) |
 | 6 | No README badge target, no diagrams, no frontend | **M23/M24/M30** |
 | 7 | Gateway does not honour `X-Forwarded-*` behind the ALB | **M15** (edge work) |
 | 8 | Deployed gateway runs `SPRING_PROFILES_ACTIVE=local`, so CORS allows only `localhost:3000` | **M23** |
@@ -2654,6 +2659,7 @@ decisions are appended as milestones are implemented.
 | D146 | (M20.5) Per-key rate limiting is a **custom gateway filter scoped to `/v1/**`**, not Spring Cloud Gateway's built-in `RequestRateLimiter`; D24's JWT/IP keying and the built-in filter are retained for every other route | (a) Swap only the `KeyResolver` so the built-in filter keys on key id; (b) replace the built-in filter platform-wide | (a) is what §5/M20 task 3's wording ("replacing D24's key resolver") literally describes, and it delivers **none** of the features the same milestone's own list requires: `RedisRateLimiter` emits `X-RateLimit-*` rather than the standard `RateLimit-Limit`/`-Remaining`/`-Reset` that M22's SDKs will back off on, and it has no concept of a daily quota, a per-merchant limit, or separate test/live budgets. Following the task list literally would have shipped a milestone whose own feature list was unmet — the divergence is recorded here rather than silently resolved either way. (b) would put V1's tested and load-tested rate-limiting behaviour at risk for traffic this milestone is not about; M20's risk table names V1's Gatling rate-limit scenario as the regression gate precisely because that behaviour must not move. Scoping the custom filter to `/v1/**` keeps the two paths independent: the JWT/IP path keeps the behaviour V1 proved, and the key path gets semantics V1 never needed |
 | D147 | (M21.1) springdoc is pinned at **3.0.1**, not the newest 3.0.3, and its **BOM is not imported** — a version constraint in `platform-bom` names the one starter instead | (a) Import `springdoc-openapi-bom` alongside the Spring Boot, Spring Cloud, and Resilience4j BOMs, matching what `platform-bom` does for every other dependency family; (b) take springdoc 3.0.3 and let the platform move to Spring Boot 4.0.5 with it; (c) take 3.0.3 and force Boot back to 4.0.2 with `strictly` constraints | Each springdoc release inherits Spring Boot's dependency management from `spring-boot-starter-parent`, so the Boot version it was *built against* becomes a floor in its published POM: 3.0.0→4.0.0, 3.0.1→4.0.1, 3.0.2→4.0.3, 3.0.3→4.0.5. (a) is worse than it looks — importing the BOM re-exports the whole of Boot 4.0.5's management, and because `common-lib` and `common-dto` depend on `platform-bom` too, **every module in the monorepo** silently moved: `spring-boot-jackson 4.0.2→4.0.5`, `tools.jackson 3.0.4→3.1.0`, `jackson-databind 2.20.2→2.21.1`. Observed via `dependencyInsight` ("By conflict resolution: between versions 4.0.5 and 4.0.2"), not guessed. (b) is that same platform upgrade made deliberate, and it is not this milestone's to make: M21.1 exists to add a *documentation* dependency, and a Boot bump is a change every service's test suite should gate, not a side effect of one. (c) fights the direction the library was compiled in — forcing a library *down* onto an older Boot than it was built against is exactly the configuration nobody upstream tests. 3.0.1's floor (4.0.1) sits below 4.0.2, so the Boot BOM wins on every coordinate and the platform is provably unchanged. The constraint replaces the BOM because a BOM whose real content is the coordinates of its own five artefacts is not worth surrendering platform control for; the starter's POM already pins its one sibling at an exact equal version, so nothing can drift |
 | D148 | (M21.1) The generated document is restricted to `/v1/**` by `springdoc.paths-to-match`, and `/v3/api-docs` is served **unauthenticated** | (a) Publish everything the service maps and let the M21 merge task filter; (b) require a key for the document endpoint, as for every other non-actuator path | §9.5 excludes `/api/v1` and `/internal/v1` from the published spec deliberately, because documenting them "would imply a promise the platform does not intend to make". (a) defers that promise to a filter two sub-milestones away and, in the interval, serves a document that describes the dashboard tier as though it were public — and the merge step is the wrong place for it anyway, since the service is the only thing that knows which of its own endpoints are a promise. On the security half: the document's entire content is the public API surface, which M21 commits as `openapi.yaml` and M25 publishes on the documentation site, so (b) would require a credential to read the description of how to use a credential while protecting nothing. It is also unreachable from outside regardless — the gateway routes only its explicit path predicates, and `/v3/api-docs` is not among them — so the exposure is in-cluster, exactly like `/actuator/prometheus`. The exclusion is asserted in both directions by `OpenApiDocumentIntegrationTest` rather than left to one line of YAML nobody re-reads |
+| D149 | (M21.2) The document-level half of every service's OpenAPI fragment — title, contract version, server, and the `SecretKey` scheme — lives in **`common-lib`** as `PublicApiDocument`; each service's `OpenApiConfig` supplies only its own tags | (a) Copy M21.1's `OpenApiConfig` into each of the five remaining services, following the schema-per-service precedent (D4/D36) every service uses for its own types; (b) put the whole document, tags included, in common-lib and have services contribute nothing | (a) is the established pattern and is wrong here for the same reason D140 gave when it moved `CanonicalEventType` into `common-dto`. D4/D36's local copies exist so no service compiles against another's *internal model*, where divergence is legitimate. This is the opposite: a **frozen public contract** that M21.3 merges into one `openapi.yaml`, and a merge is only meaningful if the fragments agree. Six hand-copied `info` blocks disagreeing on `version` is not a hypothetical — it is what M21.5 guarantees the moment the contract version changes and five of six files get edited. Worse, **no test inside any single service could detect it**: each service's own document would look perfectly correct. (b) fails in the other direction — tags genuinely differ per service, since they name the resources that service owns, so a shared tag list would either be a registry of every resource in the platform maintained in one file or an empty extension point. The split falls exactly on "is this true of the API or of this service?", and `PublicApiDocumentTest` in common-lib asserts the property no service test can: that there is only one thing for the six fragments to be right about |
 
 ---
 
@@ -2724,6 +2730,7 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **`idx_ledger_entries_account_id` is now redundant for lookups but is deliberately retained** (M19.8, Defect 3). `idx_ledger_entries_account_created (account_id, created_at desc, id desc)` supersedes it for every query the balance API issues, and M19.2 dropped `idx_payments_merchant_mode` in exactly this situation. It is kept here because it also backs the `account_id` foreign key, and dropping the only index on an FK column makes every delete on `accounts` scan `ledger_entries`. The cost is one redundant index's write maintenance; the alternative is a table scan on a path nothing exercises today but a future account lifecycle would. Flagged so the asymmetry with M19.2 is not read as an inconsistency.
 - **notification-service's Kafka producer sets no `max.block.ms`, so a broker outage becomes a database outage.** Found during the M20 CI investigation, with evidence rather than by inspection. `WebhookRetryRelay.relay()` is `@Scheduled(fixedDelay=1s)` **and** `@Transactional`, and it calls `kafkaTemplate.send`. With no reachable broker each `send` blocks for the 60-second default while the relay holds a JDBC connection, and the observed result is `HikariPool-7 - Connection is not available, request timed out` — a Kafka outage escalating into connection-pool exhaustion in a service that would otherwise be merely degraded. The same default makes `POST /v1/webhook_deliveries/{id}/replay` hang a servlet thread for 60 seconds before returning 500, which under a broker outage exhausts the servlet pool. The gateway's M20.2 producer sets `max.block.ms=1000` for exactly this reason. **Not fixed here deliberately**: failing fast changes delivery semantics, and whether an undispatched `PENDING` delivery is recoverable by the retry relay or silently lost must be established first — that analysis does not belong inside a CI fix. No milestone owns it yet; it is a genuine production robustness defect, not a test artefact.
 - **Integration tests can depend on the developer's docker-compose stack without declaring it, and the failure mode is invisible locally.** `WebhookDeliveryLogAndReplayIntegrationTest` passed for two milestones only because `application.yaml`'s default `localhost:59092` happened to reach a running compose broker; in CI it failed. Fixed for that class (M20's CI investigation), but the underlying hazard is structural: every service's `application.yaml` carries a working localhost default for Kafka, Redis and Postgres, so *any* test that omits a container silently borrows the developer's stack. The cost is not only red CI — the same gap made `WebhookEndpointApiIntegrationTest` take **1063.9s** instead of **10.7s**, ~18 minutes of CI time attributable to blocked producer calls that were swallowed rather than failed. A structural guard (a test-profile Kafka/Redis/datasource pointing at an unroutable address, so an undeclared dependency fails loudly and immediately instead of blocking for 60 seconds) would prevent the next one. Not owned by any milestone; M27 or a dedicated stability pass is the natural home.
+- **The two webhook resources carry no `object` discriminator, unlike every other public object** (found in M21.2 by generating notification-service's document and reading its schemas). `PaymentResponse`, `RefundResponse`, `EventResponse`, `BalanceTransactionResponse`, `RequestLogResponse` and `AnalyticsSummaryResponse` all publish a constant `object` field (`"payment"`, `"event"`, `"balance_transaction"`, …) — it is how a caller identifies a bare object out of context, and §7.1's SDK contract leans on it. `WebhookEndpointResponse` and `WebhookDeliveryResponse` do not have the field at all. The inconsistency existed since M18 and was invisible until the schemas were written down side by side, which is a fair argument for the document having been worth generating. **Deliberately not fixed in M21.2**: adding a field to a shipped public response is an API change, and M21.2's remit is to describe the API, not to alter it. It is additive and therefore safe under D108's versioning policy, so M21.3 (which commits the `openapi.yaml` baseline) or M21.4 (which formalises the object contract) is the right place — but it must be done *before* the baseline is frozen, or the inconsistency becomes a documented promise.
 - **The generated OpenAPI document is structurally correct but prose-empty** (M21.1). Every operation, schema field, and error response in payment-service's document carries a *name* and a *type* but no human-readable description: no `summary`, no `description`, no documented non-200 responses, no examples. §5/M21 task 1 asks for "annotated schemas, examples, and error responses" and M21.1 deliberately delivered only the structure, on the grounds that the annotation prose is worth writing once against the *final* shape of `ApiError` — which M21.4 extends with `type`, `doc_url`, and `request_id`. The accepted risk is that a document which renders and validates can look finished: anything reading it before M21.4 (an SDK generator, the docs site) would produce output that is correctly typed and completely undocumented. Owned by M21.4, not unassigned.
 - **`payment-service` relaxes Tomcat's query-string parser for `[` and `]`** (D142). Scoped to two characters and one service, but it *is* a widening of what the HTTP layer accepts, made to serve a documented filter syntax. Recorded as an accepted risk rather than a neutral configuration line: any future audit of input handling should know the parser is non-default here and why, and M21's error-contract work should confirm the relaxed characters still route malformed input to the JSON error handler rather than Tomcat's HTML page — which is the failure D142 exists to have fixed.
 
@@ -6258,7 +6265,7 @@ only one whose work repeats per service.
 | Sub-milestone | §5/M21 task | Scope | Status |
 |---|---|---|---|
 | **M21.1** | 1 (first service) | springdoc verified against the platform; integrated into payment-service; the first OpenAPI 3.1 document, restricted to `/v1` | ✅ 2026-07-27 |
-| **M21.2** | 1 (remaining services) | springdoc on the other five services exposing a public `/v1` tier: transaction-service, audit-service, analytics-service, notification-service, sandbox-service | ⬜ |
+| **M21.2** | 1 (remaining services) | springdoc on the other five services exposing a public `/v1` tier: transaction-service, audit-service, analytics-service, notification-service, sandbox-service | ✅ 2026-07-27 |
 | **M21.3** | 2 | The Gradle merge task; shared components deduplicated; `openapi.yaml` committed as the baseline | ⬜ |
 | **M21.4** | 3 | `ApiError` extended with `type`, `doc_url`, `request_id` (additive); the error-code catalogue as one source of truth | ⬜ |
 | **M21.5** | 4 | `PaymentFlow-Version` header; per-merchant pinning; the generic, registry-driven transformation layer and its one narrowly scoped revision | ⬜ |
@@ -6268,14 +6275,20 @@ only one whose work repeats per service.
 **The public `/v1` surface M21 must cover.** Six services, established by inspection rather
 than assumed — the tier is defined by the path prefix, not by which service happens to own it:
 
-| Service | Public `/v1` paths |
-|---|---|
-| payment-service | `/v1/payments` (+`/{id}`, `/authorize`, `/capture`, `/refund`, `/void`), `/v1/refunds` (+`/{id}`) — 8 path items ✅ M21.1 |
-| transaction-service | `/v1/balance`, `/v1/balance_transactions` |
-| audit-service | `/v1/events`, `/v1/events/{id}` |
-| analytics-service | `/v1/analytics/payments`, `/v1/request_logs`, `/v1/usage` |
-| notification-service | `/v1/webhook_endpoints`, `/v1/webhook_deliveries` |
-| sandbox-service | `/v1/test/simulations`, `/v1/test/decisions` |
+| Service | Public `/v1` path items | Count |
+|---|---|---|
+| payment-service ✅ M21.1 | `/v1/payments` (+`/{id}`, `/{id}/authorize`, `/{id}/capture`, `/{id}/refund`, `/{id}/void`), `/v1/refunds` (+`/{id}`) | 8 |
+| transaction-service ✅ M21.2 | `/v1/balance`, `/v1/balance_transactions` | 2 |
+| audit-service ✅ M21.2 | `/v1/events`, `/v1/events/{id}` | 2 |
+| analytics-service ✅ M21.2 | `/v1/analytics/payments`, `/v1/request_logs`, `/v1/usage` | 3 |
+| notification-service ✅ M21.2 | `/v1/webhook_endpoints` (+`/{id}`, `/{id}/rotate_secret`), `/v1/webhook_deliveries` (+`/{id}`, `/{id}/replay`) | 6 |
+| sandbox-service ✅ M21.2 | `/v1/test/cards`, `/v1/test/simulations` (+`/active`), `/v1/test/decisions` (+`/payments/{paymentId}`) | 5 |
+| **Total** | | **26** |
+
+The first cut of this table (written during M21.1) undercounted notification-service and
+sandbox-service, and omitted `GET /v1/test/cards` entirely. Corrected in M21.2 by reading
+the mappings rather than the milestone notes — which is also how the cards endpoint's
+unauthenticated status surfaced as something the document has to state.
 
 ---
 
@@ -6430,6 +6443,153 @@ gate, and the contract tests that validate live responses against the schema. Wi
 own deliverable, the **annotation prose** (operation summaries, field descriptions, examples,
 documented error responses) was deliberately deferred to M21.4 so it is written once against
 the final `ApiError` shape — recorded in §14 rather than left as an unstated gap.
+
+---
+
+#### M21.2 — springdoc on the remaining five public-API services ✅ (2026-07-27)
+
+**Objective.** Complete §5/M21 task 1: every service exposing a public `/v1` tier generates
+an OpenAPI 3.1 description of it. M21.1 did payment-service; this does the other five —
+transaction-service, audit-service, analytics-service, notification-service, and
+sandbox-service — and makes the six fragments agree with one another, which is what M21.3's
+merge depends on.
+
+**What was built.**
+
+- **`common-lib/…/openapi/PublicApiDocument`** — the document-level contract shared by all
+  six fragments: title, the date-based `API_VERSION`, the description, the public server
+  URL, and the `SecretKey` HTTP-bearer scheme applied as a document-level requirement. Each
+  service's `OpenApiConfig` now supplies only its own resource tags (**D149**).
+  payment-service's M21.1 config was refactored onto it, so the shared values exist once in
+  the repository rather than six times.
+- **Five `OpenApiConfig` classes**, one per service, naming eleven resource tags in total
+  with their descriptions.
+- **Five `springdoc.*` configuration blocks** — `version: openapi_3_1`,
+  `paths-to-match: /v1/**`, `default-produces-media-type: application/json`,
+  `writer-with-order-by-keys: true`, Swagger UI off. Identical to M21.1's, and per-service
+  rather than shared deliberately: which of its own paths a service publishes is the one
+  part of this that is genuinely its own decision (§9.5).
+- **Five `SecurityConfig` changes** permitting `GET /v3/api-docs`, `/v3/api-docs.yaml`, and
+  `/v3/api-docs/**` (D148).
+- **Per-operation OpenAPI tags on nine controllers**, covering all 22 operations across the
+  five services. No class-level `@Tag` anywhere, for the reason M21.1 recorded.
+- **Six new test classes** — `PublicApiDocumentTest` in common-lib (5 tests) and one
+  `OpenApiDocumentIntegrationTest` per service (10, 10, 10, 11 and 12 tests).
+
+**The shared-contract decision (D149).** The instinct was to copy M21.1's `OpenApiConfig`
+five times, following the schema-per-service precedent (D4/D36) that the rest of the
+platform uses. That precedent does not apply here, and D140 already explained why in a
+different context: local copies exist so no service compiles against another's *internal
+model*, where divergence is legitimate. The `info` block is the opposite — a frozen public
+contract that M21.3 merges into one document, where divergence is corruption. The failure
+mode is specific and cheap to imagine: M21.5 changes the contract version, five of six files
+get edited, and **every service's own test still passes**, because each fragment is
+internally consistent. `PublicApiDocumentTest` asserts the one property no service-level
+test can — that there is only one thing for the six to be right about.
+
+**Two defects in the generated documents, both found by reading them.**
+
+1. **`Pageable` published as a parameter that does not exist on the wire.**
+   `GET /v1/webhook_deliveries` and `GET /v1/test/decisions` still use V1's offset
+   `PageResponse` (M18/M17.8, deliberately not retrofitted to cursors), and both bind it
+   through a Spring `Pageable` argument. springdoc published exactly one parameter for it,
+   named `pageable` — the Java binding type, not the `page`/`size`/`sort` a caller sends.
+   This is the *same defect class* M21.1 found with the metadata filter's unnamed `Map`,
+   arrived at from a different direction, which is a reasonable argument that "a framework
+   binding type in a handler signature" is the shape to look for rather than any specific
+   annotation. Fixed with springdoc's `@ParameterObject` on both arguments, which expands
+   it into the real query parameters and changes nothing about the binding.
+2. **`GET /v1/test/cards` would have been documented as requiring an API key.** It is the
+   platform's one genuinely unauthenticated public endpoint (§8.1) — the test-card
+   catalogue is identical for every merchant, and the gateway permits it without a key. The
+   document-level `SecretKey` requirement is inherited by any operation that does not
+   declare its own, so the fragment described it as needing a credential it neither
+   requires nor reads: a document contradicting the running system, and SDKs that would
+   refuse to fetch the catalogue telling a developer which credentials to test with. Fixed
+   with an empty `@SecurityRequirements`, which emits `security: []` — "no security" rather
+   than "unspecified". Asserted in both directions: that endpoint declares it, and every
+   other operation on the service does *not*, so a copy-paste of the annotation onto a
+   merchant-scoped endpoint fails the test rather than silently publishing it as open.
+
+**One finding recorded rather than fixed.** Writing the schemas side by side made visible
+that `WebhookEndpointResponse` and `WebhookDeliveryResponse` carry **no `object`
+discriminator**, while every other public resource on the platform does. The inconsistency
+dates from M18 and had no symptom until the contract was written down. Not fixed here:
+adding a field to a shipped public response is an API change and M21.2's remit is to
+describe the API rather than alter it. Recorded in §14, owned by M21.3/M21.4, and flagged
+as something that must land *before* the `openapi.yaml` baseline freezes it into a promise.
+
+**An inventory correction.** M21.1's public-surface table undercounted notification-service
+(2 path items recorded, 6 actual) and sandbox-service (2 recorded, 5 actual) and omitted
+`GET /v1/test/cards` entirely, because it was written from the milestone notes rather than
+from the mappings. Corrected in §17/M21 by reading every controller: **26 public path items
+across six services**. `POST /v1/webhook_endpoints/{id}/rotate_secret` was found the same
+way, during the tagging pass.
+
+**Files created**
+
+| File | Purpose |
+|---|---|
+| `common-lib/…/openapi/PublicApiDocument.java` | The document-level contract shared by all six fragments (D149) |
+| `common-lib/…/openapi/PublicApiDocumentTest.java` | 5 tests: the six fragments agree on version, title, server, and scheme |
+| `transaction-service/…/config/OpenApiConfig.java` | Tags: Balance, Balance transactions |
+| `audit-service/…/config/OpenApiConfig.java` | Tag: Events |
+| `analytics-service/…/config/OpenApiConfig.java` | Tags: Analytics, Request logs, Usage |
+| `notification-service/…/config/OpenApiConfig.java` | Tags: Webhook endpoints, Webhook deliveries |
+| `sandbox-service/…/config/OpenApiConfig.java` | Tags: Test cards, Simulations, Decisions |
+| `{transaction,audit,analytics,notification,sandbox}-service/…/OpenApiDocumentIntegrationTest.java` | 53 tests over the five generated documents |
+
+**Files modified**
+
+| File | Change |
+|---|---|
+| `common-lib/build.gradle.kts` | `compileOnly`/`testImplementation` on the springdoc starter — the only coordinate with a single managed version, since swagger is not in the Boot BOM and springdoc's BOM is deliberately not imported (D147) |
+| `payment-service/…/config/OpenApiConfig.java` | Refactored onto `PublicApiDocument`; keeps `API_VERSION` as a delegating constant |
+| `{5 services}/build.gradle.kts` | `springdoc-openapi-starter-webmvc-api` |
+| `{5 services}/src/main/resources/application.yaml` | The `springdoc.*` block |
+| `{5 services}/…/config/SecurityConfig.java` | `/v3/api-docs`, `.yaml`, and `/**` permitted (D148) |
+| `…/transaction/web/BalanceController.java` | Per-operation tags |
+| `…/audit/web/EventController.java` | Per-operation tags |
+| `…/analytics/web/{Analytics,RequestLog}Controller.java` | Per-operation tags |
+| `…/notification/web/WebhookEndpointController.java` | Per-operation tags on all six operations |
+| `…/notification/web/WebhookDeliveryController.java` | Per-operation tags; `@ParameterObject` on `Pageable` |
+| `…/sandbox/web/{Simulation,DecisionLog,TestCard}Controller.java` | Per-operation tags; `@ParameterObject` on `Pageable`; empty `@SecurityRequirements` on the card catalogue |
+
+**Endpoints added.** `GET /v3/api-docs` and `GET /v3/api-docs.yaml` on each of the five
+services. None is routed by the gateway, so none is externally reachable; all are
+unauthenticated in-cluster, like `/actuator/prometheus` (D148). **No `/v1`, `/api/v1`, or
+`/internal/v1` endpoint was added, removed, or changed in behaviour** — the only annotation
+that touches runtime binding is `@ParameterObject`, which springdoc reads and Spring's
+argument resolver ignores.
+
+**DB / Kafka / Redis / infra changes.** None.
+
+**Testing performed.** 58 new tests. Each service's `OpenApiDocumentIntegrationTest` runs
+the full application context on Testcontainers Postgres and asserts: the document is
+OpenAPI 3.1; the path set is *exactly* that service's public path items, in both
+directions; `/api/v1`, `/internal/`, `/actuator` and `/error` are absent; the fragment
+carries the shared title, version, server and security scheme rather than any local ones;
+responses are typed `application/json`; tags are resource names rather than Java class
+names, exactly one per operation; every tag used is declared *and* described; the resource
+schemas are generated from the DTOs; and the YAML sibling path is served. Every document is
+fetched with **no credential**, so the security change is proven by the test rather than by
+reading configuration. Service-specific additions: the cursor and offset pagination
+parameters are published under their wire spellings; `/v1/usage` publishes `format: date`
+rather than a date-time; notification-service's five mutating verbs are each asserted
+present; and sandbox-service asserts the unauthenticated exception in both directions.
+
+**Regression.** `./gradlew build` across the monorepo — **BUILD SUCCESSFUL**. The full
+build matters more here than in M21.1 because `common-lib` is on every module's compile
+path, including the reactive gateway's: `PublicApiDocument` is `compileOnly` on swagger and
+is referenced only from the six services' own `OpenApiConfig`, so nothing loads it
+elsewhere, and the gateway — which has no springdoc — is unaffected.
+
+**Remaining work in M21.** M21.3 through M21.7 in the decomposition table: the merge task
+and committed `openapi.yaml` baseline, the extended `ApiError` and error catalogue, the
+`PaymentFlow-Version` header with per-merchant pinning and the registry-driven
+transformation layer, the CI breaking-change gate, and the contract tests. The annotation
+prose remains deferred to M21.4 (§14), and the `object` discriminator gap must be settled
+before M21.3 freezes the baseline.
 
 ---
 

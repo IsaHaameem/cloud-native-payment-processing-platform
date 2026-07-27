@@ -9,6 +9,7 @@ import com.paymentflow.common.security.MerchantContextHolder;
 import com.paymentflow.transaction.dto.BalanceResponse;
 import com.paymentflow.transaction.dto.BalanceTransactionResponse;
 import com.paymentflow.transaction.service.BalanceQueryService;
+import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -33,6 +34,16 @@ import java.time.Instant;
 @RestController
 public class BalanceController {
 
+    /**
+     * Tag names are part of the published document, and are declared with their
+     * descriptions in {@code OpenApiConfig}. Set per operation with no class-level
+     * {@code @Tag}: a class-level tag is <em>added</em> to every operation rather than
+     * acting as an overridable default, so the two operations here would each come out
+     * filed under both resources (M21.1).
+     */
+    static final String BALANCE_TAG = "Balance";
+    static final String BALANCE_TRANSACTIONS_TAG = "Balance transactions";
+
     private final BalanceQueryService balanceQueryService;
     private final CursorCodec cursorCodec;
 
@@ -42,12 +53,14 @@ public class BalanceController {
     }
 
     @GetMapping("/v1/balance")
+    @Operation(tags = BALANCE_TAG)
     public BalanceResponse balance() {
         MerchantContext context = requireContext();
         return balanceQueryService.balance(context.merchantId(), context.mode());
     }
 
     @GetMapping("/v1/balance_transactions")
+    @Operation(tags = BALANCE_TRANSACTIONS_TAG)
     public CursorPage<BalanceTransactionResponse> balanceTransactions(
             @RequestParam(name = "limit", required = false) Integer limit,
             @RequestParam(name = "starting_after", required = false) String startingAfter,

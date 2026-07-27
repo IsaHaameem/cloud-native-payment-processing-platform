@@ -8,6 +8,7 @@ import com.paymentflow.sandbox.dto.CreateSimulationOverrideRequest;
 import com.paymentflow.sandbox.dto.SimulationOverrideResponse;
 import com.paymentflow.sandbox.mapper.SimulationOverrideMapper;
 import com.paymentflow.sandbox.service.OverrideService;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -40,12 +41,20 @@ public class SimulationController {
     private final OverrideService overrideService;
     private final SimulationOverrideMapper mapper;
 
+    /**
+     * Declared with its description in {@code OpenApiConfig}. Set per operation rather
+     * than as a class-level {@code @Tag}, which springdoc adds to every operation instead
+     * of treating as an overridable default (M21.1).
+     */
+    static final String SIMULATIONS_TAG = "Simulations";
+
     public SimulationController(OverrideService overrideService, SimulationOverrideMapper mapper) {
         this.overrideService = overrideService;
         this.mapper = mapper;
     }
 
     @PostMapping
+    @Operation(tags = SIMULATIONS_TAG)
     public ResponseEntity<SimulationOverrideResponse> create(@Valid @RequestBody CreateSimulationOverrideRequest request) {
         MerchantContext context = requireContext();
         SimulationOverride override = overrideService.create(context.merchantId(), context.mode(), request.scenario(),
@@ -55,6 +64,7 @@ public class SimulationController {
     }
 
     @GetMapping("/active")
+    @Operation(tags = SIMULATIONS_TAG)
     public ResponseEntity<SimulationOverrideResponse> getActive() {
         MerchantContext context = requireContext();
         return overrideService.findActive(context.merchantId(), context.mode())
@@ -63,6 +73,7 @@ public class SimulationController {
     }
 
     @DeleteMapping("/active")
+    @Operation(tags = SIMULATIONS_TAG)
     public ResponseEntity<Void> revokeActive() {
         MerchantContext context = requireContext();
         overrideService.revokeActive(context.merchantId(), context.mode());

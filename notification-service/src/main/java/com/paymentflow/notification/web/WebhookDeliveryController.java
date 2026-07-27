@@ -11,6 +11,8 @@ import com.paymentflow.notification.dto.WebhookDeliveryResponse;
 import com.paymentflow.notification.mapper.WebhookDeliveryMapper;
 import com.paymentflow.notification.repository.WebhookEventRepository;
 import com.paymentflow.notification.service.WebhookDeliveryQueryService;
+import io.swagger.v3.oas.annotations.Operation;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -42,6 +44,13 @@ import java.util.stream.Collectors;
 @RequestMapping("/v1/webhook_deliveries")
 public class WebhookDeliveryController {
 
+    /**
+     * Declared with its description in {@code OpenApiConfig}. Set per operation rather
+     * than as a class-level {@code @Tag}, which springdoc adds to every operation instead
+     * of treating as an overridable default (M21.1).
+     */
+    static final String WEBHOOK_DELIVERIES_TAG = "Webhook deliveries";
+
     private final WebhookDeliveryQueryService queryService;
     private final WebhookEventRepository eventRepository;
     private final WebhookDeliveryMapper mapper;
@@ -54,7 +63,14 @@ public class WebhookDeliveryController {
     }
 
     @GetMapping
-    public PageResponse<WebhookDeliveryResponse> list(Pageable pageable) {
+    @Operation(tags = WEBHOOK_DELIVERIES_TAG)
+    // M21.2: without @ParameterObject springdoc publishes `Pageable` as a single required
+    // `pageable` object parameter — the Java binding type rather than the `page`/`size`/
+    // `sort` query parameters a caller actually sends. That is the same defect class M21.1
+    // found on the metadata filter's unnamed Map: a generator turns it into an SDK
+    // argument nobody can supply. This annotation expands it into the real parameters and
+    // changes nothing about the binding.
+    public PageResponse<WebhookDeliveryResponse> list(@ParameterObject Pageable pageable) {
         MerchantContext context = requireContext();
         Page<WebhookDelivery> page = queryService.list(context.merchantId(), context.mode(), pageable);
 
@@ -76,6 +92,7 @@ public class WebhookDeliveryController {
     }
 
     @GetMapping("/{id}")
+    @Operation(tags = WEBHOOK_DELIVERIES_TAG)
     public WebhookDeliveryResponse get(@PathVariable UUID id) {
         MerchantContext context = requireContext();
         WebhookDelivery delivery = queryService.get(context.merchantId(), context.mode(), id);
@@ -85,6 +102,7 @@ public class WebhookDeliveryController {
     /** Re-sends a past delivery as a new one. The original is never modified. */
     @PostMapping("/{id}/replay")
     @ResponseStatus(HttpStatus.CREATED)
+    @Operation(tags = WEBHOOK_DELIVERIES_TAG)
     public WebhookDeliveryResponse replay(@PathVariable UUID id) {
         MerchantContext context = requireContext();
         WebhookDelivery replay = queryService.replay(context.merchantId(), context.mode(), id);

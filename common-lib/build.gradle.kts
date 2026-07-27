@@ -49,6 +49,17 @@ dependencies {
     compileOnly("io.github.resilience4j:resilience4j-bulkhead")
     compileOnly("io.github.resilience4j:resilience4j-timelimiter")
     compileOnly("io.github.resilience4j:resilience4j-ratelimiter")
+    // M21.2: PublicApiDocument builds the document-level half of every service's OpenAPI
+    // fragment (info, server, the SecretKey scheme) so the six fragments M21.3 merges
+    // cannot disagree. compileOnly for the same reason as everything above — only the
+    // services that publish a /v1 tier bring springdoc, and this class is only referenced
+    // from their own OpenApiConfig, so nothing loads it anywhere else.
+    //
+    // The starter rather than `swagger-models-jakarta` directly: swagger's version is not
+    // managed by the Spring Boot BOM and springdoc's own BOM is deliberately not imported
+    // (D147), so the starter — which platform-bom does constrain — is the only spelling
+    // with a single version source. It arrives transitively at 2.2.41.
+    compileOnly(libs.springdoc.starter.webmvc.api)
 
     // Generates auto-configuration metadata so condition evaluation is fast/lazy.
     // The annotationProcessor configuration doesn't extend implementation, so it needs
@@ -68,5 +79,7 @@ dependencies {
     testImplementation("io.github.resilience4j:resilience4j-bulkhead")
     testImplementation("io.github.resilience4j:resilience4j-timelimiter")
     testImplementation("io.github.resilience4j:resilience4j-ratelimiter")
+    // M21.2: PublicApiDocumentTest asserts the shared contract the six fragments agree on.
+    testImplementation(libs.springdoc.starter.webmvc.api)
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

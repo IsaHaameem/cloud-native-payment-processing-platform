@@ -5,6 +5,7 @@ import com.paymentflow.analytics.service.AnalyticsQueryService;
 import com.paymentflow.common.exception.UnauthorizedException;
 import com.paymentflow.common.security.MerchantContext;
 import com.paymentflow.common.security.MerchantContextHolder;
+import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -25,6 +26,14 @@ import java.time.Instant;
 @RestController
 public class AnalyticsController {
 
+    /**
+     * Declared with its description in {@code OpenApiConfig}, and set per operation rather
+     * than class-level for the reason M21.1 recorded: springdoc <em>adds</em> a
+     * class-level {@code @Tag} to every operation instead of treating it as an overridable
+     * default.
+     */
+    static final String ANALYTICS_TAG = "Analytics";
+
     private final AnalyticsQueryService analyticsQueryService;
 
     public AnalyticsController(AnalyticsQueryService analyticsQueryService) {
@@ -32,6 +41,7 @@ public class AnalyticsController {
     }
 
     @GetMapping("/v1/analytics/payments")
+    @Operation(tags = ANALYTICS_TAG)
     public AnalyticsSummaryResponse payments(
             @RequestParam(name = "from", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,

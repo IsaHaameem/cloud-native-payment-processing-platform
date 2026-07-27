@@ -1,0 +1,34 @@
+package com.paymentflow.analytics.config;
+
+import com.paymentflow.common.openapi.PublicApiDocument;
+import io.swagger.v3.oas.models.OpenAPI;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * analytics-service's fragment of the public API document (M21.2).
+ *
+ * <p>The document-level contract — title, version, server, and the {@code SecretKey}
+ * scheme — comes from {@link PublicApiDocument}; see its javadoc for why that is shared
+ * rather than repeated here.
+ *
+ * <p>Three tags for three genuinely different questions, even though one service answers
+ * all of them: what my payments did (analytics), what my integration sent (request logs),
+ * and what I am being metered for (usage). Grouping them under one heading because they
+ * share a database would organise the documentation site around this platform's internals
+ * rather than around what a developer came to find out.
+ */
+@Configuration
+public class OpenApiConfig {
+
+    @Bean
+    public OpenAPI analyticsOpenApi() {
+        return PublicApiDocument.forService(
+                PublicApiDocument.tag("Analytics",
+                        "Payment volume, success rate, and totals over a time range."),
+                PublicApiDocument.tag("Request logs",
+                        "Every API request your keys made, with status and timing."),
+                PublicApiDocument.tag("Usage",
+                        "Your metered request counts, aggregated per UTC day."));
+    }
+}

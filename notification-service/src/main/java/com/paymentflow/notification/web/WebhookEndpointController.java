@@ -11,6 +11,7 @@ import com.paymentflow.notification.dto.WebhookEndpointCreatedResponse;
 import com.paymentflow.notification.dto.WebhookEndpointResponse;
 import com.paymentflow.notification.mapper.WebhookEndpointMapper;
 import com.paymentflow.notification.service.WebhookEndpointService;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -47,6 +48,14 @@ import java.util.UUID;
 @RequestMapping("/v1/webhook_endpoints")
 public class WebhookEndpointController {
 
+    /**
+     * Declared with its description in {@code OpenApiConfig}. Set per operation rather
+     * than as a class-level {@code @Tag}, which springdoc adds to every operation instead
+     * of treating as an overridable default (M21.1); the platform's controllers are
+     * uniform on this so the behaviour is never relied on by accident.
+     */
+    static final String WEBHOOK_ENDPOINTS_TAG = "Webhook endpoints";
+
     private final WebhookEndpointService webhookEndpointService;
     private final WebhookEndpointMapper mapper;
 
@@ -58,6 +67,7 @@ public class WebhookEndpointController {
     /** The one response that carries a raw {@code whsec_} secret — it is unrecoverable afterwards. */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @Operation(tags = WEBHOOK_ENDPOINTS_TAG)
     public WebhookEndpointCreatedResponse create(@Valid @RequestBody CreateWebhookEndpointRequest request) {
         MerchantContext context = requireContext();
         WebhookEndpointService.RegisteredEndpoint registered = webhookEndpointService.register(
@@ -71,6 +81,7 @@ public class WebhookEndpointController {
     }
 
     @GetMapping
+    @Operation(tags = WEBHOOK_ENDPOINTS_TAG)
     public List<WebhookEndpointResponse> list() {
         MerchantContext context = requireContext();
         List<WebhookEndpoint> endpoints = webhookEndpointService.list(context.merchantId(), context.mode());
@@ -82,6 +93,7 @@ public class WebhookEndpointController {
     }
 
     @GetMapping("/{id}")
+    @Operation(tags = WEBHOOK_ENDPOINTS_TAG)
     public WebhookEndpointResponse get(@PathVariable UUID id) {
         MerchantContext context = requireContext();
         WebhookEndpoint endpoint = webhookEndpointService.get(context.merchantId(), context.mode(), id);
@@ -89,6 +101,7 @@ public class WebhookEndpointController {
     }
 
     @PatchMapping("/{id}")
+    @Operation(tags = WEBHOOK_ENDPOINTS_TAG)
     public WebhookEndpointResponse update(@PathVariable UUID id,
                                           @Valid @RequestBody UpdateWebhookEndpointRequest request) {
         MerchantContext context = requireContext();
@@ -102,6 +115,7 @@ public class WebhookEndpointController {
     }
 
     @DeleteMapping("/{id}")
+    @Operation(tags = WEBHOOK_ENDPOINTS_TAG)
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         MerchantContext context = requireContext();
         webhookEndpointService.delete(context.merchantId(), context.mode(), id);
@@ -109,6 +123,7 @@ public class WebhookEndpointController {
     }
 
     @PostMapping("/{id}/rotate_secret")
+    @Operation(tags = WEBHOOK_ENDPOINTS_TAG)
     public WebhookEndpointCreatedResponse rotateSecret(@PathVariable UUID id) {
         MerchantContext context = requireContext();
         WebhookEndpointService.RegisteredEndpoint rotated =
