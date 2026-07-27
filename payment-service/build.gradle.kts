@@ -36,6 +36,15 @@ dependencies {
     runtimeOnly("io.micrometer:micrometer-registry-prometheus")
     implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
 
+    // M21.1: the OpenAPI 3.1 description of this service's public /v1 surface.
+    // Deliberately the -api starter and NOT -ui: Swagger UI is a browser application
+    // this service has no business hosting. The document is an artefact other things
+    // consume — M21's merge task, M22's SDK generators, M25's docs site — and the
+    // interactive console is the portal's job (M23/M24), rendered against the merged
+    // spec rather than eight per-service Swagger pages behind a gateway that routes
+    // none of them.
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-api")
+
     implementation("org.springframework.boot:spring-boot-flyway")
     runtimeOnly("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
