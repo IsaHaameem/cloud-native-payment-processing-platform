@@ -894,6 +894,29 @@ four phases.
 | **C — Consumption** | M22 Node/Python SDKs · M23 portal part 1 · M24 portal part 2 · M25 docs · M26 Java/Go SDKs | Everything that *uses* the API. Deliberately after the contract is stable, so none of it gets rewritten. |
 | **D — Production readiness** | M27 security · M28 performance · M29 AWS deploy · M30 launch | Hardening, measurement, deployment, and the artefacts that make the work legible. |
 
+**Progress.** One row per milestone, updated as each completes (§16 rule 1). This table is
+the single place to see where V2 stands; the full entry for every completed milestone is in
+§17, and the V1 gaps each one closes are in §2.11.
+
+| Milestone | Phase | Status | Completed |
+|---|---|---|---|
+| **M15** — API-key authentication | A | ✅ complete | 2026-07-21 |
+| **M16** — Test/live mode isolation | A | ✅ complete | 2026-07-22 |
+| **M17** — Sandbox simulation engine | A | ✅ complete | 2026-07-23 – 07-24 |
+| **M18** — Webhooks as a product | A | ✅ complete | 2026-07-25 |
+| **M19** — Public read APIs & query surface | B | ✅ complete | 2026-07-25 – 07-26 |
+| **M20** — Request logging, metering, per-key limits | B | ✅ complete | 2026-07-26 |
+| **M21** — OpenAPI 3.1, versioning & the error contract | B | 🚧 **in progress** — M21.1 ✅, M21.2 ✅, M21.3–M21.7 remaining (§17/M21) | from 2026-07-27 |
+| **M22** — Node & Python SDKs | C | ⬜ not started | — |
+| **M23** — Developer portal, part 1 | C | ⬜ not started | — |
+| **M24** — Developer portal, part 2 | C | ⬜ not started | — |
+| **M25** — Documentation site | C | ⬜ not started | — |
+| **M26** — Java & Go SDKs | C | ⬜ not started | — |
+| **M27** — Security hardening | D | ⬜ not started | — |
+| **M28** — V2 performance engineering | D | ⬜ not started | — |
+| **M29** — AWS deployment of V2 | D | ⬜ not started | — |
+| **M30** — Launch readiness & portfolio artefacts | D | ⬜ not started | — |
+
 **Dependency graph**
 
 ```
@@ -2765,7 +2788,10 @@ Designed-for but deliberately unbuilt. Each notes the seam that makes it approac
    summary, files created, files modified, endpoints added, DB changes, Kafka topics, Redis
    features, infra/Terraform/Docker changes, testing performed, verification steps (what was
    *actually run*, not what should work), design decisions, problems, solutions, remaining
-   work, and next milestone.
+   work, and next milestone. **Its row in §5.0's progress table is updated in the same
+   edit**, along with the status header at the top of this document — three places, because
+   a reader asking "where are we?" should not have to read a change log to find out, and a
+   progress table that lags the change log is worse than none.
 2. **Every architectural decision is appended to §11** with its alternatives and rationale.
    A decision that supersedes a V1 decision says so explicitly and explains why the earlier
    reasoning no longer applies — as D99 does for D29.
