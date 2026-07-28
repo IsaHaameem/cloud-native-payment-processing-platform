@@ -50,6 +50,19 @@ public class Merchant {
     @Column(name = "daily_quota")
     private Integer dailyQuota;
 
+    /**
+     * The revision of the public API contract this merchant is served (M21.5, §4.10).
+     *
+     * <p>Null means "has not called the public API yet" rather than "use the default" —
+     * unlike the three overrides above, whose null is a steady state. The gateway writes
+     * this on the first request it authenticates for this merchant, and it is never
+     * rewritten afterwards: that is the whole promise of pinning, and an automatic move to a
+     * newer revision would be exactly the coordinated upgrade date-based versioning exists
+     * to avoid.
+     */
+    @Column(name = "pinned_api_version", length = 10)
+    private String pinnedApiVersion;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -115,6 +128,29 @@ public class Merchant {
 
     public String getWebhookUrl() {
         return webhookUrl;
+    }
+
+    public String getPinnedApiVersion() {
+        return pinnedApiVersion;
+    }
+
+    /**
+     * Pins this merchant to a revision, if they are not pinned already (M21.5).
+     *
+     * <p>Returns whether anything changed, so the caller can skip a write on the
+     * overwhelmingly common path — this is called on every authenticated request and does
+     * something on exactly one of them per merchant, ever.
+     *
+     * <p>The "if not already pinned" guard lives here rather than in the service, because it
+     * is the invariant: a pin that could be overwritten is not a pin. Making it structurally
+     * impossible to move is cheaper than remembering not to.
+     */
+    public boolean pinApiVersionIfUnset(String version) {
+        if (pinnedApiVersion != null) {
+            return false;
+        }
+        pinnedApiVersion = version;
+        return true;
     }
 
     public Instant getCreatedAt() {

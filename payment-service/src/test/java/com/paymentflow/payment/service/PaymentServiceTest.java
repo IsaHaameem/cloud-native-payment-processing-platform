@@ -123,7 +123,7 @@ class PaymentServiceTest {
         PaymentResponse response = paymentService.create(new CreatePaymentRequest(5000, "USD", "desc", null, null), "key-1");
 
         assertThat(response.amountMinor()).isEqualTo(5000);
-        assertThat(response.status()).isEqualTo("CREATED");
+        assertThat(response.status()).isEqualTo("created");
         assertThat(response.mode()).isEqualTo("test");
         verify(eventPublisher).publish(any(Payment.class), eq("PaymentCreated"), isNull(), eq(5000L), eq(merchant));
         verify(idempotencyService).record(eq(merchantId), eq("test"), eq("key-1"), any(), eq(201), any());
@@ -137,7 +137,7 @@ class PaymentServiceTest {
 
         PaymentResponse response = paymentService.authorize(UUID.randomUUID(), "key-2");
 
-        assertThat(response.status()).isEqualTo("AUTHORIZED");
+        assertThat(response.status()).isEqualTo("authorized");
         verify(eventPublisher).publish(payment, "PaymentAuthorized", PaymentStatus.CREATED, 5000L, merchant);
     }
 
@@ -150,7 +150,7 @@ class PaymentServiceTest {
 
         PaymentResponse response = paymentService.authorize(UUID.randomUUID(), "key-declined");
 
-        assertThat(response.status()).isEqualTo("FAILED");
+        assertThat(response.status()).isEqualTo("failed");
         assertThat(response.failureReason()).isEqualTo("card_declined");
         verify(eventPublisher).publish(payment, "PaymentFailed", PaymentStatus.CREATED, 5000L, merchant);
     }
@@ -164,7 +164,7 @@ class PaymentServiceTest {
 
         PaymentResponse response = paymentService.authorize(UUID.randomUUID(), "key-error");
 
-        assertThat(response.status()).isEqualTo("FAILED");
+        assertThat(response.status()).isEqualTo("failed");
         assertThat(response.failureReason()).isEqualTo("processing_error");
         verify(eventPublisher).publish(payment, "PaymentFailed", PaymentStatus.CREATED, 5000L, merchant);
     }
@@ -201,7 +201,7 @@ class PaymentServiceTest {
 
         PaymentResponse response = paymentService.refund(UUID.randomUUID(), new RefundRequest(null, null, null), "key-4");
 
-        assertThat(response.status()).isEqualTo("REFUNDED");
+        assertThat(response.status()).isEqualTo("refunded");
         assertThat(response.refundedAmountMinor()).isEqualTo(5000);
         verify(eventPublisher).publish(payment, "PaymentRefunded", PaymentStatus.CAPTURED, 5000L, merchant);
     }
@@ -216,7 +216,7 @@ class PaymentServiceTest {
 
         PaymentResponse response = paymentService.refund(UUID.randomUUID(), new RefundRequest(2000L, null, null), "key-5");
 
-        assertThat(response.status()).isEqualTo("PARTIALLY_REFUNDED");
+        assertThat(response.status()).isEqualTo("partially_refunded");
         verify(eventPublisher).publish(payment, "PaymentPartiallyRefunded", PaymentStatus.CAPTURED, 2000L, merchant);
     }
 

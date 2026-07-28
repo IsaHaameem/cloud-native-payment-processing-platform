@@ -32,5 +32,17 @@ public record ApiKeyVerifyResponse(
          */
         Integer rateLimitPerSecond,
         Integer rateLimitBurst,
-        Integer dailyQuota) {
+        Integer dailyQuota,
+        /*
+         * M21.5: the merchant's pinned revision of the public contract (§4.10). Rides on this
+         * response for the same reason the three overrides above do — the gateway resolves and
+         * caches it on every API-key request, so honouring a pin costs no extra round trip.
+         *
+         * Null means the merchant has not called the public API yet; the gateway pins them on
+         * the first request it authenticates. Nullable also keeps the cache change
+         * backward-compatible, exactly as D145's did: an `apikey:v1:` entry written before this
+         * milestone deserializes with a null pin and resolves to the current revision, so no
+         * cache flush is needed on deploy.
+         */
+        String pinnedApiVersion) {
 }

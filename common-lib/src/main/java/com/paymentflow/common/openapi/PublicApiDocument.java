@@ -1,5 +1,6 @@
 package com.paymentflow.common.openapi;
 
+import com.paymentflow.common.dto.version.ApiVersions;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
@@ -58,7 +59,7 @@ public final class PublicApiDocument {
      * M21.5's; naming it here means that transition edits this constant's neighbours
      * rather than hunting six copies.
      */
-    public static final String API_VERSION = "2026-07-27";
+    public static final String API_VERSION = ApiVersions.CURRENT.toString();
 
     /** The title of the merged document. Identical across fragments by construction. */
     public static final String TITLE = "PaymentFlow API";

@@ -190,7 +190,7 @@ class PaymentIntegrationTest {
                         .content("""
                                 {"amountMinor":10000,"currency":"USD","description":"order #1"}"""))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("CREATED"))
+                .andExpect(jsonPath("$.status").value("created"))
                 .andReturn().getResponse().getContentAsString();
         UUID paymentId = UUID.fromString(objectMapper.readTree(createBody).get("id").asString());
 
@@ -198,20 +198,20 @@ class PaymentIntegrationTest {
                         .header("Authorization", "Bearer " + token)
                         .header("Idempotency-Key", "lifecycle-2"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("AUTHORIZED"));
+                .andExpect(jsonPath("$.status").value("authorized"));
 
         mockMvc.perform(post("/api/v1/payments/" + paymentId + "/capture")
                         .header("Authorization", "Bearer " + token)
                         .header("Idempotency-Key", "lifecycle-3"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("CAPTURED"))
+                .andExpect(jsonPath("$.status").value("captured"))
                 .andExpect(jsonPath("$.capturedAmountMinor").value(10000));
 
         mockMvc.perform(post("/api/v1/payments/" + paymentId + "/refund")
                         .header("Authorization", "Bearer " + token)
                         .header("Idempotency-Key", "lifecycle-4"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("REFUNDED"))
+                .andExpect(jsonPath("$.status").value("refunded"))
                 .andExpect(jsonPath("$.refundedAmountMinor").value(10000));
 
         List<String> eventTypes = outboxEventRepository.findAll().stream()
@@ -268,7 +268,7 @@ class PaymentIntegrationTest {
                         .header("Authorization", "Bearer " + token)
                         .header("Idempotency-Key", "decline-authorize"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.status").value("failed"))
                 .andExpect(jsonPath("$.failureReason").value("card_declined"));
 
         List<String> eventTypes = outboxEventRepository.findAll().stream()
@@ -296,7 +296,7 @@ class PaymentIntegrationTest {
                         .header("Authorization", "Bearer " + token)
                         .header("Idempotency-Key", "error-authorize"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.status").value("failed"))
                 .andExpect(jsonPath("$.failureReason").value("processing_error"));
     }
 
@@ -317,7 +317,7 @@ class PaymentIntegrationTest {
                         .header("Authorization", "Bearer " + token)
                         .header("Idempotency-Key", "refail-authorize-1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("FAILED"));
+                .andExpect(jsonPath("$.status").value("failed"));
 
         // A NEW Idempotency-Key against the same now-FAILED payment: the fail-fast FSM
         // check (D129) rejects it before ever reaching sandbox again.
@@ -338,7 +338,7 @@ class PaymentIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amountMinor\":4000}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PARTIALLY_REFUNDED"));
+                .andExpect(jsonPath("$.status").value("partially_refunded"));
 
         mockMvc.perform(post("/api/v1/payments/" + paymentId + "/refund")
                         .header("Authorization", "Bearer " + token)
@@ -346,7 +346,7 @@ class PaymentIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amountMinor\":6000}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("REFUNDED"))
+                .andExpect(jsonPath("$.status").value("refunded"))
                 .andExpect(jsonPath("$.refundedAmountMinor").value(10000));
     }
 

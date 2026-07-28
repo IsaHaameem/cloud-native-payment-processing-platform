@@ -9,7 +9,7 @@ info:
   license:
     name: Proprietary
   title: PaymentFlow API
-  version: 2026-07-27
+  version: 2026-08-01
 servers:
 - url: https://api.paymentflow.dev
   description: PaymentFlow API

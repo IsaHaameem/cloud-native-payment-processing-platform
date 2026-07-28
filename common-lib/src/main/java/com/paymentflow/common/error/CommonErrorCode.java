@@ -17,6 +17,14 @@ public enum CommonErrorCode implements ErrorCode {
 
     VALIDATION_FAILED(400, ErrorType.INVALID_REQUEST_ERROR, "One or more fields are invalid."),
     BAD_REQUEST(400, ErrorType.INVALID_REQUEST_ERROR, "The request could not be understood."),
+    /**
+     * The {@code PaymentFlow-Version} header names a revision this platform does not serve —
+     * a malformed date, a typo, or one that has passed its sunset (M21.5, §4.10). A client
+     * error rather than a fallback: silently answering in a different revision than the one
+     * asked for would give a caller a shape they did not request and no way to notice.
+     */
+    UNSUPPORTED_API_VERSION(400, ErrorType.INVALID_REQUEST_ERROR,
+            "The requested API version is not supported."),
     UNAUTHORIZED(401, ErrorType.AUTHENTICATION_ERROR, "Authentication is required or has failed."),
     FORBIDDEN(403, ErrorType.PERMISSION_ERROR, "You do not have permission to perform this action."),
     /**

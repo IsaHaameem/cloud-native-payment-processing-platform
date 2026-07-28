@@ -53,11 +53,15 @@
 > directions. Three codes the gateway was sending were **not in the catalogue**, and one code
 > in the catalogue was sent by **nothing** — both closed. All 31 operations now document
 > 401/403/429/500 with real example bodies via one customizer (D153). The annotation prose
-> moves to M21.7 by **D154**, approved rather than assumed. Verified across the session at
-> **768 tests, 0 failures** on a real (uncached) run — three separate red builds were traced
-> to environment rather than code and are recorded in §14.
+> moves to M21.7 by **D154**, approved rather than assumed.
+> **M21.5 complete** (2026-07-28): date-based versioning end to end — the `PaymentFlow-Version`
+> header, per-merchant pinning written on a merchant's *first call* (D155), and a generic
+> registry-driven transformation layer at the gateway. The `2026-08-01` revision lowercases
+> payment and refund `status` values (D156); callers pinned to `2026-07-27` still receive the
+> old vocabulary, rebuilt at the edge, with `Deprecation`/`Sunset` headers. Three separate red
+> builds this milestone were traced to environment rather than code and are recorded in §14.
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D154**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D156**.
 
 ---
 
@@ -921,7 +925,7 @@ the single place to see where V2 stands; the full entry for every completed mile
 | **M18** — Webhooks as a product | A | ✅ complete | 2026-07-25 |
 | **M19** — Public read APIs & query surface | B | ✅ complete | 2026-07-25 – 07-26 |
 | **M20** — Request logging, metering, per-key limits | B | ✅ complete | 2026-07-26 |
-| **M21** — OpenAPI 3.1, versioning & the error contract | B | 🚧 **in progress** — M21.1–M21.4 ✅, M21.5–M21.7 remaining (§17/M21) | from 2026-07-27 |
+| **M21** — OpenAPI 3.1, versioning & the error contract | B | 🚧 **in progress** — M21.1–M21.5 ✅, M21.6–M21.7 remaining (§17/M21) | from 2026-07-27 |
 | **M22** — Node & Python SDKs | C | ⬜ not started | — |
 | **M23** — Developer portal, part 1 | C | ⬜ not started | — |
 | **M24** — Developer portal, part 2 | C | ⬜ not started | — |
@@ -2701,6 +2705,8 @@ decisions are appended as milestones are implemented.
 | D150 | (M21.3) `WebhookEndpointResponse` and `WebhookDeliveryResponse` gain the **`object` discriminator** every other public resource carries, as the first step of M21.3 rather than as part of M21.4's error-contract work | (a) Leave the two resources without it and document the inconsistency as permanent; (b) fix it in M21.4 alongside the annotation prose, where the rest of the "what a public object looks like" work lives; (c) fix it and take the opportunity to add `object` to the nested `WebhookDeliveryAttemptResponse` too | The field is how a caller identifies a bare object out of context, §7.1's SDK contract leans on it, and M22 generates four SDKs from the merged document — (a) makes "does this resource have `object`?" a per-resource question an integrator must memorise, forever, for no reason beyond the order the milestones happened to run in. The timing is the actual decision, and it is forced: **M21.3 commits the `openapi.yaml` baseline**, M21.6 makes that baseline the thing CI diffs, and D108's policy is that additive changes ship unversioned while anything else needs a dated revision and a transformation layer. Adding the field *before* the freeze is a one-line additive change; adding it *after* means either editing a frozen baseline or carrying a revision through M21.5's transformation machinery to fix a typo-grade omission. (b) is only half a milestone later but lands on the wrong side of that line. (c) was rejected because `WebhookDeliveryAttemptResponse` is not addressable — it exists only nested inside a delivery, is never returned alone, and never appears in a webhook body, so a discriminator on it would be a field no caller could ever need to branch on. The `object` contract is for objects a caller can hold by itself |
 | D152 | (M21.4) `ApiError`'s new fields are **`type`, `param`, `requestId`, `docUrl` in camelCase**, not the `doc_url`/`request_id` §5/M21's prose spells; and `type` is a small closed vocabulary alongside the open `code` set | (a) snake_case, as §5/M21 literally writes it; (b) `code` alone, without a `type` — the platform already has stable codes, so a second classification is arguably redundant | On (a): §7.1 already settled it. The SDK contract states outright that every error carries "`code`, `message`, `param`, `requestId`, `statusCode`, and `docUrl`" — camelCase — and §5/M18's naming decision records that this platform emits camelCase everywhere. §5/M21's prose is informal shorthand written before either; taking it literally would put two snake_case fields in an envelope whose other nine are camelCase, and freeze that in the baseline a sub-milestone later. On (b): `code` and `type` answer different questions and only one of them is safe to `switch` on. §4.10 makes adding an error code an **additive** change that ships unversioned, so the code set is open by policy — a client branching on it will one day meet a value it has never seen. `type` is the closed half: six values, mapped directly onto §7.1's exception hierarchy, and sufficient to answer "is retrying plausible?" without naming the cause. The split also does real work at 409 and 429, where two codes share a status and differ in exactly the way a client cares about (`CONFLICT` vs `IDEMPOTENCY_CONFLICT`, `RATE_LIMIT_EXCEEDED` vs `DAILY_QUOTA_EXCEEDED`) |
 | D153 | (M21.4) The universal error responses (401/403/429/500) are added to all 31 operations by an **`OperationCustomizer` in common-lib**, not by `@ApiResponse` annotations on each operation | (a) Annotate each operation, which is what springdoc's documentation shows and what keeps the declaration next to the mapping; (b) annotate a shared interface or base class the controllers implement | These four errors are properties of the **tier**, not of any operation: they come from the gateway's key check, its scope check, its rate limiter, and from anything failing. (a) means 124 annotations that all say the same thing, and the failure mode of the one that gets missed is invisible — the document still renders, and the SDK generated from it simply has no error type for that call. It is the same argument D149 made for the `info` block, applied one level down. (b) fails because springdoc reads annotations from the concrete handler method and these controllers share no hierarchy; introducing one purely to hang documentation on would be a real coupling for a documentation gain. The customizer never overwrites a response the operation already declares, so a per-operation 404 or 409 — which the service *is* the only thing that knows — still wins. Registering it as a bean per service rather than auto-configuring it keeps the opt-in explicit, matching how `OpenApiConfig` already works |
+| D155 | (M21.5) The merchant's pinned revision is a **`pinned_api_version` column on `merchants`**, carried on the API-key verify response — not the `merchant_settings` table §5/M21 task 4 names. And it is written on the merchant's **first authenticated call**, not at signup or key issuance | (a) Build `merchant_settings` as §4.6 and §5/M21 both describe; (b) pin at signup, when the merchant row is created; (c) pin at key issuance | (a) is what the plan literally says and was already answered by **D145**: §4.6 assumed a settings table that was never built, and M20.5 put three rate-limit overrides on `merchants` instead, because the value has to ride out on the verify response the gateway already resolves and caches on every request. Building the table now for a fourth column would mean a join on the hottest internal path to reach data that fits beside what is already there — and would leave M20.5's three columns behind, so the platform would have settings in two places. If a fifth unrelated setting appears, that is the moment to reconsider; a fourth is not. On the timing: (b) and (c) both pin a merchant to a revision they may never have seen. A merchant can sign up, generate a key, and integrate three months later — pinning at signup gives them the contract that was current on a day they wrote no code against. Pinning at first *call* pins them to the contract they actually observed, which is the only version of the promise worth making. The cost is that a verification endpoint performs a write, which is genuinely odd and is why the write happens at most once per merchant ever, in its own `REQUIRES_NEW` transaction, and can never fail the request it rides on |
+| D156 | (M21.5) The `2026-08-01` revision's one breaking change is **lowercase `snake_case` payment and refund `status` values**; the transformation is **structural** (uppercase whatever it finds) rather than a lookup table of known statuses | (a) A larger, more valuable revision — e.g. retiring the offset `PageResponse` on `/v1/webhook_deliveries` and `/v1/test/decisions` that D139 left behind; (b) a lookup table mapping each known status to its old spelling; (c) no real revision at all — prove the machinery with a synthetic one that no endpoint uses | *Confirmed with the user before implementation.* The revision has two jobs: prove the versioning machinery end to end, and be worth doing on its own. `SCREAMING_SNAKE` statuses were the Java enum constant leaking through Jackson's default serialization, never a considered wire form — and M21.4 had *just* established that enum values are lowercase `snake_case` on this platform's wire (`ErrorType`). The payment resources were the only place that was not true, and M21.3 had frozen them into a published baseline, so leaving it would have made the inconsistency permanent. It also exercises both directions, because `status` is a response field on three resources *and* a query filter on two lists. (a) is a better change in isolation but a worse first revision: the old envelope's `totalElements`/`totalPages` are genuinely not derivable from a cursor page, so the transformation would have to re-query for a count or approximate — a real design problem to meet while the machinery it runs on is one commit old. (c) fails the "worth doing" half and would leave the transformation layer's only exercise in a test. On (b): a lookup table needs an edit every time a status is added, and the edit would be silently optional — a new status simply would not be translated, and only a caller pinned to the old revision would ever see it |
 | D154 | (M21.4→M21.7) The **annotation prose** — per-operation `summary`/`description`, schema field descriptions, and per-operation error responses — moves from M21.4 to **M21.7**. *Confirmed with the user before M21.5 began; recorded as an approved decision rather than a deviation* | (a) Write it in M21.4 as §14 originally assigned, since M21.4 is where the `ApiError` shape it was waiting for became final; (b) give it a sub-milestone of its own, M21.8; (c) leave it unassigned until M25's documentation site needs it | The reason M21.1 deferred it was that prose should be written once against the *final* contract. M21.4 made the error contract final but is not automatically the right place to spend it: the work is 31 operation summaries, ~30 schemas' worth of field descriptions, and per-operation 404s and 409s that each require reading a controller to get right. Folding that into the same commit as the error contract produces precisely the outcome §14's entry exists to warn about — output that is correctly typed and hastily documented, which is worse than obviously absent because it looks finished. (a) also mis-sequences the verification: **M21.7's contract tests read this same document**, so writing the prose there means the summaries and the assertions that keep them honest land together, and a description that contradicts the endpoint's real behaviour is caught by the tests written beside it rather than surviving to M25. (b) is the same work with an extra boundary and no extra review value, since nothing between M21.4 and M21.7 depends on the prose. (c) is how documentation debt becomes permanent — §14 rule 7 requires an owner, and "the docs site will need it" is not one |
 | D151 | (M21.3) The merge is a **new `:openapi-tools` module** whose fragments are produced by each service's existing `OpenApiDocumentIntegrationTest`, not by `springdoc-openapi-gradle-plugin` and not by Gradle-script logic in `build-logic` | (a) `org.springdoc.openapi-gradle-plugin`, the tool built for exactly this job — it `bootRun`s the service and fetches `/v3/api-docs`; (b) merge logic written directly in the root build file or as a `build-logic` task class; (c) commit six per-service documents and skip the merge until M25 needs one | (a) is the obvious choice and fails on this platform's shape: it starts each service for real, so producing the document would require Postgres, Redis **and** Kafka reachable at build time for six services. The pre-M21.3 audit had just finished demonstrating what that dependency costs — 18 spurious test failures from Docker exhaustion, and a compose stack whose stale images answered `/v3/api-docs` with 401 (§14). Worse, it would be a *second* path to the published contract, one that asserts nothing: the fragment it produced could differ from the one the document tests approved and no test would notice. Reusing the integration test makes the fragment a by-product of an assertion — the path set, the tier exclusion and the shared contract are all checked before the bytes are written. (b) keeps the wiring together but makes the interesting part — deduplicating shared components, refusing to merge fragments that disagree — reachable only through a Gradle invocation, when it is ordinary logic with ordinary failure modes; §10's standing position is that logic like that gets unit tests, and `OpenApiMergerTest`'s hand-written *disagreeing* fragments could not be written at all against the real six, which agree. (c) defers the one artefact everything downstream consumes and leaves nothing to diff, which is precisely the "documentation drifts into fiction" failure §9.5 and R10 exist to prevent. The module also has to exist for M21.6, which diffs this same document for breaking changes |
 
@@ -6319,7 +6325,7 @@ only one whose work repeats per service.
 | **M21.2** | 1 (remaining services) | springdoc on the other five services exposing a public `/v1` tier: transaction-service, audit-service, analytics-service, notification-service, sandbox-service | ✅ 2026-07-27 |
 | **M21.3** | 2 | The Gradle merge task; shared components deduplicated; `openapi.yaml` committed as the baseline | ✅ 2026-07-28 |
 | **M21.4** | 3 | `ApiError` extended with `type`, `doc_url`, `request_id` (additive); the error-code catalogue as one source of truth | ✅ 2026-07-28 |
-| **M21.5** | 4 | `PaymentFlow-Version` header; per-merchant pinning; the generic, registry-driven transformation layer and its one narrowly scoped revision | ⬜ |
+| **M21.5** | 4 | `PaymentFlow-Version` header; per-merchant pinning; the generic, registry-driven transformation layer and its one narrowly scoped revision | ✅ 2026-07-28 |
 | **M21.6** | 5 | CI spec-diff gate: additive vs breaking classification, observed failing on a real breaking change | ⬜ |
 | **M21.7** | 6 | Contract tests validating live responses against the published schema **+ the annotation prose** (operation summaries, field descriptions, per-operation error responses) moved here from M21.4 by **D154**, approved by the user before M21.5 | ⬜ |
 
@@ -6972,6 +6978,150 @@ deviation.
 **Remaining work in M21.** M21.5 (the `PaymentFlow-Version` header, per-merchant pinning, the
 registry-driven transformation layer), M21.6 (the CI breaking-change gate, which also wires
 `verifyOpenApiBaseline`), and M21.7 (contract tests, plus the annotation prose above).
+
+---
+
+#### M21.5 — Date-based versioning: the header, the pin, and the transformation layer ✅ (2026-07-28)
+
+**Objective.** §5/M21 task 4: a version-resolution filter at the gateway, a per-merchant
+pinned version, and request/response transformers registered per revision — plus the one
+narrowly scoped revision that proves the machinery works end to end.
+
+**What was built.**
+
+- **`ApiVersion` / `ApiVersions`** (common-dto) — a dated revision as a comparable value type,
+  and the single registry of which revisions exist. `PublicApiDocument.API_VERSION` now reads
+  `ApiVersions.CURRENT` rather than holding its own literal, so the OpenAPI document and the
+  gateway cannot disagree about what "current" means.
+- **`pinned_api_version` on `merchants`** (V6) — carried on the API-key verify response
+  (**D155**), written once on the merchant's first authenticated call and never moved.
+- **`ApiVersionResolver`** — header, then pin, then current.
+- **`ApiTransformation` + `ApiTransformationRegistry`** — the generic, registry-driven layer
+  the approved decision required. A revision is one class; the registry composes them.
+- **`StatusCaseTransformation`** — the `2026-08-01` revision (**D156**).
+- **`ApiVersionWebFilter`** (order +40) and **`ApiVersionResponseBodyFilter`** (+41).
+- **`docs/VERSIONING.md`** — the guide the `Link` header points at.
+
+**The revision, and why this one** (D156). Payment and refund `status` values are lowercase
+`snake_case` from `2026-08-01`. `AUTHORIZED` and `PARTIALLY_REFUNDED` were the Java enum
+constant leaking through Jackson's default serialization rather than a considered wire form,
+and M21.4 had just established the opposite convention for `ErrorType`
+(`authentication_error`). The payment resources were the only place the platform contradicted
+itself, and M21.3 had frozen them into a published baseline — so this was the last cheap
+moment to fix it. It also happens to be the smallest change that exercises **both** directions,
+because `status` is a response field on three resources and a query filter on two lists.
+
+**Direction is the part that is easy to get backwards.** Services always speak the current
+revision — nothing downstream of the gateway knows versions exist, which is what "at the edge"
+means. So a transformation converts *old → current* on the way in and *current → old* on the
+way out, and the two chains iterate the registry in **opposite orders**: requests oldest-first,
+responses newest-first. With exactly one superseded revision those orderings are
+indistinguishable, so `ApiTransformationRegistryTest` asserts them against **three synthetic
+revisions** instead. A test written only against the real registry would have passed whichever
+way the comparator pointed, and the milestone that adds a second revision would have inherited
+a silently wrong composition order.
+
+**The transformation is structural, not a lookup table.** It uppercases whatever `status`
+string it finds, so a status added in a later milestone is translated without anyone
+remembering to extend the class. The counterpart is that the walk had to be *scoped*: a
+webhook delivery has its own `status` (`PENDING`/`DELIVERED`) that this revision never
+touched, and a blind recursive walk over every `status` in the tree would corrupt resources
+the revision does not own — visible only to callers pinned to the old revision, which is the
+hardest place to notice it. The walk covers the top-level object, the objects directly inside
+a `data`/`content` envelope, and the elements of a bare array, and
+`nestedSubObjectsAreDeliberatelyNotTouched` is the assertion with teeth.
+
+**An honest note about the request half.** `PaymentListFilter` already uppercases whatever it
+receives, so payment-service accepts `status=AUTHORIZED` and `status=authorized`
+interchangeably — which means the request-side transformation is, *for this particular
+revision*, defence in depth rather than load-bearing. It is implemented, unit-tested, and
+asserted at the integration level against **what the upstream stub actually received** rather
+than against a response body, precisely because a broken rewrite would not change any
+response today. Verifying the outbound request is what makes that test fail if the rewrite
+stops happening. A future revision whose downstream is not so forgiving will depend on it.
+
+**Two failure modes deliberately handled asymmetrically.** A *header* naming an unsupported
+version is a `400 UNSUPPORTED_API_VERSION` — silently answering in a different revision than
+the one asked for would hand a caller a shape they did not request with no way to notice. A
+*stored pin* naming an unsupported version falls forward to the current revision instead: that
+is a platform-side situation the merchant did not cause, and failing every one of their
+requests would be the worst possible way to inform them.
+
+**Files created**
+
+| File | Purpose |
+|---|---|
+| `common-dto/…/version/ApiVersion.java`, `ApiVersions.java` | The revision type and the registry of served revisions |
+| `common-dto/…/version/ApiVersionTest.java` | 10 tests: parsing, ordering, registry invariants |
+| `merchant-service/…/db/migration/V6__merchant_pinned_api_version.sql` | The pin column and its format constraint |
+| `merchant-service/…/service/ApiVersionPinService.java` | Pin-on-first-call, once, never failing the request |
+| `merchant-service/…/ApiVersionPinIntegrationTest.java` | 6 tests against real Postgres |
+| `gateway-service/…/version/ApiTransformation.java` | The revision-boundary interface |
+| `gateway-service/…/version/ApiTransformationRegistry.java` | Composition and ordering |
+| `gateway-service/…/version/StatusCaseTransformation.java` | The `2026-08-01` revision |
+| `gateway-service/…/version/ApiVersionResolver.java`, `UnsupportedApiVersionException.java` | Precedence and its one error |
+| `gateway-service/…/version/ApiVersionWebFilter.java` | Resolution, response headers, request rewrite |
+| `gateway-service/…/version/ApiVersionResponseBodyFilter.java` | Response-body rewrite |
+| `gateway-service/…/version/{ApiTransformationRegistry,StatusCaseTransformation,ApiVersionResolver,ApiVersion}Test.java` | 8 + 17 + 8 + 11 tests |
+| **`docs/VERSIONING.md`** | The published versioning guide |
+
+**Files modified**
+
+| File | Change |
+|---|---|
+| `common-lib/…/openapi/PublicApiDocument.java` | `API_VERSION` reads `ApiVersions.CURRENT` |
+| `common-lib/…/error/CommonErrorCode.java` | `UNSUPPORTED_API_VERSION` |
+| `merchant-service/…/domain/Merchant.java` | `pinnedApiVersion` + `pinApiVersionIfUnset` |
+| `merchant-service/…/dto/ApiKeyVerifyResponse.java`, `…/web/ApiKeyInternalController.java` | Carry and set the pin |
+| `gateway-service/…/security/apikey/ApiKeyVerifyResult.java` | Carries the pin; pre-M21.5 constructor retained |
+| `payment-service/…/domain/{Payment,Refund}Status.java` | `wireName()` |
+| `payment-service/…/mapper/PaymentMapper.java` | Emits `wireName()` |
+| `payment-service/…/{4 test classes}` | 18 status assertions moved to the new vocabulary |
+| `docs/{ERRORS.md,openapi.yaml}` | The new code; the baseline at `2026-08-01` |
+
+**Database changes.** One migration, `V6__merchant_pinned_api_version.sql`: a nullable
+`varchar(10)` on `merchants` with a format check. Nullable with **no default** deliberately —
+here null means "has not called the public API yet" rather than D145's "use the platform
+default", and a column default would have pinned every historical merchant to whatever
+revision was current on migration day, including merchants who have never made a request.
+
+**API contract changes.** One breaking change, and it is the point of the milestone:
+payment and refund `status` values are lowercase from `2026-08-01`. **Callers pinned to
+`2026-07-27` are unaffected** — they continue to receive the old vocabulary, rebuilt at the
+edge. New: the `PaymentFlow-Version` request header, the `PaymentFlow-Version` response
+header on every request, `Deprecation`/`Sunset`/`Link` on superseded revisions, and the
+`UNSUPPORTED_API_VERSION` error code.
+
+**Windows PowerShell commands**
+
+```powershell
+.\gradlew :common-dto:test :gateway-service:test :merchant-service:test
+.\gradlew :gateway-service:test --tests "*ApiVersion*"
+.\gradlew :openapi-tools:mergeOpenApi
+.\gradlew build
+```
+
+**Testing performed.** 50 new tests. `ApiVersionIntegrationTest` is the one that carries
+§5/M21's own E2E criterion — *"two pinned versions served simultaneously produce correctly
+different shapes"* — against a real bound gateway, real Redis, and stubs that answer in the
+**current** vocabulary, so any upper case a caller sees is the transformation layer's work and
+nothing else's. Also asserted there: the header overriding the pin in both directions, an
+unpinned merchant getting current, `Deprecation`/`Sunset` present on the superseded revision
+and **absent** on the current one, the unsupported-version error carrying M21.4's full
+contract (`type`, `docUrl`), and the query rewrite observed on the upstream request.
+
+**Edge cases considered.** A blank version header (treated as absent, not invalid — some
+clients send one rather than omitting it); repeated `status` parameters; a non-string
+`status`; an error body, whose `status` is a number; a body that is not JSON or is empty
+(passed through untouched, because a versioning layer that could turn a working response into
+an error is a worse bargain than the compatibility it buys); `Content-Length` after a rewrite
+(`authorized` is one byte shorter than `AUTHORIZED`, and a stale length is the classic way a
+body-rewriting filter truncates a response); a concurrent first call from two requests; and a
+pin write that fails, which logs and serves current rather than failing the merchant's traffic.
+
+**Remaining work in M21.** M21.6 (the CI breaking-change gate, which also wires
+`verifyOpenApiBaseline` into CI) and M21.7 (contract tests, plus the annotation prose D154
+moved there).
 
 ---
 

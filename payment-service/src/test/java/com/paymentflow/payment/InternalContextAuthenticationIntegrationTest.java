@@ -91,7 +91,7 @@ class InternalContextAuthenticationIntegrationTest {
                         .content(CREATE_BODY))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.merchantId").value(merchantId.toString()))
-                .andExpect(jsonPath("$.status").value("CREATED"))
+                .andExpect(jsonPath("$.status").value("created"))
                 // The key's mode (from the signed context) is persisted on the payment — the
                 // API-key path's mode is bound to the key, not a client-chosen header (M16.2).
                 .andExpect(jsonPath("$.mode").value("test"));

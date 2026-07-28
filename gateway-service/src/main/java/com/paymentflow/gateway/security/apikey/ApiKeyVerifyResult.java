@@ -29,7 +29,14 @@ public record ApiKeyVerifyResult(
          */
         Integer rateLimitPerSecond,
         Integer rateLimitBurst,
-        Integer dailyQuota) {
+        Integer dailyQuota,
+        /*
+         * M21.5: the merchant's pinned API revision, or null if they have not called the public
+         * API yet. Same nullability reasoning as the three overrides above — an entry cached
+         * before this milestone deserializes with a null pin and resolves to the current
+         * revision, so the cache needs no flush.
+         */
+        String pinnedApiVersion) {
 
     public ApiKeyVerifyResult {
         mode = mode == null ? null : mode.toLowerCase(Locale.ROOT);
@@ -38,6 +45,14 @@ public record ApiKeyVerifyResult(
     /** Pre-M20.5 shape, retained so existing tests and call sites compile unchanged. */
     public ApiKeyVerifyResult(UUID merchantId, UUID keyId, String mode, List<String> scopes,
                               String contactEmail, String webhookUrl) {
-        this(merchantId, keyId, mode, scopes, contactEmail, webhookUrl, null, null, null);
+        this(merchantId, keyId, mode, scopes, contactEmail, webhookUrl, null, null, null, null);
+    }
+
+    /** Pre-M21.5 shape, retained for the same reason. */
+    public ApiKeyVerifyResult(UUID merchantId, UUID keyId, String mode, List<String> scopes,
+                              String contactEmail, String webhookUrl,
+                              Integer rateLimitPerSecond, Integer rateLimitBurst, Integer dailyQuota) {
+        this(merchantId, keyId, mode, scopes, contactEmail, webhookUrl,
+                rateLimitPerSecond, rateLimitBurst, dailyQuota, null);
     }
 }

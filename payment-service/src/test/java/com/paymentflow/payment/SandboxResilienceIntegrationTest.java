@@ -248,7 +248,7 @@ class SandboxResilienceIntegrationTest {
                         .header("Authorization", "Bearer " + token)
                         .header("Idempotency-Key", "healthy-authorize"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("AUTHORIZED"));
+                .andExpect(jsonPath("$.status").value("authorized"));
     }
 
     @Test
@@ -271,7 +271,7 @@ class SandboxResilienceIntegrationTest {
                         .header("Authorization", "Bearer " + token)
                         .header("Idempotency-Key", "down-retry"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("AUTHORIZED"));
+                .andExpect(jsonPath("$.status").value("authorized"));
     }
 
     @Test

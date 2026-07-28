@@ -6,6 +6,7 @@ import com.paymentflow.merchant.dto.ApiKeyVerifyRequest;
 import com.paymentflow.merchant.dto.ApiKeyVerifyResponse;
 import com.paymentflow.merchant.repository.MerchantRepository;
 import com.paymentflow.merchant.service.ApiKeyService;
+import com.paymentflow.merchant.service.ApiVersionPinService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,10 +30,13 @@ public class ApiKeyInternalController {
 
     private final ApiKeyService apiKeyService;
     private final MerchantRepository merchantRepository;
+    private final ApiVersionPinService apiVersionPinService;
 
-    public ApiKeyInternalController(ApiKeyService apiKeyService, MerchantRepository merchantRepository) {
+    public ApiKeyInternalController(ApiKeyService apiKeyService, MerchantRepository merchantRepository,
+                                    ApiVersionPinService apiVersionPinService) {
         this.apiKeyService = apiKeyService;
         this.merchantRepository = merchantRepository;
+        this.apiVersionPinService = apiVersionPinService;
     }
 
     @PostMapping("/verify")
@@ -42,9 +46,15 @@ public class ApiKeyInternalController {
         var merchant = merchantRepository.findById(key.getMerchantId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Merchant", key.getMerchantId()));
 
+        // M21.5 (§4.10): a merchant is pinned to the contract they first actually called,
+        // not the one current when they signed up. Writes on exactly one request per
+        // merchant ever, and never fails this one if it cannot.
+        String pinnedApiVersion = apiVersionPinService.pinIfUnset(merchant);
+
         return new ApiKeyVerifyResponse(
                 key.getMerchantId(), key.getId(), key.getMode(), key.getScopes(),
                 merchant.getContactEmail(), merchant.getWebhookUrl(),
-                merchant.getRateLimitPerSecond(), merchant.getRateLimitBurst(), merchant.getDailyQuota());
+                merchant.getRateLimitPerSecond(), merchant.getRateLimitBurst(), merchant.getDailyQuota(),
+                pinnedApiVersion);
     }
 }

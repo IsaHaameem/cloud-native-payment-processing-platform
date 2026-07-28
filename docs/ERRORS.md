@@ -79,6 +79,7 @@ Ordered by status, then alphabetically.
 | Code | Status | Type | Meaning |
 |---|---|---|---|
 | `BAD_REQUEST` | 400 | `invalid_request_error` | The request could not be understood — a malformed body, or a parameter that is not the type it should be. |
+| `UNSUPPORTED_API_VERSION` | 400 | `invalid_request_error` | The `PaymentFlow-Version` header names a revision that does not exist or has passed its sunset date. The message lists the versions currently served. Omit the header to use your account's pinned version. |
 | `VALIDATION_FAILED` | 400 | `invalid_request_error` | One or more fields are invalid. `errors` lists every one; `param` names it when there is only one. |
 | `UNAUTHORIZED` | 401 | `authentication_error` | No API key, a malformed key, or one that has been revoked or has passed its rotation grace window. |
 | `FORBIDDEN` | 403 | `permission_error` | The credential is valid but not permitted here. |

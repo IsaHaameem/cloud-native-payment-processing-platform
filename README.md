@@ -623,7 +623,9 @@ Every service that serves part of the `/v1` tier generates an **OpenAPI 3.1** de
 
 The merge refuses to paper over disagreement: components defined identically by several services are deduplicated, but two services defining the same schema name *differently*, claiming the same path, or publishing a different contract version fail the build with every conflict listed. `./gradlew verifyOpenApiBaseline` fails if the committed file no longer matches what the services actually serve.
 
-Every non-2xx response shares one envelope, documented in **[`docs/ERRORS.md`](docs/ERRORS.md)** and asserted against the code by a consistency test. Alongside the stable `code`, each error carries a `type` from a small closed set — `authentication_error`, `permission_error`, `invalid_request_error`, `idempotency_error`, `rate_limit_error`, `api_error` — because the code set is allowed to grow and a client cannot safely `switch` over it. It also carries the `requestId` to quote in a support request and a `docUrl` pointing at that code's entry. Date-based versioning and the CI breaking-change gate are still in progress.
+Every non-2xx response shares one envelope, documented in **[`docs/ERRORS.md`](docs/ERRORS.md)** and asserted against the code by a consistency test. Alongside the stable `code`, each error carries a `type` from a small closed set — `authentication_error`, `permission_error`, `invalid_request_error`, `idempotency_error`, `rate_limit_error`, `api_error` — because the code set is allowed to grow and a client cannot safely `switch` over it. It also carries the `requestId` to quote in a support request and a `docUrl` pointing at that code's entry.
+
+The API is versioned by date, not by URL: `/v1` names the family, and a `PaymentFlow-Version: 2026-08-01` header names the revision (**[`docs/VERSIONING.md`](docs/VERSIONING.md)**). A merchant is pinned on their *first call* — not at signup, so the contract they integrated against is the one they keep — and can override it per request to trial a new revision before repinning. Superseded revisions keep working: the gateway rewrites requests forward and responses back through a registry-driven transformation layer, and sends `Deprecation`/`Sunset` headers so a client on an old revision is told on every response. Additive changes ship unversioned, which is why clients must tolerate unknown fields and unknown enum values. The CI breaking-change gate over the committed baseline is still in progress.
 
 ---
 
@@ -715,7 +717,7 @@ docs/images/gatling-report.png                — A Gatling HTML load-test repor
 
 **Planned**
 - A Next.js merchant console (TypeScript, Tailwind CSS) for self-service dashboards
-- Date-based API versioning with per-merchant pinning, a complete error-code catalogue, and a CI breaking-change gate over the committed `docs/openapi.yaml` (the merged spec itself already exists — see the public `/v1` API section)
+- A CI breaking-change gate over the committed `docs/openapi.yaml`, and contract tests validating live responses against it (the merged spec, the error catalogue, and date-based versioning already exist — see the public `/v1` API section)
 - Additional architecture diagrams and interview-preparation notes
 
 **Longer-term**
