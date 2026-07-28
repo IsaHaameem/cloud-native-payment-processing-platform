@@ -41,8 +41,14 @@
 > **26 public `/v1` path items across six services** are now described. Closes V1 known issue
 > #5. Two further document defects were found and fixed, and one public-contract
 > inconsistency was found and recorded (§14) rather than silently changed.
+> **M21.3 complete** (2026-07-28): that inconsistency closed first (the `object` discriminator
+> on both webhook resources, D150 — additive, and necessarily *before* the freeze), then the
+> `:openapi-tools` merge module, the per-service `openApiFragment` task, and
+> **`docs/openapi.yaml` committed as the baseline** — 1,668 lines, all 26 path items, 32
+> schemas, from six fragments (D151). `verifyOpenApiBaseline` was observed failing on a real
+> change before being trusted.
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D149**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D151**.
 
 ---
 
@@ -906,7 +912,7 @@ the single place to see where V2 stands; the full entry for every completed mile
 | **M18** — Webhooks as a product | A | ✅ complete | 2026-07-25 |
 | **M19** — Public read APIs & query surface | B | ✅ complete | 2026-07-25 – 07-26 |
 | **M20** — Request logging, metering, per-key limits | B | ✅ complete | 2026-07-26 |
-| **M21** — OpenAPI 3.1, versioning & the error contract | B | 🚧 **in progress** — M21.1 ✅, M21.2 ✅, M21.3–M21.7 remaining (§17/M21) | from 2026-07-27 |
+| **M21** — OpenAPI 3.1, versioning & the error contract | B | 🚧 **in progress** — M21.1 ✅, M21.2 ✅, M21.3 ✅, M21.4–M21.7 remaining (§17/M21) | from 2026-07-27 |
 | **M22** — Node & Python SDKs | C | ⬜ not started | — |
 | **M23** — Developer portal, part 1 | C | ⬜ not started | — |
 | **M24** — Developer portal, part 2 | C | ⬜ not started | — |
@@ -2684,6 +2690,7 @@ decisions are appended as milestones are implemented.
 | D148 | (M21.1) The generated document is restricted to `/v1/**` by `springdoc.paths-to-match`, and `/v3/api-docs` is served **unauthenticated** | (a) Publish everything the service maps and let the M21 merge task filter; (b) require a key for the document endpoint, as for every other non-actuator path | §9.5 excludes `/api/v1` and `/internal/v1` from the published spec deliberately, because documenting them "would imply a promise the platform does not intend to make". (a) defers that promise to a filter two sub-milestones away and, in the interval, serves a document that describes the dashboard tier as though it were public — and the merge step is the wrong place for it anyway, since the service is the only thing that knows which of its own endpoints are a promise. On the security half: the document's entire content is the public API surface, which M21 commits as `openapi.yaml` and M25 publishes on the documentation site, so (b) would require a credential to read the description of how to use a credential while protecting nothing. It is also unreachable from outside regardless — the gateway routes only its explicit path predicates, and `/v3/api-docs` is not among them — so the exposure is in-cluster, exactly like `/actuator/prometheus`. The exclusion is asserted in both directions by `OpenApiDocumentIntegrationTest` rather than left to one line of YAML nobody re-reads |
 | D149 | (M21.2) The document-level half of every service's OpenAPI fragment — title, contract version, server, and the `SecretKey` scheme — lives in **`common-lib`** as `PublicApiDocument`; each service's `OpenApiConfig` supplies only its own tags | (a) Copy M21.1's `OpenApiConfig` into each of the five remaining services, following the schema-per-service precedent (D4/D36) every service uses for its own types; (b) put the whole document, tags included, in common-lib and have services contribute nothing | (a) is the established pattern and is wrong here for the same reason D140 gave when it moved `CanonicalEventType` into `common-dto`. D4/D36's local copies exist so no service compiles against another's *internal model*, where divergence is legitimate. This is the opposite: a **frozen public contract** that M21.3 merges into one `openapi.yaml`, and a merge is only meaningful if the fragments agree. Six hand-copied `info` blocks disagreeing on `version` is not a hypothetical — it is what M21.5 guarantees the moment the contract version changes and five of six files get edited. Worse, **no test inside any single service could detect it**: each service's own document would look perfectly correct. (b) fails in the other direction — tags genuinely differ per service, since they name the resources that service owns, so a shared tag list would either be a registry of every resource in the platform maintained in one file or an empty extension point. The split falls exactly on "is this true of the API or of this service?", and `PublicApiDocumentTest` in common-lib asserts the property no service test can: that there is only one thing for the six fragments to be right about |
 | D150 | (M21.3) `WebhookEndpointResponse` and `WebhookDeliveryResponse` gain the **`object` discriminator** every other public resource carries, as the first step of M21.3 rather than as part of M21.4's error-contract work | (a) Leave the two resources without it and document the inconsistency as permanent; (b) fix it in M21.4 alongside the annotation prose, where the rest of the "what a public object looks like" work lives; (c) fix it and take the opportunity to add `object` to the nested `WebhookDeliveryAttemptResponse` too | The field is how a caller identifies a bare object out of context, §7.1's SDK contract leans on it, and M22 generates four SDKs from the merged document — (a) makes "does this resource have `object`?" a per-resource question an integrator must memorise, forever, for no reason beyond the order the milestones happened to run in. The timing is the actual decision, and it is forced: **M21.3 commits the `openapi.yaml` baseline**, M21.6 makes that baseline the thing CI diffs, and D108's policy is that additive changes ship unversioned while anything else needs a dated revision and a transformation layer. Adding the field *before* the freeze is a one-line additive change; adding it *after* means either editing a frozen baseline or carrying a revision through M21.5's transformation machinery to fix a typo-grade omission. (b) is only half a milestone later but lands on the wrong side of that line. (c) was rejected because `WebhookDeliveryAttemptResponse` is not addressable — it exists only nested inside a delivery, is never returned alone, and never appears in a webhook body, so a discriminator on it would be a field no caller could ever need to branch on. The `object` contract is for objects a caller can hold by itself |
+| D151 | (M21.3) The merge is a **new `:openapi-tools` module** whose fragments are produced by each service's existing `OpenApiDocumentIntegrationTest`, not by `springdoc-openapi-gradle-plugin` and not by Gradle-script logic in `build-logic` | (a) `org.springdoc.openapi-gradle-plugin`, the tool built for exactly this job — it `bootRun`s the service and fetches `/v3/api-docs`; (b) merge logic written directly in the root build file or as a `build-logic` task class; (c) commit six per-service documents and skip the merge until M25 needs one | (a) is the obvious choice and fails on this platform's shape: it starts each service for real, so producing the document would require Postgres, Redis **and** Kafka reachable at build time for six services. The pre-M21.3 audit had just finished demonstrating what that dependency costs — 18 spurious test failures from Docker exhaustion, and a compose stack whose stale images answered `/v3/api-docs` with 401 (§14). Worse, it would be a *second* path to the published contract, one that asserts nothing: the fragment it produced could differ from the one the document tests approved and no test would notice. Reusing the integration test makes the fragment a by-product of an assertion — the path set, the tier exclusion and the shared contract are all checked before the bytes are written. (b) keeps the wiring together but makes the interesting part — deduplicating shared components, refusing to merge fragments that disagree — reachable only through a Gradle invocation, when it is ordinary logic with ordinary failure modes; §10's standing position is that logic like that gets unit tests, and `OpenApiMergerTest`'s hand-written *disagreeing* fragments could not be written at all against the real six, which agree. (c) defers the one artefact everything downstream consumes and leaves nothing to diff, which is precisely the "documentation drifts into fiction" failure §9.5 and R10 exist to prevent. The module also has to exist for M21.6, which diffs this same document for breaking changes |
 
 ---
 
@@ -2756,6 +2763,7 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **Integration tests can depend on the developer's docker-compose stack without declaring it, and the failure mode is invisible locally.** `WebhookDeliveryLogAndReplayIntegrationTest` passed for two milestones only because `application.yaml`'s default `localhost:59092` happened to reach a running compose broker; in CI it failed. Fixed for that class (M20's CI investigation), but the underlying hazard is structural: every service's `application.yaml` carries a working localhost default for Kafka, Redis and Postgres, so *any* test that omits a container silently borrows the developer's stack. The cost is not only red CI — the same gap made `WebhookEndpointApiIntegrationTest` take **1063.9s** instead of **10.7s**, ~18 minutes of CI time attributable to blocked producer calls that were swallowed rather than failed. A structural guard (a test-profile Kafka/Redis/datasource pointing at an unroutable address, so an undeclared dependency fails loudly and immediately instead of blocking for 60 seconds) would prevent the next one. Not owned by any milestone; M27 or a dedicated stability pass is the natural home.
 - **The six `OpenApiDocumentIntegrationTest` classes duplicate their scaffold, and this breaks §5.0 standing rule 4** ("no duplicated code — if a pattern appears a third time, it moves into `common-lib`"). Found by the pre-M21.3 audit, not during M21.2. Each of the six files independently re-implements the cached `document()` fetch, the `tagsOf`/`usedTags` helpers, and five assertions that are identical in intent and near-identical in text: the document is 3.1, the path set matches in both directions, the internal tiers are absent, the fragment carries the shared contract, and the YAML sibling is served. Roughly 70 lines × 6. It was written this way because the monorepo has **no shared test-fixtures artifact** — there is no module the six could inherit from, and D149's `PublicApiDocument` is main-source, not test-source. The cost is not the line count but the drift: a seventh service, or M21.7's contract tests, would either copy it a seventh time or fix it under pressure. **Not fixed during the audit** because the remedy is a cross-module change (a `testFixtures` source set on `common-lib`, or a small `test-support` module, consumed by six services) and that is implementation rather than a documentation correction. The natural moment is immediately before **M21.7**, which adds a second round of per-service document assertions on exactly this scaffold — or before M21.3 if the merge task's verification wants to reuse it.
 - ~~**The two webhook resources carry no `object` discriminator, unlike every other public object**~~ — **closed by M21.3** (2026-07-28, D150). Found in M21.2 by generating notification-service's document and reading its schemas: `PaymentResponse`, `RefundResponse`, `EventResponse`, `BalanceTransactionResponse`, `RequestLogResponse` and `AnalyticsSummaryResponse` all published a constant `object` field (`"payment"`, `"event"`, `"balance_transaction"`, …) — it is how a caller identifies a bare object out of context, and §7.1's SDK contract leans on it — while `WebhookEndpointResponse` and `WebhookDeliveryResponse` did not have the field at all. The inconsistency dated from M18 and was invisible until the schemas were written down side by side, which is a fair argument for the document having been worth generating. Deliberately not fixed in M21.2, because adding a field to a shipped public response is an API change and M21.2's remit was to describe the API rather than alter it; fixed as M21.3's first step instead, since M21.3 is the sub-milestone that freezes the `openapi.yaml` baseline and a gap left open past that point becomes a documented promise. Kept as a struck-through entry rather than deleted, because it is the clearest example V2 has of a contract defect that only became visible once the contract was written down.
+- **`verifyOpenApiBaseline` exists but nothing runs it automatically** (M21.3). The task merges the six fragments and fails if `docs/openapi.yaml` no longer matches — and it has been observed doing so on a real change — but it is deliberately not wired into `check`, because that would put six Spring contexts and six Testcontainers Postgres instances on every `./gradlew build`. Until **M21.6** adds the CI gate (§5/M21 task 5, which owns exactly this), a change to any public response shape lands green with a stale baseline, and the baseline is what M22's SDKs are generated from. The exposure is one sub-milestone wide and the remedy is already scheduled; recorded because "the gate is written" and "the gate runs" are different claims and only the first is true today.
 - **A cached-green `./gradlew build` can hide a red test suite, and did.** Found by the pre-M21.3 audit (2026-07-28). `clean build` reported **BUILD SUCCESSFUL** with 33 of 96 tasks served `FROM-CACHE`; forcing real execution with `test --rerun-tasks` produced **18 failures** across six services. The failures were environmental rather than defects — `ContainerFetchException: Can't get Docker image: postgres:17-alpine` for an image that was present locally, i.e. the Docker daemon buckling under 19 running compose containers plus Testcontainers on parallel Gradle workers — and all 719 tests passed once the compose stack was stopped. The cache was not wrong: content-addressed hits mean the inputs were byte-identical to a previously green run. The hazard is what a *reader* concludes, because "BUILD SUCCESSFUL" is identical in both cases and nothing in the output distinguishes "the tests passed" from "the tests were not run." This is the same family as the compose-stack entry above and compounds it: an environment flaky enough to fail 18 suites is also an environment where a cached success looks like proof. No milestone owns it; **M21.6** is the natural home, since a CI breaking-change gate is only as trustworthy as the build it runs inside — a `--rerun-tasks` or cache-disabled verification leg before the gate would close it.
 - **The generated OpenAPI document is structurally correct but prose-empty** (M21.1). Every operation, schema field, and error response in payment-service's document carries a *name* and a *type* but no human-readable description: no `summary`, no `description`, no documented non-200 responses, no examples. §5/M21 task 1 asks for "annotated schemas, examples, and error responses" and M21.1 deliberately delivered only the structure, on the grounds that the annotation prose is worth writing once against the *final* shape of `ApiError` — which M21.4 extends with `type`, `doc_url`, and `request_id`. The accepted risk is that a document which renders and validates can look finished: anything reading it before M21.4 (an SDK generator, the docs site) would produce output that is correctly typed and completely undocumented. Owned by M21.4, not unassigned.
 - **`payment-service` relaxes Tomcat's query-string parser for `[` and `]`** (D142). Scoped to two characters and one service, but it *is* a widening of what the HTTP layer accepts, made to serve a documented filter syntax. Recorded as an accepted risk rather than a neutral configuration line: any future audit of input handling should know the parser is non-default here and why, and M21's error-contract work should confirm the relaxed characters still route malformed input to the JSON error handler rather than Tomcat's HTML page — which is the failure D142 exists to have fixed.
@@ -6295,7 +6303,7 @@ only one whose work repeats per service.
 |---|---|---|---|
 | **M21.1** | 1 (first service) | springdoc verified against the platform; integrated into payment-service; the first OpenAPI 3.1 document, restricted to `/v1` | ✅ 2026-07-27 |
 | **M21.2** | 1 (remaining services) | springdoc on the other five services exposing a public `/v1` tier: transaction-service, audit-service, analytics-service, notification-service, sandbox-service | ✅ 2026-07-27 |
-| **M21.3** | 2 | The Gradle merge task; shared components deduplicated; `openapi.yaml` committed as the baseline | ⬜ |
+| **M21.3** | 2 | The Gradle merge task; shared components deduplicated; `openapi.yaml` committed as the baseline | ✅ 2026-07-28 |
 | **M21.4** | 3 | `ApiError` extended with `type`, `doc_url`, `request_id` (additive); the error-code catalogue as one source of truth | ⬜ |
 | **M21.5** | 4 | `PaymentFlow-Version` header; per-merchant pinning; the generic, registry-driven transformation layer and its one narrowly scoped revision | ⬜ |
 | **M21.6** | 5 | CI spec-diff gate: additive vs breaking classification, observed failing on a real breaking change | ⬜ |
@@ -6631,6 +6639,181 @@ and committed `openapi.yaml` baseline, the extended `ApiError` and error catalog
 transformation layer, the CI breaking-change gate, and the contract tests. The annotation
 prose remains deferred to M21.4 (§14), and the `object` discriminator gap must be settled
 before M21.3 freezes the baseline.
+
+---
+
+#### M21.3 — The merge task, and `docs/openapi.yaml` as the committed baseline ✅ (2026-07-28)
+
+**Objective.** §5/M21 task 2: a Gradle task that collects each service's fragment and merges
+them, deduplicating shared components, with the result committed as the baseline everything
+downstream reads — M22's SDK generators, M25's documentation site, and M21.6's
+breaking-change gate.
+
+**A pre-M21.3 audit came first, and found three things.** The repository was re-derived from
+the code rather than from the previous session's notes, because M21.2 had ended abruptly.
+Two findings were documentation-only and were corrected in their own commit (`aff0403`):
+README still described springdoc as *planned* three milestones after it shipped, and §14
+gained the `OpenApiDocumentIntegrationTest` duplication entry. The third mattered more:
+
+**`./gradlew clean build` reported BUILD SUCCESSFUL while the test suite was red.** 33 of 96
+tasks came `FROM-CACHE`; forcing execution with `test --rerun-tasks` produced **18 failures**
+across six services, every one of them `ContainerFetchException: Can't get Docker image:
+postgres:17-alpine` for an image that was present locally — the Docker daemon buckling under
+19 running compose containers plus Testcontainers on parallel Gradle workers. Stopping the
+compose stack made all **719 tests pass, 0 failures**. The cache was not wrong; content-
+addressed hits mean byte-identical inputs. What is wrong is that "BUILD SUCCESSFUL" reads the
+same whether the tests ran or not. Recorded in §14 and owned by M21.6, because a
+breaking-change gate is worth exactly as much as the build it runs inside.
+
+**The `object` discriminator, first and separately** (D150, commit `c98c58d`). M21.2 recorded
+that `WebhookEndpointResponse` and `WebhookDeliveryResponse` carried no `object` field while
+every other public resource did, and that it had to land *before* the baseline froze. It did:
+both records gained the field, the `OBJECT_TYPE` constant and the `@JsonInclude(NON_NULL)`
+their siblings already had. `WebhookEndpointCreatedResponse` inherited it for nothing, because
+M18.2 modelled it as a wrapper rather than a flat copy. Deliberately *not* added to
+`WebhookDeliveryAttemptResponse`: an attempt is never returned alone and never appears in a
+webhook body, so a discriminator there would be a field no caller could branch on.
+
+**What was built.**
+
+- **`:openapi-tools`** — a new module, registered in `settings.gradle.kts` beside
+  `load-tests` under its own heading. Build tooling: run by the build, never deployed, never
+  on a service's runtime classpath.
+  - `OpenApiMerger` — merges fragments as JSON trees. Paths and components are keyed and
+    sorted; `openapi`, `info`, `servers` and `security` must be *identical* across all six;
+    identical component definitions are deduplicated and differing ones are a hard failure.
+    Every conflict found is reported, not just the first.
+  - `OpenApiYaml` — the rendering, tuned entirely for diff quality (see below).
+  - `OpenApiMergeCli` — `--out`, optional `--baseline`, fragment files.
+  - `OpenApiFragments` — the one class the six services touch, in test scope only.
+- **`paymentflow.openapi-fragment`** — a second convention plugin in `build-logic`, applied
+  by the six services. It registers `openApiFragment`, a `Test` task filtered to
+  `*OpenApiDocumentIntegrationTest`, and adds the test-scope dependency on `:openapi-tools`.
+- **`mergeOpenApi` and `verifyOpenApiBaseline`**, on `:openapi-tools` rather than the root
+  project — see D151 and "two Gradle problems" below.
+- **`docs/openapi.yaml`** — **1,668 lines, 26 path items, 31 operations, 31 schemas, 13 tags**,
+  merged from six fragments.
+
+**Where the fragments come from, and why not the obvious way** (D151). The document does not
+exist until springdoc has scanned a running application context, so something has to start
+the service. `springdoc-openapi-gradle-plugin` exists for exactly this and was rejected: it
+`bootRun`s the service, which would put Postgres, Redis and Kafka on the critical path of
+generating documentation for six services — and the audit above had just finished
+demonstrating what that dependency costs. It would also be a *second* route to the published
+contract, one that asserts nothing. Each service's `OpenApiDocumentIntegrationTest` already
+stands the service up and already proves the path set, the tier exclusion and the shared
+contract; the fragment is now a by-product of those assertions. The bytes written are the
+bytes the service served, compared back rather than assumed, so the baseline describes what
+the API actually returns rather than a re-render of it.
+
+**The rendering is a diff decision, not a formatting one.** The baseline exists to be read in
+review and diffed by CI, so `OpenApiYaml` disables the `---` marker, disables line-splitting
+(hard-wrapping re-flows every following line when one word changes), enables literal blocks
+so multi-line prose is readable rather than one line of `\n` escapes, and ends the file with
+exactly one newline. Each is asserted by `OpenApiYamlTest`.
+
+**A defect the rendering tests caught.** `MINIMIZE_QUOTES` alone emits the *string* `"3.1"`
+bare, and it reads back as the **float** `3.1`. The document does not contain that exact value
+today — `openapi` is `3.1.0`, which has two dots and is safe — but `info.version` is a bare
+date and every future contract revision is another chance at a value YAML types for itself.
+Fixed with `ALWAYS_QUOTE_NUMBERS_AS_STRINGS`, and the test round-trips through a YAML parser
+rather than looking for quote characters, because what matters is what a parser makes of it.
+
+**Tag order was wrong on the first generation, and the merged document said so.** The merge
+originally sorted fragments by file name for determinism, which put **Analytics** at the top
+of the navigation and **Payments** seventh. Determinism was already guaranteed by the build
+file's explicit service list, so the sort was removed: the merge now preserves caller order,
+and the tags read `Payments · Refunds · Balance · Balance transactions · Events · Analytics ·
+Request logs · Usage · Webhook endpoints · Webhook deliveries · Test cards · Simulations ·
+Decisions`. Paths and components stay sorted by name, where order carries no meaning.
+
+**Two Gradle problems worth recording, both with misleading symptoms.**
+
+1. `the<SourceSetContainer>()` inside a `tasks.register<Test>` block resolves the extension on
+   the **task**, not the project, and fails with *"Extension of type 'SourceSetContainer' does
+   not exist"* — which reads as a missing `java` plugin. Resolved at script level instead.
+2. The tasks were first written in the root build file, which has no JVM plugin, so the tool's
+   classpath had to be a hand-attributed detached configuration. It failed variant selection,
+   and the error — *"Could not find com.fasterxml.jackson.core:jackson-databind:"* with an
+   empty version — reads as a missing dependency rather than a missing variant. Moving the
+   tasks into `:openapi-tools`, where `sourceSets["main"].runtimeClasspath` already exists,
+   removed the problem rather than configuring around it, and matches the root build file's
+   own stated intent to stay thin. A `CommandLineArgumentProvider` lambda was also dropped:
+   a lambda written in a build script captures the script object, which the configuration
+   cache cannot serialize, and every path involved is known at configuration time anyway.
+
+**Files created**
+
+| File | Purpose |
+|---|---|
+| `openapi-tools/build.gradle.kts` | The module, and the `mergeOpenApi` / `verifyOpenApiBaseline` tasks |
+| `openapi-tools/…/OpenApiMerger.java` | The merge: union, deduplicate, refuse to merge disagreement |
+| `openapi-tools/…/OpenApiMergeException.java` | Every conflict at once, not just the first |
+| `openapi-tools/…/OpenApiYaml.java` | Diff-stable YAML rendering |
+| `openapi-tools/…/OpenApiMergeCli.java` | The entry point both Gradle tasks run |
+| `openapi-tools/…/OpenApiFragments.java` | Writes one service's fragment; the only class the services see |
+| `openapi-tools/…/OpenApiMergerTest.java` | 14 tests, over deliberately *disagreeing* fragments |
+| `openapi-tools/…/OpenApiYamlTest.java` | 7 tests, each asserting a property of the diff |
+| `build-logic/…/paymentflow.openapi-fragment.gradle.kts` | The `openApiFragment` task, shared by six services |
+| **`docs/openapi.yaml`** | **The committed baseline** |
+
+**Files modified**
+
+| File | Change |
+|---|---|
+| `settings.gradle.kts` | `include("openapi-tools")` under a new "API contract tooling (M21)" heading |
+| `build.gradle.kts` | A pointer to where the OpenAPI tasks live; otherwise unchanged and still thin |
+| `{6 services}/build.gradle.kts` | `id("paymentflow.openapi-fragment")` |
+| `{6 services}/…/OpenApiDocumentIntegrationTest.java` | Caches the raw body; one new test writes the fragment |
+| `…/notification/dto/Webhook{Endpoint,Delivery}Response.java` | The `object` discriminator (D150) |
+| `…/notification/mapper/Webhook{Endpoint,Delivery}Mapper.java` | Supply it |
+| `…/notification/{WebhookEndpointApi,WebhookDeliveryLogAndReplay}IntegrationTest.java` | Assert it on live responses |
+
+**Endpoints added.** None. **DB / Kafka / Redis / infra changes.** None. **API contract
+changes:** one, and it is additive — `object` on the two webhook resources (D150). No path,
+verb, parameter, or existing field changed anywhere.
+
+**Windows PowerShell commands**
+
+```powershell
+.\gradlew :openapi-tools:test                  # 21 tests, the merge and the rendering
+.\gradlew :openapi-tools:mergeOpenApi          # regenerate docs/openapi.yaml
+.\gradlew :openapi-tools:verifyOpenApiBaseline # fail if it no longer matches the services
+.\gradlew build                                # the monorepo
+```
+
+**Testing performed.** 21 new unit tests in `:openapi-tools` and 6 new integration tests (one
+per service). The merger's tests are written against hand-built *disagreeing* fragments
+deliberately: the real six agree — that is what D149 and `PublicApiDocumentTest` are for — so
+a test that merged the real ones would only ever exercise the happy path. Covered: paths
+unioned and sorted; identical components deduplicated; **differing components refused**;
+duplicate paths refused; fragments disagreeing on `info` or `openapi` refused; all conflicts
+reported rather than the first; tags unioned in caller order; the same tag described two ways
+refused; component sections beyond `schemas` merged; an empty fragment list refused.
+
+**Manual verification.** `mergeOpenApi` produced a document whose path set is exactly the 26
+in §17/M21's table; `security: []` survives the merge on `GET /v1/test/cards`, the platform's
+one unauthenticated endpoint; both webhook schemas now publish `object`; the shared `info`,
+server and `SecretKey` scheme appear once. **The gate was then observed failing**, per §5/M21's
+own standard that a gate never seen failing is not known to work: `info.version` was edited in
+the baseline to `2026-08-01` and `verifyOpenApiBaseline` failed, naming the file, the line
+number, and both values. The baseline was restored and re-verified clean. One blemish surfaced
+in that run and was fixed — an em-dash in the failure message renders as a replacement
+character on a cp1252 Windows console, so every console-bound string in this module is now
+ASCII.
+
+**Not done here, deliberately.** `verifyOpenApiBaseline` is **not wired into `check`**, so
+nothing runs it automatically yet. Wiring it would make every `./gradlew build` start six
+Spring contexts and six Postgres containers, and CI enforcement is precisely M21.6's scope
+(§5/M21 task 5). The window in which the baseline can drift unnoticed is one sub-milestone
+wide and is recorded in §14 rather than left implicit. The **annotation prose** — operation
+summaries, field descriptions, examples, documented error responses — remains M21.4's, which
+is why the merged document is structurally complete and descriptively empty.
+
+**Remaining work in M21.** M21.4 through M21.7: the extended `ApiError` and the error
+catalogue (which will also put the first genuinely shared component through the merge's
+deduplication path), the `PaymentFlow-Version` header with per-merchant pinning and the
+registry-driven transformation layer, the CI breaking-change gate, and the contract tests.
 
 ---
 

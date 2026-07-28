@@ -619,7 +619,9 @@ The table above documents the `/api/v1` surface — the JWT-authenticated tier t
 
 That surface is documented separately rather than duplicated here: see `docs/READ_APIS.md` for the read APIs and their list, filter, and pagination semantics, `notification-service/docs/WEBHOOKS.md` for the webhook guide and signature specification, and `PROJECT_CONTEXT_2.md` for the full V2 architecture and milestone history.
 
-Every service that serves part of the `/v1` tier also generates an **OpenAPI 3.1** description of its own share of it, from the code, at `/v3/api-docs` (and `/v3/api-docs.yaml`). The six fragments together describe all 26 public `/v1` path items; `/api/v1` and `/internal/v1` are deliberately excluded, because documenting them would imply a compatibility promise the platform does not intend to make. Merging the fragments into one committed `openapi.yaml`, and the date-based versioning and error catalogue that go with it, is in progress.
+Every service that serves part of the `/v1` tier generates an **OpenAPI 3.1** description of its own share of it, from the code, at `/v3/api-docs` (and `/v3/api-docs.yaml`). `./gradlew mergeOpenApi` merges those six fragments into **[`docs/openapi.yaml`](docs/openapi.yaml)** — the committed baseline covering all 26 public path items, 31 operations, and 31 schemas. `/api/v1` and `/internal/v1` are deliberately excluded, because documenting them would imply a compatibility promise the platform does not intend to make.
+
+The merge refuses to paper over disagreement: components defined identically by several services are deduplicated, but two services defining the same schema name *differently*, claiming the same path, or publishing a different contract version fail the build with every conflict listed. `./gradlew verifyOpenApiBaseline` fails if the committed file no longer matches what the services actually serve. Date-based versioning, the error catalogue, and the CI breaking-change gate that runs this check automatically are still in progress.
 
 ---
 
@@ -711,7 +713,7 @@ docs/images/gatling-report.png                — A Gatling HTML load-test repor
 
 **Planned**
 - A Next.js merchant console (TypeScript, Tailwind CSS) for self-service dashboards
-- A merged, committed `openapi.yaml` for the whole `/v1` surface, with date-based versioning and a CI breaking-change gate (the per-service OpenAPI 3.1 documents already exist — see the public `/v1` API section)
+- Date-based API versioning with per-merchant pinning, a complete error-code catalogue, and a CI breaking-change gate over the committed `docs/openapi.yaml` (the merged spec itself already exists — see the public `/v1` API section)
 - Additional architecture diagrams and interview-preparation notes
 
 **Longer-term**

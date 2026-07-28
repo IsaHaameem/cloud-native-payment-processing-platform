@@ -21,3 +21,6 @@ tasks.register("modules") {
         names.forEach { println("  $it") }
     }
 }
+
+// The OpenAPI merge tasks (`mergeOpenApi`, `verifyOpenApiBaseline`) live in
+// `:openapi-tools`, next to the code they run — see that module's build file.

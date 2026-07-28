@@ -7,6 +7,8 @@
  */
 plugins {
     id("paymentflow.java-conventions")
+    // M21.3: the `openApiFragment` task that feeds the merged docs/openapi.yaml.
+    id("paymentflow.openapi-fragment")
     alias(libs.plugins.spring.boot)
 }
 

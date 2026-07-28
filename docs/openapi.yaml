@@ -1,0 +1,1668 @@
+openapi: 3.1.0
+info:
+  description: |-
+    The PaymentFlow payments API. This document describes the public `/v1` surface — the endpoints PaymentFlow versions, deprecates on a published timeline, and supports for integrators. Endpoints not described here are internal and carry no compatibility promise.
+
+    Amounts are integers in the currency's minor unit (`amountMinor`): `1000` in `USD` is $10.00. There are no floating-point amounts anywhere in this API.
+
+    Every mutating request accepts an `Idempotency-Key` header and every list is cursor-paginated; both are described on the operations that use them.
+  license:
+    name: Proprietary
+  title: PaymentFlow API
+  version: 2026-07-27
+servers:
+- url: https://api.paymentflow.dev
+  description: PaymentFlow API
+security:
+- SecretKey: []
+paths:
+  /v1/analytics/payments:
+    get:
+      operationId: payments
+      parameters:
+      - in: query
+        name: from
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: to
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsSummaryResponse"
+          description: OK
+      tags:
+      - Analytics
+  /v1/balance:
+    get:
+      operationId: balance
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BalanceResponse"
+          description: OK
+      tags:
+      - Balance
+  /v1/balance_transactions:
+    get:
+      operationId: balanceTransactions
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          type: integer
+          format: int32
+      - in: query
+        name: starting_after
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: created_after
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CursorPageBalanceTransactionResponse"
+          description: OK
+      tags:
+      - Balance transactions
+  /v1/events:
+    get:
+      operationId: list
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          type: integer
+          format: int32
+      - in: query
+        name: starting_after
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: type
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: created_after
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CursorPageEventResponse"
+          description: OK
+      tags:
+      - Events
+  /v1/events/{id}:
+    get:
+      operationId: get
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventResponse"
+          description: OK
+      tags:
+      - Events
+  /v1/payments:
+    get:
+      operationId: listPayments
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          type: integer
+          format: int32
+      - in: query
+        name: starting_after
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: currency
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: amount_min
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - in: query
+        name: amount_max
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - in: query
+        name: created_after
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: expand
+        required: false
+        schema:
+          type: string
+      - description: "Filter by metadata, spelled `metadata[key]=value` and repeatable. Matching is containment and every named key must match: `?metadata[orderId]=A-1234&metadata[channel]=web` returns only objects carrying both. A key nothing carries selects nothing rather than everything."
+        explode: true
+        in: query
+        name: metadata
+        schema:
+          type: object
+          additionalProperties: true
+        style: deepObject
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CursorPagePaymentResponse"
+          description: OK
+      tags:
+      - Payments
+    post:
+      operationId: create
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: false
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePaymentRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentResponse"
+          description: Created
+      tags:
+      - Payments
+  /v1/payments/{id}:
+    get:
+      operationId: getPayment
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: expand
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentResponse"
+          description: OK
+      tags:
+      - Payments
+  /v1/payments/{id}/authorize:
+    post:
+      operationId: authorize
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - in: header
+        name: Idempotency-Key
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentResponse"
+          description: OK
+      tags:
+      - Payments
+  /v1/payments/{id}/capture:
+    post:
+      operationId: capture
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - in: header
+        name: Idempotency-Key
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentResponse"
+          description: OK
+      tags:
+      - Payments
+  /v1/payments/{id}/refund:
+    post:
+      operationId: refund
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - in: header
+        name: Idempotency-Key
+        required: false
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefundRequest"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentResponse"
+          description: OK
+      tags:
+      - Payments
+  /v1/payments/{id}/void:
+    post:
+      operationId: voidPayment
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - in: header
+        name: Idempotency-Key
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentResponse"
+          description: OK
+      tags:
+      - Payments
+  /v1/refunds:
+    get:
+      operationId: listRefunds
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          type: integer
+          format: int32
+      - in: query
+        name: starting_after
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: payment
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: created_after
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - description: "Filter by metadata, spelled `metadata[key]=value` and repeatable. Matching is containment and every named key must match: `?metadata[orderId]=A-1234&metadata[channel]=web` returns only objects carrying both. A key nothing carries selects nothing rather than everything."
+        explode: true
+        in: query
+        name: metadata
+        schema:
+          type: object
+          additionalProperties: true
+        style: deepObject
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CursorPageRefundResponse"
+          description: OK
+      tags:
+      - Refunds
+  /v1/refunds/{id}:
+    get:
+      operationId: getRefund
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefundResponse"
+          description: OK
+      tags:
+      - Refunds
+  /v1/request_logs:
+    get:
+      operationId: requestLogs
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          type: integer
+          format: int32
+      - in: query
+        name: starting_after
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: created_after
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: status_code
+        required: false
+        schema:
+          type: integer
+          format: int32
+      - in: query
+        name: method
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CursorPageRequestLogResponse"
+          description: OK
+      tags:
+      - Request logs
+  /v1/test/cards:
+    get:
+      operationId: listCards
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TestCardResponse"
+          description: OK
+      security: []
+      tags:
+      - Test cards
+  /v1/test/decisions:
+    get:
+      operationId: list
+      parameters:
+      - description: Zero-based page index (0..N)
+        in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          default: 0
+          minimum: 0
+      - description: The size of the page to be returned
+        in: query
+        name: size
+        required: false
+        schema:
+          type: integer
+          default: 20
+          minimum: 1
+      - description: "Sorting criteria in the format: property,(asc|desc). Default sort order is ascending. Multiple sort criteria are supported."
+        in: query
+        name: sort
+        required: false
+        schema:
+          type: array
+          items:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageResponseDecisionLogEntryResponse"
+          description: OK
+      tags:
+      - Decisions
+  /v1/test/decisions/payments/{paymentId}:
+    get:
+      operationId: forPayment
+      parameters:
+      - in: path
+        name: paymentId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DecisionLogEntryResponse"
+          description: OK
+      tags:
+      - Decisions
+  /v1/test/simulations:
+    post:
+      operationId: create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSimulationOverrideRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimulationOverrideResponse"
+          description: OK
+      tags:
+      - Simulations
+  /v1/test/simulations/active:
+    delete:
+      operationId: revokeActive
+      responses:
+        "200":
+          description: OK
+      tags:
+      - Simulations
+    get:
+      operationId: getActive
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimulationOverrideResponse"
+          description: OK
+      tags:
+      - Simulations
+  /v1/usage:
+    get:
+      operationId: usage
+      parameters:
+      - in: query
+        name: from
+        required: false
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: to
+        required: false
+        schema:
+          type: string
+          format: date
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageSummaryResponse"
+          description: OK
+      tags:
+      - Usage
+  /v1/webhook_deliveries:
+    get:
+      operationId: list_1
+      parameters:
+      - description: Zero-based page index (0..N)
+        in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          default: 0
+          minimum: 0
+      - description: The size of the page to be returned
+        in: query
+        name: size
+        required: false
+        schema:
+          type: integer
+          default: 20
+          minimum: 1
+      - description: "Sorting criteria in the format: property,(asc|desc). Default sort order is ascending. Multiple sort criteria are supported."
+        in: query
+        name: sort
+        required: false
+        schema:
+          type: array
+          items:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageResponseWebhookDeliveryResponse"
+          description: OK
+      tags:
+      - Webhook deliveries
+  /v1/webhook_deliveries/{id}:
+    get:
+      operationId: get_1
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryResponse"
+          description: OK
+      tags:
+      - Webhook deliveries
+  /v1/webhook_deliveries/{id}/replay:
+    post:
+      operationId: replay
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryResponse"
+          description: Created
+      tags:
+      - Webhook deliveries
+  /v1/webhook_endpoints:
+    get:
+      operationId: list
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WebhookEndpointResponse"
+          description: OK
+      tags:
+      - Webhook endpoints
+    post:
+      operationId: create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWebhookEndpointRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpointCreatedResponse"
+          description: Created
+      tags:
+      - Webhook endpoints
+  /v1/webhook_endpoints/{id}:
+    delete:
+      operationId: delete
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: OK
+      tags:
+      - Webhook endpoints
+    get:
+      operationId: get
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpointResponse"
+          description: OK
+      tags:
+      - Webhook endpoints
+    patch:
+      operationId: update
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWebhookEndpointRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpointResponse"
+          description: OK
+      tags:
+      - Webhook endpoints
+  /v1/webhook_endpoints/{id}/rotate_secret:
+    post:
+      operationId: rotateSecret
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpointCreatedResponse"
+          description: OK
+      tags:
+      - Webhook endpoints
+tags:
+- description: "Create, authorize, capture, void, and read payments."
+  name: Payments
+- description: Read the refunds issued against your payments.
+  name: Refunds
+- description: "Your available and pending balance, per currency."
+  name: Balance
+- description: The ledger entries that make up your balance.
+  name: Balance transactions
+- description: "The log of everything that happened on your account, and the source of every webhook you receive."
+  name: Events
+- description: "Payment volume, success rate, and totals over a time range."
+  name: Analytics
+- description: "Every API request your keys made, with status and timing."
+  name: Request logs
+- description: "Your metered request counts, aggregated per UTC day."
+  name: Usage
+- description: Register and manage the URLs PaymentFlow sends events to.
+  name: Webhook endpoints
+- description: Inspect and replay individual webhook delivery attempts.
+  name: Webhook deliveries
+- description: The card tokens that drive each sandbox outcome. Public reference data — no API key required.
+  name: Test cards
+- description: "Force the next authorization to a chosen outcome, for testing failure paths on demand."
+  name: Simulations
+- description: Why the sandbox decided each authorization the way it did.
+  name: Decisions
+components:
+  schemas:
+    AnalyticsBucketResponse:
+      type: object
+      properties:
+        authorizedCount:
+          type: integer
+          format: int64
+        bucketStart:
+          type: string
+          format: date-time
+        capturedCount:
+          type: integer
+          format: int64
+        createdCount:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        failedCount:
+          type: integer
+          format: int64
+        object:
+          type: string
+        refundedCount:
+          type: integer
+          format: int64
+        totalCapturedAmountMinor:
+          type: integer
+          format: int64
+        totalRefundedAmountMinor:
+          type: integer
+          format: int64
+        voidedCount:
+          type: integer
+          format: int64
+    AnalyticsSummaryResponse:
+      type: object
+      properties:
+        authorizedCount:
+          type: integer
+          format: int64
+        buckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnalyticsBucketResponse"
+        capturedCount:
+          type: integer
+          format: int64
+        createdCount:
+          type: integer
+          format: int64
+        failedCount:
+          type: integer
+          format: int64
+        from:
+          type: string
+          format: date-time
+        object:
+          type: string
+        refundedCount:
+          type: integer
+          format: int64
+        successRate:
+          type: number
+          format: double
+        to:
+          type: string
+          format: date-time
+        totalCapturedAmountMinor:
+          type: integer
+          format: int64
+        totalRefundedAmountMinor:
+          type: integer
+          format: int64
+        voidedCount:
+          type: integer
+          format: int64
+    BalanceResponse:
+      type: object
+      properties:
+        balances:
+          type: array
+          items:
+            $ref: "#/components/schemas/CurrencyBalance"
+        object:
+          type: string
+    BalanceTransactionResponse:
+      type: object
+      properties:
+        accountType:
+          type: string
+        amountMinor:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        currency:
+          type: string
+        direction:
+          type: string
+        eventType:
+          type: string
+        id:
+          type: string
+          format: uuid
+        mode:
+          type: string
+        object:
+          type: string
+        paymentId:
+          type: string
+          format: uuid
+    CreatePaymentRequest:
+      type: object
+      properties:
+        amountMinor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          maxLength: 3
+          minLength: 3
+        description:
+          type: string
+          maxLength: 500
+          minLength: 0
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        paymentMethodToken:
+          type: string
+          maxLength: 64
+          minLength: 0
+      required:
+      - currency
+    CreateSimulationOverrideRequest:
+      type: object
+      properties:
+        declineCode:
+          type: string
+          maxLength: 48
+          minLength: 0
+        durationSeconds:
+          type: integer
+          format: int32
+        errorCode:
+          type: string
+          maxLength: 48
+          minLength: 0
+        latencyMs:
+          type: integer
+          format: int32
+        remainingCount:
+          type: integer
+          format: int32
+        scenario:
+          type: string
+          enum:
+          - FORCE_DECLINE
+          - FORCE_ERROR
+          - INJECT_LATENCY
+          - FORCE_TIMEOUT
+          - FORCE_RATE_LIMIT
+          - DELAY_SETTLEMENT
+          - DUPLICATE_WEBHOOKS
+          - WEBHOOK_FAILURE
+      required:
+      - scenario
+    CreateWebhookEndpointRequest:
+      type: object
+      properties:
+        description:
+          type: string
+          maxLength: 255
+          minLength: 0
+        enabledEvents:
+          type: array
+          items:
+            type: string
+            maxLength: 64
+            minLength: 0
+          minItems: 1
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        url:
+          type: string
+          maxLength: 2048
+          minLength: 0
+      required:
+      - enabledEvents
+      - url
+    CurrencyBalance:
+      type: object
+      properties:
+        availableMinor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        pendingMinor:
+          type: integer
+          format: int64
+    CursorPageBalanceTransactionResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/BalanceTransactionResponse"
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: string
+        object:
+          type: string
+    CursorPageEventResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventResponse"
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: string
+        object:
+          type: string
+    CursorPagePaymentResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentResponse"
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: string
+        object:
+          type: string
+    CursorPageRefundResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/RefundResponse"
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: string
+        object:
+          type: string
+    CursorPageRequestLogResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/RequestLogResponse"
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: string
+        object:
+          type: string
+    DecisionLogEntryResponse:
+      type: object
+      properties:
+        createdAt:
+          type: string
+          format: date-time
+        decisionKey:
+          type: string
+        declineCode:
+          type: string
+        deferredDelayMs:
+          type: integer
+          format: int32
+        deferredOperation:
+          type: string
+        errorCode:
+          type: string
+        latencyMs:
+          type: integer
+          format: int32
+        operation:
+          type: string
+        outcome:
+          type: string
+        overrideId:
+          type: string
+          format: uuid
+        paymentId:
+          type: string
+          format: uuid
+        source:
+          type: string
+    EventResponse:
+      type: object
+      properties:
+        created:
+          type: string
+          format: date-time
+        data:
+          $ref: "#/components/schemas/JsonNode"
+        id:
+          type: string
+        mode:
+          type: string
+        object:
+          type: string
+        type:
+          type: string
+    JsonNode:
+      type: object
+      properties:
+        array:
+          type: boolean
+        bigDecimal:
+          type: boolean
+        bigInteger:
+          type: boolean
+        binary:
+          type: boolean
+        boolean:
+          type: boolean
+        container:
+          type: boolean
+        double:
+          type: boolean
+        embeddedValue:
+          type: boolean
+        empty:
+          type: boolean
+        float:
+          type: boolean
+        floatingPointNumber:
+          type: boolean
+        int:
+          type: boolean
+        integralNumber:
+          type: boolean
+        long:
+          type: boolean
+        missingNode:
+          type: boolean
+        nodeType:
+          type: string
+          enum:
+          - ARRAY
+          - BINARY
+          - BOOLEAN
+          - MISSING
+          - "NULL"
+          - NUMBER
+          - OBJECT
+          - POJO
+          - STRING
+        "null":
+          type: boolean
+        number:
+          type: boolean
+        object:
+          type: boolean
+        pojo:
+          type: boolean
+        short:
+          type: boolean
+        string:
+          type: boolean
+        textual:
+          type: boolean
+          deprecated: true
+        valueNode:
+          type: boolean
+    PageResponseDecisionLogEntryResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/DecisionLogEntryResponse"
+        first:
+          type: boolean
+        last:
+          type: boolean
+        page:
+          type: integer
+          format: int32
+        size:
+          type: integer
+          format: int32
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+          format: int32
+    PageResponseWebhookDeliveryResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookDeliveryResponse"
+        first:
+          type: boolean
+        last:
+          type: boolean
+        page:
+          type: integer
+          format: int32
+        size:
+          type: integer
+          format: int32
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+          format: int32
+    PaymentResponse:
+      type: object
+      properties:
+        amountMinor:
+          type: integer
+          format: int64
+        capturedAmountMinor:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        currency:
+          type: string
+        description:
+          type: string
+        failureReason:
+          type: string
+        id:
+          type: string
+          format: uuid
+        merchantId:
+          type: string
+          format: uuid
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        mode:
+          type: string
+        object:
+          type: string
+        paymentMethodToken:
+          type: string
+        refundedAmountMinor:
+          type: integer
+          format: int64
+        refunds:
+          type: array
+          items:
+            $ref: "#/components/schemas/RefundResponse"
+        status:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+    RefundRequest:
+      type: object
+      properties:
+        amountMinor:
+          type: integer
+          format: int64
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        reason:
+          type: string
+          maxLength: 500
+          minLength: 0
+    RefundResponse:
+      type: object
+      properties:
+        amountMinor:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        currency:
+          type: string
+        failureReason:
+          type: string
+        id:
+          type: string
+          format: uuid
+        merchantId:
+          type: string
+          format: uuid
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        mode:
+          type: string
+        object:
+          type: string
+        paymentId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+        status:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+    RequestLogResponse:
+      type: object
+      properties:
+        clientIp:
+          type: string
+        correlationId:
+          type: string
+        durationMs:
+          type: integer
+          format: int64
+        errorCode:
+          type: string
+        id:
+          type: string
+          format: uuid
+        keyId:
+          type: string
+          format: uuid
+        method:
+          type: string
+        mode:
+          type: string
+        object:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        path:
+          type: string
+        queryString:
+          type: string
+        requestBody:
+          type: string
+        requestHeaders:
+          type: object
+          additionalProperties:
+            type: string
+        requestId:
+          type: string
+        responseBody:
+          type: string
+        statusCode:
+          type: integer
+          format: int32
+        userAgent:
+          type: string
+    SimulationOverrideResponse:
+      type: object
+      properties:
+        declineCode:
+          type: string
+        enactedFrom:
+          type: string
+        errorCode:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        id:
+          type: string
+          format: uuid
+        latencyMs:
+          type: integer
+          format: int32
+        remainingCount:
+          type: integer
+          format: int32
+        scenario:
+          type: string
+    TestCardResponse:
+      type: object
+      properties:
+        brand:
+          type: string
+        captureBehaviour:
+          type: string
+        declineCode:
+          type: string
+        deferredDelayMs:
+          type: integer
+          format: int32
+        description:
+          type: string
+        errorCode:
+          type: string
+        latencyMs:
+          type: integer
+          format: int32
+        outcome:
+          type: string
+        refundBehaviour:
+          type: string
+        token:
+          type: string
+    UpdateWebhookEndpointRequest:
+      type: object
+      properties:
+        description:
+          type: string
+          maxLength: 255
+          minLength: 0
+        enabled:
+          type: boolean
+        enabledEvents:
+          type: array
+          items:
+            type: string
+            maxLength: 64
+            minLength: 0
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+    UsageBucketResponse:
+      type: object
+      properties:
+        clientErrors:
+          type: integer
+          format: int64
+        day:
+          type: string
+          format: date
+        keyId:
+          type: string
+          format: uuid
+        maxDurationMs:
+          type: integer
+          format: int64
+        meanDurationMs:
+          type: integer
+          format: int64
+        p50DurationMs:
+          type: integer
+          format: int64
+        p95DurationMs:
+          type: integer
+          format: int64
+        p99DurationMs:
+          type: integer
+          format: int64
+        requests:
+          type: integer
+          format: int64
+        route:
+          type: string
+        serverErrors:
+          type: integer
+          format: int64
+    UsageSummaryResponse:
+      type: object
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/UsageBucketResponse"
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        totalClientErrors:
+          type: integer
+          format: int64
+        totalRequests:
+          type: integer
+          format: int64
+        totalServerErrors:
+          type: integer
+          format: int64
+    WebhookDeliveryAttemptResponse:
+      type: object
+      properties:
+        attemptNumber:
+          type: integer
+          format: int32
+        attemptedAt:
+          type: string
+          format: date-time
+        durationMs:
+          type: integer
+          format: int32
+        error:
+          type: string
+        id:
+          type: string
+          format: uuid
+        outcome:
+          type: string
+          enum:
+          - SUCCEEDED
+          - FAILED_STATUS
+          - FAILED_TRANSPORT
+          - BLOCKED
+        requestBody:
+          type: string
+        requestHeaders:
+          type: string
+        requestUrl:
+          type: string
+        responseBody:
+          type: string
+        responseHeaders:
+          type: string
+        responseStatus:
+          type: integer
+          format: int32
+    WebhookDeliveryResponse:
+      type: object
+      properties:
+        attemptCount:
+          type: integer
+          format: int32
+        attempts:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookDeliveryAttemptResponse"
+        createdAt:
+          type: string
+          format: date-time
+        endpointId:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+        eventType:
+          type: string
+        id:
+          type: string
+          format: uuid
+        lastAttemptedAt:
+          type: string
+          format: date-time
+        nextAttemptAt:
+          type: string
+          format: date-time
+        object:
+          type: string
+        replayedFromDeliveryId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - PENDING
+          - DELIVERED
+          - DEAD_LETTERED
+        url:
+          type: string
+    WebhookEndpointCreatedResponse:
+      type: object
+      properties:
+        endpoint:
+          $ref: "#/components/schemas/WebhookEndpointResponse"
+        signingSecret:
+          type: string
+    WebhookEndpointResponse:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+        consecutiveFailureCount:
+          type: integer
+          format: int32
+        createdAt:
+          type: string
+          format: date-time
+        description:
+          type: string
+        disabledAt:
+          type: string
+          format: date-time
+        disabledReason:
+          type: string
+          enum:
+          - CONSECUTIVE_FAILURES
+        enabled:
+          type: boolean
+        enabledEvents:
+          type: array
+          items:
+            type: string
+        id:
+          type: string
+          format: uuid
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        migratedFromLegacy:
+          type: boolean
+        object:
+          type: string
+        signingSecretPrefix:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+        url:
+          type: string
+  securitySchemes:
+    SecretKey:
+      bearerFormat: sk
+      description: |-
+        Your secret API key, sent as `Authorization: Bearer sk_test_...`.
+
+        The key determines both *whose* data you see and *which mode* you see it in: an `sk_test_` key reads and writes test data only, an `sk_live_` key live data only. No header, parameter, or body field can change either — to work in the other mode, use the other key.
+      scheme: bearer
+      type: http

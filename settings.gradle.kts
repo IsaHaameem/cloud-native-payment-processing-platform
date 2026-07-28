@@ -52,3 +52,9 @@ include("sandbox-service")
 
 // ── Performance / load testing (M14) ────────────────────────────────────
 include("load-tests")
+
+// ── API contract tooling (M21) ──────────────────────────────────────────
+// Merges the six per-service OpenAPI fragments into the published
+// docs/openapi.yaml. Build tooling, like load-tests: run by the build, never
+// deployed and never on a service's runtime classpath.
+include("openapi-tools")

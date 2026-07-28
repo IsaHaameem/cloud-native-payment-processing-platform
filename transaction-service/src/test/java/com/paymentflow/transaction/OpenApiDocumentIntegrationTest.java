@@ -1,6 +1,7 @@
 package com.paymentflow.transaction;
 
 import com.paymentflow.common.openapi.PublicApiDocument;
+import com.paymentflow.openapi.OpenApiFragments;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -14,6 +15,9 @@ import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 
@@ -61,6 +65,8 @@ class OpenApiDocumentIntegrationTest {
     private ObjectMapper objectMapper;
 
     private static JsonNode document;
+    /** The bytes the service served, kept so the fragment is written verbatim (M21.3). */
+    private static String documentJson;
 
     /** Fetched once per class and cached; every assertion describes one artefact. */
     private JsonNode document() throws Exception {
@@ -71,6 +77,7 @@ class OpenApiDocumentIntegrationTest {
             String body = mockMvc.perform(get("/v3/api-docs"))
                     .andExpect(status().isOk())
                     .andReturn().getResponse().getContentAsString();
+            documentJson = body;
             document = objectMapper.readTree(body);
         }
         return document;
@@ -202,6 +209,28 @@ class OpenApiDocumentIntegrationTest {
         // springdoc serves it from a *sibling* path, so "/v3/api-docs/**" would not have
         // covered it — the failure would only show up in CI.
         mockMvc.perform(get("/v3/api-docs.yaml")).andExpect(status().isOk());
+    }
+
+    /**
+     * Writes this service's fragment where {@code mergeOpenApi} will find it (M21.3).
+     *
+     * <p>Less an assertion than a by-product, and deliberately placed here rather than in a
+     * task of its own: this class is the only place the document exists after a real
+     * application context has produced it, and every other test in this file is a
+     * precondition for the fragment being worth merging. A fragment generated somewhere
+     * that had not asserted the path set, the tier exclusion and the shared contract would
+     * be a second, unchecked source of the published API.
+     *
+     * <p>The bytes written are the ones the service served, compared back rather than
+     * assumed: the merged baseline should describe what the API actually returns, and a
+     * re-serialization could differ in key order or whitespace without anyone noticing.
+     */
+    @Test
+    void theFragmentIsWrittenForTheMergeStep() throws Exception {
+        document();
+        Path fragment = OpenApiFragments.write("transaction-service", documentJson);
+
+        assertThat(Files.readString(fragment, StandardCharsets.UTF_8)).isEqualTo(documentJson);
     }
 
     private List<String> usedTags() throws Exception {
