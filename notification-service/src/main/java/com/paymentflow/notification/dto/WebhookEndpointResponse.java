@@ -1,5 +1,6 @@
 package com.paymentflow.notification.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.paymentflow.notification.domain.EndpointDisableReason;
 
 import java.time.Instant;
@@ -17,8 +18,10 @@ import java.util.UUID;
  * this off because it was failing" from "I turned this off" — the distinction that
  * decides whether re-enabling it needs them to fix something first.
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record WebhookEndpointResponse(
         UUID id,
+        String object,
         String url,
         String description,
         boolean enabled,
@@ -33,4 +36,7 @@ public record WebhookEndpointResponse(
         Map<String, String> metadata,
         Instant createdAt,
         Instant updatedAt) {
+
+    /** The discriminator carried by every webhook-endpoint object. */
+    public static final String OBJECT_TYPE = "webhook_endpoint";
 }

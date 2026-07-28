@@ -22,6 +22,7 @@ public class WebhookDeliveryMapper {
                                               List<WebhookDeliveryAttempt> attempts) {
         return new WebhookDeliveryResponse(
                 delivery.getId(),
+                WebhookDeliveryResponse.OBJECT_TYPE,
                 event == null ? null : event.getEventRef(),
                 event == null ? null : event.getEventType(),
                 delivery.getEndpointId(),

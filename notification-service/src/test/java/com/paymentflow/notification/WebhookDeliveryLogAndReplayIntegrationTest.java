@@ -141,6 +141,8 @@ class WebhookDeliveryLogAndReplayIntegrationTest {
 
         mockMvc.perform(signed(get(PATH + "/" + seeded.delivery().getId()), merchantId, "test"))
                 .andExpect(status().isOk())
+                // The discriminator every public object on this platform carries (M21.3).
+                .andExpect(jsonPath("$.object").value("webhook_delivery"))
                 .andExpect(jsonPath("$.eventId").value(seeded.event().getEventRef()))
                 .andExpect(jsonPath("$.eventType").value("payment.authorized"))
                 .andExpect(jsonPath("$.attemptCount").value(1))

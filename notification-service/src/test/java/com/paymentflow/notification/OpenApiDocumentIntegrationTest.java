@@ -187,14 +187,14 @@ class OpenApiDocumentIntegrationTest {
         JsonNode schemas = document().path("components").path("schemas");
 
         assertThat(schemas.path("WebhookEndpointResponse").path("properties").propertyNames())
-                .contains("id", "url", "enabled", "enabledEvents", "signingSecretPrefix");
-        // Deliberately not asserting an `object` discriminator here, and the omission is
-        // the finding rather than an oversight: every other public resource on this
-        // platform carries one (`payment`, `refund`, `event`, `balance_transaction`,
-        // `request_log`), and the two webhook resources do not. Generating the document is
-        // what made that visible. Recorded in §14 as a contract gap for M21.3/M21.4 to
-        // close — adding a field to a shipped public response is an API change, not a
-        // documentation one, and M21.2 does not make it silently.
+                .contains("id", "object", "url", "enabled", "enabledEvents", "signingSecretPrefix");
+        // The `object` discriminator was missing from both webhook resources until M21.3,
+        // and generating this document is what made it visible: every other public resource
+        // on the platform carries one (`payment`, `refund`, `event`, `balance_transaction`,
+        // `request_log`), and these two did not. Asserted here as well as on the live
+        // responses, because the schema is what M22's generators read — an SDK whose
+        // WebhookEndpoint type lacks the field cannot identify a bare object out of context
+        // however correct the runtime response is.
         // The create response is the one that carries a raw `whsec_` secret, and it is
         // unrecoverable afterwards — an SDK that did not model it would silently discard
         // the only copy.

@@ -41,6 +41,7 @@ public class WebhookEndpointMapper {
 
         return new WebhookEndpointResponse(
                 endpoint.getId(),
+                WebhookEndpointResponse.OBJECT_TYPE,
                 endpoint.getUrl(),
                 endpoint.getDescription(),
                 endpoint.isEnabled(),

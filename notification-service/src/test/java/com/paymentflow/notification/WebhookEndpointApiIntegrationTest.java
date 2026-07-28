@@ -75,6 +75,7 @@ class WebhookEndpointApiIntegrationTest {
                                  "enabledEvents":["payment.authorized","payment.captured"]}"""))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.signingSecret").exists())
+                .andExpect(jsonPath("$.endpoint.object").value("webhook_endpoint"))
                 .andExpect(jsonPath("$.endpoint.enabled").value(true))
                 .andExpect(jsonPath("$.endpoint.enabledEvents.length()").value(2))
                 .andExpect(jsonPath("$.endpoint.signingSecretPrefix").value(org.hamcrest.Matchers.startsWith("whsec_")))
@@ -94,6 +95,10 @@ class WebhookEndpointApiIntegrationTest {
         // Every subsequent read shows the prefix and nothing more.
         mockMvc.perform(signed(get(PATH + "/" + endpointId), merchantId, "test"))
                 .andExpect(status().isOk())
+                // The discriminator every public object on this platform carries (M21.3).
+                // Asserted on the bare read as well as on the create envelope, because this
+                // is the shape a caller holding a single object out of context sees.
+                .andExpect(jsonPath("$.object").value("webhook_endpoint"))
                 .andExpect(jsonPath("$.signingSecretPrefix").exists())
                 .andExpect(jsonPath("$.signingSecret").doesNotExist());
     }

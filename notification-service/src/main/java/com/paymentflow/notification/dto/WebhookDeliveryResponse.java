@@ -1,5 +1,6 @@
 package com.paymentflow.notification.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.paymentflow.notification.domain.DeliveryStatus;
 
 import java.time.Instant;
@@ -12,8 +13,10 @@ import java.util.UUID;
  * exposes the whole history rather than a summary: the status a merchant needs is almost
  * never "failed", it is "failed with 502 and this response body, four times".
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record WebhookDeliveryResponse(
         UUID id,
+        String object,
         String eventId,
         String eventType,
         UUID endpointId,
@@ -26,4 +29,7 @@ public record WebhookDeliveryResponse(
         Instant createdAt,
         Instant lastAttemptedAt,
         List<WebhookDeliveryAttemptResponse> attempts) {
+
+    /** The discriminator carried by every webhook-delivery object. */
+    public static final String OBJECT_TYPE = "webhook_delivery";
 }
