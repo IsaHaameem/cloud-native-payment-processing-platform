@@ -44,7 +44,7 @@
 > **M21.3 complete** (2026-07-28): that inconsistency closed first (the `object` discriminator
 > on both webhook resources, D150 — additive, and necessarily *before* the freeze), then the
 > `:openapi-tools` merge module, the per-service `openApiFragment` task, and
-> **`docs/openapi.yaml` committed as the baseline** — 1,668 lines, all 26 path items, 32
+> **`docs/openapi.yaml` committed as the baseline** — 1,668 lines, all 26 path items, 31
 > schemas, from six fragments (D151). `verifyOpenApiBaseline` was observed failing on a real
 > change before being trusted.
 > **M21.4 complete** (2026-07-28): `ApiError` extended with `type`, `param`, `requestId` and
@@ -455,17 +455,28 @@ request events (M20), and time-bucketed series for the dashboard's charts (M24).
   `(eventId, eventType, aggregateId, occurredAt, correlationId, payload)`. The envelope
   deliberately does **not** share payload types across services (D36).
   **→ V2:** the envelope gains `mode` and a schema `version` (M16); a `CursorPage<T>`
-  joins `PageResponse` (M19).
+  joins `PageResponse` (M19); `ApiError` gains `type`, `param`, `requestId` and `docUrl`
+  alongside a new `ErrorType` vocabulary (M21.4); and `ApiVersion`/`ApiVersions` arrive as
+  the single registry of which dated contract revisions the platform serves (M21.5).
 - **`common-lib`** — a Spring Boot auto-configuration *starter*, not a plain jar; web deps
   are `compileOnly` so the servlet stack is never leaked onto the reactive gateway (D11).
   Provides exception handling, the error envelope wiring, correlation-id filters, JSON
   structured logging, `OpaqueTokenGenerator` (SecureRandom + SHA-256, D27), and
   `ObservabilityAutoConfiguration` tagging every metric with `application=` (D87).
-  **→ V2:** gains the internal-context header filter (M15), mode propagation (M16), and
-  PII/secret log redaction (M27).
+  **→ V2:** gains the internal-context header filter (M15), mode propagation (M16),
+  PII/secret log redaction (M27), and — in M21 — the shared OpenAPI contract
+  (`PublicApiDocument`, D149; `PublicApiErrorResponses`, D153) plus the error catalogue and
+  its single assembly point (`ErrorCatalogue`, `ApiErrorFactory`, M21.4).
 - **`platform-bom`** — dependency version alignment. Deliberately empty of extras.
+  **→ V2:** constrains springdoc without importing its BOM (D147, M21.1).
 - **`load-tests`** — Gatling; 7 simulations; a seeded merchant pool feeds all steady-state
   runs so registration overhead never contaminates hot-path numbers (D93).
+- **`openapi-tools`** *(new in V2, M21.3)* — the merge that turns the six per-service
+  OpenAPI fragments into the published `docs/openapi.yaml`, plus the `mergeOpenApi` and
+  `verifyOpenApiBaseline` Gradle tasks. Build tooling in the same sense `load-tests` is: run
+  by the build, never deployed, and never on a service's runtime classpath. The one
+  exception is `OpenApiFragments`, which the six services' document tests use in test scope
+  to write their fragment out (D151).
 
 ### 2.10 Infrastructure
 
@@ -498,7 +509,7 @@ lingering note:
 | 2 | Webhooks are unsigned — merchants cannot verify authenticity | **M18 ✅ closed** (2026-07-25) |
 | 3 | transaction-service has no query API; ledger state needs `psql` (D42) | **M19 ✅ closed** (2026-07-26) |
 | 4 | audit-service and analytics-service have no query APIs | **M19 ✅ closed** (2026-07-26) |
-| 5 | `springdoc` is in the tech-stack table but is not a dependency of any module | **M21 ✅ closed** (2026-07-27, M21.1–M21.2 — springdoc now on all six services exposing a public `/v1` tier, each generating an OpenAPI 3.1 document; the merge into one published spec is M21.3) |
+| 5 | `springdoc` is in the tech-stack table but is not a dependency of any module | **M21 ✅ closed** (2026-07-27 – 07-28, M21.1–M21.3 — springdoc on all six services exposing a public `/v1` tier, each generating an OpenAPI 3.1 document, merged by `openapi-tools` into the committed `docs/openapi.yaml`, which covers all 26 public path items) |
 | 6 | No README badge target, no diagrams, no frontend | **M23/M24/M30** |
 | 7 | Gateway does not honour `X-Forwarded-*` behind the ALB | **M15** (edge work) |
 | 8 | Deployed gateway runs `SPRING_PROFILES_ACTIVE=local`, so CORS allows only `localhost:3000` | **M23** |
@@ -6822,6 +6833,12 @@ in that run and was fixed — an em-dash in the failure message renders as a rep
 character on a cp1252 Windows console, so every console-bound string in this module is now
 ASCII.
 
+**Regression.** `./gradlew build` across the monorepo — **BUILD SUCCESSFUL**, **746 tests,
+0 failures, 0 errors, 0 skipped** (719 before this sub-milestone; +21 in `:openapi-tools`,
++6 fragment tests). Run with the `paymentflow-*` compose stack stopped, for the reason §14
+now records. `verifyOpenApiBaseline` re-run afterwards reported the committed baseline in
+sync.
+
 **Not done here, deliberately.** `verifyOpenApiBaseline` is **not wired into `check`**, so
 nothing runs it automatically yet. Wiring it would make every `./gradlew build` start six
 Spring contexts and six Postgres containers, and CI enforcement is precisely M21.6's scope
@@ -6935,7 +6952,7 @@ unauthenticated traffic is rate limited by IP (D24), and anything can fail.
 | `gateway-service/…/{ratelimit/ApiKeyRateLimitWebFilter,security/apikey/ApiKeyAuthenticationWebFilter,web/GatewayErrorWebExceptionHandler}.java` | Catalogued codes instead of literals |
 | `{6 services}/…/config/OpenApiConfig.java` | The two customizer beans |
 | `{payment,sandbox}-service/…/OpenApiDocumentIntegrationTest.java` | Error-response assertions |
-| `docs/openapi.yaml` | Regenerated — **1,668 → 3,686 lines** |
+| `docs/openapi.yaml` | Regenerated — **1,668 → 3,654 lines** |
 
 **API contract changes.** Additive only. Four new fields on an error body, all omitted when
 absent; two new codes (`INSUFFICIENT_SCOPE` and `DAILY_QUOTA_EXCEEDED` were already being
@@ -6962,6 +6979,12 @@ undocumented code fails, and so does a documented code that does not exist, beca
 describing a removed code reads as authoritative and produces dead client handlers.
 **All existing tests passed unchanged**, which is the clearest evidence available that the
 change is additive.
+
+**Regression.** `./gradlew build` across the monorepo — **BUILD SUCCESSFUL**, **768 tests,
+0 failures, 0 errors, 0 skipped** (746 before). Every pre-existing test passed **unchanged**,
+which is the clearest evidence available that the four new `ApiError` fields and the two new
+codes are additive rather than merely intended to be. `verifyOpenApiBaseline` confirmed the
+regenerated baseline in sync.
 
 **Not done here, and approved as such** (**D154**). The **annotation prose** — per-operation
 summaries and descriptions, field descriptions, and per-operation error responses such as the
@@ -7052,7 +7075,7 @@ requests would be the worst possible way to inform them.
 | File | Purpose |
 |---|---|
 | `common-dto/…/version/ApiVersion.java`, `ApiVersions.java` | The revision type and the registry of served revisions |
-| `common-dto/…/version/ApiVersionTest.java` | 10 tests: parsing, ordering, registry invariants |
+| `common-dto/…/version/ApiVersionTest.java` | 11 tests: parsing, ordering, registry invariants |
 | `merchant-service/…/db/migration/V6__merchant_pinned_api_version.sql` | The pin column and its format constraint |
 | `merchant-service/…/service/ApiVersionPinService.java` | Pin-on-first-call, once, never failing the request |
 | `merchant-service/…/ApiVersionPinIntegrationTest.java` | 6 tests against real Postgres |
@@ -7062,7 +7085,8 @@ requests would be the worst possible way to inform them.
 | `gateway-service/…/version/ApiVersionResolver.java`, `UnsupportedApiVersionException.java` | Precedence and its one error |
 | `gateway-service/…/version/ApiVersionWebFilter.java` | Resolution, response headers, request rewrite |
 | `gateway-service/…/version/ApiVersionResponseBodyFilter.java` | Response-body rewrite |
-| `gateway-service/…/version/{ApiTransformationRegistry,StatusCaseTransformation,ApiVersionResolver,ApiVersion}Test.java` | 8 + 17 + 8 + 11 tests |
+| `gateway-service/…/version/{ApiTransformationRegistry,StatusCaseTransformation,ApiVersionResolver}Test.java` | 8 + 15 + 8 tests |
+| `gateway-service/…/version/ApiVersionIntegrationTest.java` | 10 tests, incl. §5/M21's two-versions-at-once E2E criterion |
 | **`docs/VERSIONING.md`** | The published versioning guide |
 
 **Files modified**
@@ -7101,7 +7125,8 @@ header on every request, `Deprecation`/`Sunset`/`Link` on superseded revisions, 
 .\gradlew build
 ```
 
-**Testing performed.** 50 new tests. `ApiVersionIntegrationTest` is the one that carries
+**Testing performed.** 58 new tests (11 + 8 + 15 + 8 + 10 + 6, matching the 768 → 826
+monorepo total). `ApiVersionIntegrationTest` is the one that carries
 §5/M21's own E2E criterion — *"two pinned versions served simultaneously produce correctly
 different shapes"* — against a real bound gateway, real Redis, and stubs that answer in the
 **current** vocabulary, so any upper case a caller sees is the transformation layer's work and
@@ -7118,6 +7143,12 @@ an error is a worse bargain than the compatibility it buys); `Content-Length` af
 (`authorized` is one byte shorter than `AUTHORIZED`, and a stale length is the classic way a
 body-rewriting filter truncates a response); a concurrent first call from two requests; and a
 pin write that fails, which logs and serves current rather than failing the merchant's traffic.
+
+**Regression.** `./gradlew build` across the monorepo — **BUILD SUCCESSFUL in 9m 5s**,
+**826 tests, 0 failures, 0 errors, 0 skipped** (768 before). The 18 status assertions across
+four payment-service test classes that had to change are the honest cost of a real breaking
+change, and are listed in the modified-files table above rather than folded into the total.
+`verifyOpenApiBaseline` confirmed the baseline in sync at `info.version: 2026-08-01`.
 
 **Remaining work in M21.** M21.6 (the CI breaking-change gate, which also wires
 `verifyOpenApiBaseline` into CI) and M21.7 (contract tests, plus the annotation prose D154
