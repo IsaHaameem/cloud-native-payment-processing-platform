@@ -55,6 +55,15 @@ COPY sandbox-service/build.gradle.kts sandbox-service/build.gradle.kts
 # its build.gradle.kts must exist even though its src (excluded from this
 # build context by .dockerignore) is never needed here.
 COPY load-tests/build.gradle.kts load-tests/build.gradle.kts
+# openapi-tools (M21.3) is in settings.gradle.kts for the same reason and needs the
+# same treatment. It is additionally a `testImplementation` dependency of the six
+# services that publish a /v1 tier, via the paymentflow.openapi-fragment convention
+# plugin — but this stage builds `bootJar -x test`, so only the build file has to
+# exist, never the source. Missing this line breaks the image build for every
+# service with a Gradle "project directory does not contain a build file" failure,
+# which is a configuration-phase error and therefore says nothing about the module
+# actually being built.
+COPY openapi-tools/build.gradle.kts openapi-tools/build.gradle.kts
 
 RUN chmod +x gradlew
 

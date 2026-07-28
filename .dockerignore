@@ -18,4 +18,9 @@ node_modules/
 docs/
 load-tests/
 !load-tests/build.gradle.kts
+# M21.3: same shape as load-tests above — Gradle configures the module on every
+# invocation so its build file must be in the context, but no image ever needs its
+# source (the services depend on it in test scope only, and this build skips tests).
+openapi-tools/
+!openapi-tools/build.gradle.kts
 README*.md
