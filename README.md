@@ -315,6 +315,7 @@ sequenceDiagram
 | OpenTelemetry | Tracing instrumentation and OTLP export | — |
 | JUnit 5 / Mockito | Unit testing | — |
 | Testcontainers | Integration testing against real dependencies | 2.x |
+| springdoc-openapi | OpenAPI 3.1 generation for the public `/v1` tier | 3.0.1 |
 | Gatling | Load testing | 3.15.1.1 |
 | Gradle (Kotlin DSL) | Build tool, multi-module monorepo, version catalog | 9.6.1 |
 | Docker | Containerization, multi-stage builds | — |
@@ -616,7 +617,9 @@ Every service also exposes `/actuator/health`, `/actuator/metrics`, and `/actuat
 
 The table above documents the `/api/v1` surface — the JWT-authenticated tier the dashboard uses. Version 2 adds a separate, API-key-authenticated public tier at `/v1`, which is the one external developers and the SDKs consume: scoped `sk_`/`pk_` keys with test/live mode binding, signed webhooks with a full delivery log, a sandbox simulation engine, and read APIs for payments, refunds, balance, ledger entries, events, and analytics. The two tiers are deliberately distinct — `/v1` is a versioned public promise, `/api/v1` is undocumented and freely changeable.
 
-That surface is documented separately rather than duplicated here: see `docs/READ_APIS.md` for the read APIs and their list, filter, and pagination semantics, `notification-service/docs/WEBHOOKS.md` for the webhook guide and signature specification, and `PROJECT_CONTEXT_2.md` for the full V2 architecture and milestone history. A generated OpenAPI 3.1 description of the whole `/v1` surface is planned.
+That surface is documented separately rather than duplicated here: see `docs/READ_APIS.md` for the read APIs and their list, filter, and pagination semantics, `notification-service/docs/WEBHOOKS.md` for the webhook guide and signature specification, and `PROJECT_CONTEXT_2.md` for the full V2 architecture and milestone history.
+
+Every service that serves part of the `/v1` tier also generates an **OpenAPI 3.1** description of its own share of it, from the code, at `/v3/api-docs` (and `/v3/api-docs.yaml`). The six fragments together describe all 26 public `/v1` path items; `/api/v1` and `/internal/v1` are deliberately excluded, because documenting them would imply a compatibility promise the platform does not intend to make. Merging the fragments into one committed `openapi.yaml`, and the date-based versioning and error catalogue that go with it, is in progress.
 
 ---
 
@@ -708,7 +711,7 @@ docs/images/gatling-report.png                — A Gatling HTML load-test repor
 
 **Planned**
 - A Next.js merchant console (TypeScript, Tailwind CSS) for self-service dashboards
-- Expanded OpenAPI/Swagger documentation
+- A merged, committed `openapi.yaml` for the whole `/v1` surface, with date-based versioning and a CI breaking-change gate (the per-service OpenAPI 3.1 documents already exist — see the public `/v1` API section)
 - Additional architecture diagrams and interview-preparation notes
 
 **Longer-term**
