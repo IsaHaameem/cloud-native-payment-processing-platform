@@ -26,7 +26,7 @@ The project was built as a final-year portfolio piece, deliberately scoped to ho
 
 What separates it from a CRUD application is that the distributed-systems concerns are the point, not incidental plumbing. Idempotent mutation endpoints are backed by a Redis lock and a durable replay record. A polling transactional outbox guarantees a payment's database state and its outbound Kafka event never drift apart. A double-entry ledger uses optimistic-lock retry under real concurrent writes. A Resilience4j chain — retry, circuit breaker, timeout, bulkhead — wraps the platform's one synchronous cross-service call. The platform has been load-tested with Gatling under sustained, burst, and failure conditions, and deployed — not just designed — on real AWS infrastructure via Terraform, verified end-to-end with a full payment lifecycle executed over HTTP through a public Application Load Balancer.
 
-The complete engineering log — every milestone, every trade-off considered and rejected, and the full test and verification record — is kept in [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md).
+The complete engineering log — every milestone, every trade-off considered and rejected, and the full test and verification record — is kept in [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) for Version 1 and [`PROJECT_CONTEXT_2.md`](PROJECT_CONTEXT_2.md) for Version 2. For a snapshot of what the repository is *today* — services, contracts, invariants, active technical debt, and how to verify the build — see [`CLAUDE_CONTEXT.md`](CLAUDE_CONTEXT.md), which is kept current rather than historical.
 
 ### At a glance
 
