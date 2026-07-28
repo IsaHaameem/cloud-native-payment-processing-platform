@@ -3,6 +3,7 @@ package com.paymentflow.common.web;
 import com.paymentflow.common.correlation.CorrelationConstants;
 import com.paymentflow.common.dto.error.ApiError;
 import com.paymentflow.common.dto.error.ApiFieldError;
+import com.paymentflow.common.error.ApiErrorFactory;
 import com.paymentflow.common.error.CommonErrorCode;
 import com.paymentflow.common.error.ErrorCode;
 import com.paymentflow.common.exception.PlatformException;
@@ -42,7 +43,7 @@ public class GlobalExceptionHandler {
         ErrorCode code = ex.errorCode();
         log.warn("{} [{}] at {}: {}", ex.getClass().getSimpleName(), code.code(),
                 request.getRequestURI(), ex.getMessage());
-        return build(code.httpStatus(), code.code(), ex.getMessage(), request, List.of());
+        return build(code, ex.getMessage(), request, List.of());
     }
 
     /** Bean-validation failures on @Valid request bodies. */
@@ -69,28 +70,39 @@ public class GlobalExceptionHandler {
             MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ApiError> handleBadRequest(Exception ex, HttpServletRequest request) {
         log.warn("Malformed request at {}: {}", request.getRequestURI(), ex.getMessage());
-        return build(CommonErrorCode.BAD_REQUEST.httpStatus(), CommonErrorCode.BAD_REQUEST.code(),
-                CommonErrorCode.BAD_REQUEST.defaultMessage(), request, List.of());
+        return build(CommonErrorCode.BAD_REQUEST, null, request, List.of());
     }
 
     /** Catch-all: log fully, respond with a generic message that leaks nothing. */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception ex, HttpServletRequest request) {
         log.error("Unhandled exception at {}", request.getRequestURI(), ex);
-        return build(CommonErrorCode.INTERNAL_ERROR.httpStatus(), CommonErrorCode.INTERNAL_ERROR.code(),
-                CommonErrorCode.INTERNAL_ERROR.defaultMessage(), request, List.of());
+        return build(CommonErrorCode.INTERNAL_ERROR, null, request, List.of());
     }
 
     private static ResponseEntity<ApiError> validationError(HttpServletRequest request, List<ApiFieldError> errors) {
-        return build(CommonErrorCode.VALIDATION_FAILED.httpStatus(), CommonErrorCode.VALIDATION_FAILED.code(),
-                CommonErrorCode.VALIDATION_FAILED.defaultMessage(), request, errors);
+        // forFieldErrors rather than build, so `param` names the offending parameter when
+        // exactly one field failed — the case an SDK can put in an exception message.
+        ApiError body = ApiErrorFactory.forFieldErrors(CommonErrorCode.VALIDATION_FAILED, null,
+                request.getRequestURI(),
+                MDC.get(CorrelationConstants.REQUEST_ID_MDC_KEY),
+                MDC.get(CorrelationConstants.CORRELATION_ID_MDC_KEY),
+                errors);
+        return ResponseEntity.status(HttpStatus.valueOf(body.status())).body(body);
     }
 
-    private static ResponseEntity<ApiError> build(int status, String code, String message,
+    /**
+     * Assembly goes through {@link ApiErrorFactory}, shared with the gateway's reactive
+     * writer, so `type`, `docUrl` and `requestId` cannot be populated by one path and
+     * forgotten by the other (M21.4).
+     */
+    private static ResponseEntity<ApiError> build(ErrorCode code, String message,
                                                   HttpServletRequest request, List<ApiFieldError> errors) {
-        ApiError body = ApiError.of(status, code, message, request.getRequestURI(),
-                MDC.get(CorrelationConstants.CORRELATION_ID_MDC_KEY), errors);
-        return ResponseEntity.status(HttpStatus.valueOf(status)).body(body);
+        ApiError body = ApiErrorFactory.create(code, message, null, request.getRequestURI(),
+                MDC.get(CorrelationConstants.REQUEST_ID_MDC_KEY),
+                MDC.get(CorrelationConstants.CORRELATION_ID_MDC_KEY),
+                errors);
+        return ResponseEntity.status(HttpStatus.valueOf(body.status())).body(body);
     }
 
     private static ApiFieldError toFieldError(FieldError fieldError) {

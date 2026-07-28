@@ -50,9 +50,7 @@ public class GatewayErrorWebExceptionHandler implements WebExceptionHandler {
             return errorWriter.write(exchange, CommonErrorCode.SERVICE_UNAVAILABLE);
         }
         if (ex instanceof ResponseStatusException rse) {
-            return errorWriter.write(exchange, HttpStatus.valueOf(rse.getStatusCode().value()),
-                    CommonErrorCode.BAD_REQUEST.code(), rse.getReason() != null ? rse.getReason()
-                            : CommonErrorCode.BAD_REQUEST.defaultMessage());
+            return errorWriter.write(exchange, CommonErrorCode.BAD_REQUEST, rse.getReason());
         }
 
         log.error("Unhandled exception at {}", exchange.getRequest().getPath(), ex);

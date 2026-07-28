@@ -277,6 +277,50 @@ class OpenApiDocumentIntegrationTest {
         assertThat(used).isNotEmpty().allSatisfy(tag -> assertThat(declaredNames).contains(tag));
     }
 
+    @Test
+    void everyOperationDocumentsTheStandardErrorResponses() throws Exception {
+        JsonNode paths = document().path("paths");
+
+        // M21.4. Applied from one customizer in common-lib rather than annotated 124 times,
+        // so what is worth asserting is the outcome: no operation is missing them. An SDK
+        // generated from a document where one operation forgot its 401 has no error type
+        // for that call, and nothing about the document would look wrong.
+        paths.propertyNames().forEach(path ->
+                paths.path(path).propertyNames().forEach(verb -> {
+                    JsonNode responses = paths.path(path).path(verb).path("responses");
+                    assertThat(List.copyOf(responses.propertyNames()))
+                            .describedAs("%s %s documents the standard errors", verb, path)
+                            .contains("401", "403", "429", "500");
+                }));
+    }
+
+    @Test
+    void theErrorResponsesReferenceApiErrorAndShowARealBody() throws Exception {
+        JsonNode unauthorized = document().path("paths").path("/v1/payments").path("get")
+                .path("responses").path("401").path("content").path("application/json");
+
+        assertThat(unauthorized.path("schema").path("$ref").asString())
+                .isEqualTo("#/components/schemas/ApiError");
+        // §9.2: show the response, not only its schema. The example is where a reader learns
+        // that `type` is the field to branch on and `requestId` is the one to quote.
+        assertThat(unauthorized.path("example").path("type").asString()).isEqualTo("authentication_error");
+        assertThat(unauthorized.path("example").path("code").asString()).isEqualTo("UNAUTHORIZED");
+        assertThat(unauthorized.path("example").path("requestId").asString()).isNotEmpty();
+        assertThat(unauthorized.path("example").path("docUrl").asString())
+                .startsWith("https://docs.paymentflow.dev/errors#");
+    }
+
+    @Test
+    void theApiErrorSchemaIsGeneratedRatherThanLeftAsADanglingRef() throws Exception {
+        // Nothing returns ApiError from a handler signature, so springdoc would never
+        // generate it on its own — the document would carry references to a schema that is
+        // not in it. Registered explicitly by PublicApiDocument.errorSchemaCustomizer().
+        JsonNode apiError = document().path("components").path("schemas").path("ApiError");
+
+        assertThat(List.copyOf(apiError.path("properties").propertyNames()))
+                .contains("status", "type", "code", "message", "path", "requestId", "correlationId", "docUrl");
+    }
+
     /**
      * Writes this service's fragment where {@code mergeOpenApi} will find it (M21.3).
      *

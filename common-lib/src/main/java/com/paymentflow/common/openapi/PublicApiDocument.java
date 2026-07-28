@@ -8,6 +8,8 @@ import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 import io.swagger.v3.oas.models.servers.Server;
 import io.swagger.v3.oas.models.tags.Tag;
+import org.springdoc.core.customizers.OpenApiCustomizer;
+import org.springdoc.core.customizers.OperationCustomizer;
 
 import java.util.List;
 
@@ -133,6 +135,24 @@ public final class PublicApiDocument {
      */
     public static Tag tag(String name, String description) {
         return new Tag().name(name).description(description);
+    }
+
+    /**
+     * The standard error responses, applied to every operation in the service that exposes
+     * this bean (M21.4). Paired with {@link #errorSchemaCustomizer()}, which puts the
+     * {@code ApiError} schema they reference into the document.
+     *
+     * <p>Exposed here rather than built in each service's config for the same reason the
+     * {@code info} block lives here: 401, 403, 429 and 500 are properties of the tier, not
+     * of any service, and six copies of the same customizer is six chances to differ.
+     */
+    public static OperationCustomizer errorResponseCustomizer() {
+        return (operation, handlerMethod) -> PublicApiErrorResponses.apply(operation);
+    }
+
+    /** Registers the {@code ApiError} schema the standard error responses reference. */
+    public static OpenApiCustomizer errorSchemaCustomizer() {
+        return PublicApiErrorResponses::registerSchemas;
     }
 
     /**

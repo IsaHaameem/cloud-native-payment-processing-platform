@@ -39,6 +39,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/AnalyticsSummaryResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Analytics
   /v1/balance:
@@ -51,6 +115,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/BalanceResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Balance
   /v1/balance_transactions:
@@ -87,6 +215,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/CursorPageBalanceTransactionResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Balance transactions
   /v1/events:
@@ -128,6 +320,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/CursorPageEventResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Events
   /v1/events/{id}:
@@ -146,6 +402,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/EventResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Events
   /v1/payments:
@@ -217,6 +537,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/CursorPagePaymentResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Payments
     post:
@@ -240,6 +624,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
           description: Created
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Payments
   /v1/payments/{id}:
@@ -264,6 +712,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Payments
   /v1/payments/{id}/authorize:
@@ -288,6 +800,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Payments
   /v1/payments/{id}/capture:
@@ -312,6 +888,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Payments
   /v1/payments/{id}/refund:
@@ -341,6 +981,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Payments
   /v1/payments/{id}/void:
@@ -365,6 +1069,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Payments
   /v1/refunds:
@@ -420,6 +1188,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/CursorPageRefundResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Refunds
   /v1/refunds/{id}:
@@ -439,6 +1271,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/RefundResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Refunds
   /v1/request_logs:
@@ -486,6 +1382,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/CursorPageRequestLogResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Request logs
   /v1/test/cards:
@@ -500,6 +1460,38 @@ paths:
                 items:
                   $ref: "#/components/schemas/TestCardResponse"
           description: OK
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       security: []
       tags:
       - Test cards
@@ -538,6 +1530,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageResponseDecisionLogEntryResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Decisions
   /v1/test/decisions/payments/{paymentId}:
@@ -559,6 +1615,70 @@ paths:
                 items:
                   $ref: "#/components/schemas/DecisionLogEntryResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Decisions
   /v1/test/simulations:
@@ -577,6 +1697,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/SimulationOverrideResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Simulations
   /v1/test/simulations/active:
@@ -585,6 +1769,70 @@ paths:
       responses:
         "200":
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Simulations
     get:
@@ -596,6 +1844,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/SimulationOverrideResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Simulations
   /v1/usage:
@@ -621,6 +1933,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/UsageSummaryResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Usage
   /v1/webhook_deliveries:
@@ -658,6 +2034,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageResponseWebhookDeliveryResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Webhook deliveries
   /v1/webhook_deliveries/{id}:
@@ -677,6 +2117,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookDeliveryResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Webhook deliveries
   /v1/webhook_deliveries/{id}/replay:
@@ -696,6 +2200,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookDeliveryResponse"
           description: Created
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Webhook deliveries
   /v1/webhook_endpoints:
@@ -710,6 +2278,70 @@ paths:
                 items:
                   $ref: "#/components/schemas/WebhookEndpointResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Webhook endpoints
     post:
@@ -727,6 +2359,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookEndpointCreatedResponse"
           description: Created
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Webhook endpoints
   /v1/webhook_endpoints/{id}:
@@ -742,6 +2438,70 @@ paths:
       responses:
         "200":
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Webhook endpoints
     get:
@@ -760,6 +2520,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookEndpointResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Webhook endpoints
     patch:
@@ -784,6 +2608,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookEndpointResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Webhook endpoints
   /v1/webhook_endpoints/{id}/rotate_secret:
@@ -803,6 +2691,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookEndpointCreatedResponse"
           description: OK
+        "401":
+          content:
+            application/json:
+              example:
+                code: UNAUTHORIZED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#unauthorized
+                message: Authentication is required or has failed.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 401
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: authentication_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Authentication is required or has failed.
+        "403":
+          content:
+            application/json:
+              example:
+                code: INSUFFICIENT_SCOPE
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#insufficient_scope
+                message: This API key does not have the required scope for this endpoint.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 403
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: permission_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: This API key does not have the required scope for this endpoint.
+        "429":
+          content:
+            application/json:
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#rate_limit_exceeded
+                message: Too many requests. Slow down and retry after the interval in the Retry-After header.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 429
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: rate_limit_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+        "500":
+          content:
+            application/json:
+              example:
+                code: INTERNAL_ERROR
+                correlationId: 3f9a1c2e-77b4-4a1d-9c3e-1d2b4f6a8c05
+                docUrl: https://docs.paymentflow.dev/errors#internal_error
+                message: An unexpected error occurred.
+                path: /v1/payments
+                requestId: req_9f2c1e7a4b8d
+                status: 500
+                timestamp: 2026-07-28T12:34:56.789Z
+                type: api_error
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: An unexpected error occurred.
       tags:
       - Webhook endpoints
 tags:
@@ -910,6 +2862,40 @@ components:
         voidedCount:
           type: integer
           format: int64
+    ApiError:
+      properties:
+        code:
+          type: string
+        correlationId:
+          type: string
+        docUrl:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        message:
+          type: string
+        param:
+          type: string
+        path:
+          type: string
+        requestId:
+          type: string
+        status:
+          type: integer
+          format: int32
+        timestamp:
+          type: string
+          format: date-time
+        type:
+          type: string
+    ApiFieldError:
+      properties:
+        field:
+          type: string
+        message:
+          type: string
     BalanceResponse:
       type: object
       properties:

@@ -70,7 +70,6 @@ public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
      * as still unattached after M19 attached the other four.
      */
     private static final String SCOPE_LOGS_READ = "logs:read";
-    private static final String ERROR_CODE_INSUFFICIENT_SCOPE = "INSUFFICIENT_SCOPE";
 
     private final ApiKeyCacheService cacheService;
     private final ResilientApiKeyVerifier verifier;
@@ -144,13 +143,13 @@ public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
         Set<String> scopes = new LinkedHashSet<>(result.scopes());
 
         if (requiredScope != null && !scopes.contains("*") && !scopes.contains(requiredScope)) {
-            return errorWriter.write(exchange, HttpStatus.FORBIDDEN, ERROR_CODE_INSUFFICIENT_SCOPE,
+            return errorWriter.write(exchange, CommonErrorCode.INSUFFICIENT_SCOPE,
                     "This API key does not have the required scope: " + requiredScope);
         }
         // Defense in depth beyond scope matching: a publishable key is read-only by
         // construction (§4.3), regardless of what its scope list happens to contain.
         if (ApiKeyFormat.isPublishable(rawKey) && isMutating(method)) {
-            return errorWriter.write(exchange, HttpStatus.FORBIDDEN, ERROR_CODE_INSUFFICIENT_SCOPE,
+            return errorWriter.write(exchange, CommonErrorCode.INSUFFICIENT_SCOPE,
                     "Publishable keys are read-only.");
         }
 

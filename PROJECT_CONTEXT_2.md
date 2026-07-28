@@ -47,8 +47,14 @@
 > **`docs/openapi.yaml` committed as the baseline** — 1,668 lines, all 26 path items, 32
 > schemas, from six fragments (D151). `verifyOpenApiBaseline` was observed failing on a real
 > change before being trusted.
+> **M21.4 complete** (2026-07-28): `ApiError` extended with `type`, `param`, `requestId` and
+> `docUrl` (additive, D152); `ErrorType` as the closed vocabulary an SDK switches on; the
+> catalogue as one source of truth in `ErrorCatalogue` + `docs/ERRORS.md`, asserted in both
+> directions. Three codes the gateway was sending were **not in the catalogue**, and one code
+> in the catalogue was sent by **nothing** — both closed. All 31 operations now document
+> 401/403/429/500 with real example bodies via one customizer (D153).
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D151**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D153**.
 
 ---
 
@@ -912,7 +918,7 @@ the single place to see where V2 stands; the full entry for every completed mile
 | **M18** — Webhooks as a product | A | ✅ complete | 2026-07-25 |
 | **M19** — Public read APIs & query surface | B | ✅ complete | 2026-07-25 – 07-26 |
 | **M20** — Request logging, metering, per-key limits | B | ✅ complete | 2026-07-26 |
-| **M21** — OpenAPI 3.1, versioning & the error contract | B | 🚧 **in progress** — M21.1 ✅, M21.2 ✅, M21.3 ✅, M21.4–M21.7 remaining (§17/M21) | from 2026-07-27 |
+| **M21** — OpenAPI 3.1, versioning & the error contract | B | 🚧 **in progress** — M21.1–M21.4 ✅, M21.5–M21.7 remaining (§17/M21) | from 2026-07-27 |
 | **M22** — Node & Python SDKs | C | ⬜ not started | — |
 | **M23** — Developer portal, part 1 | C | ⬜ not started | — |
 | **M24** — Developer portal, part 2 | C | ⬜ not started | — |
@@ -2690,6 +2696,8 @@ decisions are appended as milestones are implemented.
 | D148 | (M21.1) The generated document is restricted to `/v1/**` by `springdoc.paths-to-match`, and `/v3/api-docs` is served **unauthenticated** | (a) Publish everything the service maps and let the M21 merge task filter; (b) require a key for the document endpoint, as for every other non-actuator path | §9.5 excludes `/api/v1` and `/internal/v1` from the published spec deliberately, because documenting them "would imply a promise the platform does not intend to make". (a) defers that promise to a filter two sub-milestones away and, in the interval, serves a document that describes the dashboard tier as though it were public — and the merge step is the wrong place for it anyway, since the service is the only thing that knows which of its own endpoints are a promise. On the security half: the document's entire content is the public API surface, which M21 commits as `openapi.yaml` and M25 publishes on the documentation site, so (b) would require a credential to read the description of how to use a credential while protecting nothing. It is also unreachable from outside regardless — the gateway routes only its explicit path predicates, and `/v3/api-docs` is not among them — so the exposure is in-cluster, exactly like `/actuator/prometheus`. The exclusion is asserted in both directions by `OpenApiDocumentIntegrationTest` rather than left to one line of YAML nobody re-reads |
 | D149 | (M21.2) The document-level half of every service's OpenAPI fragment — title, contract version, server, and the `SecretKey` scheme — lives in **`common-lib`** as `PublicApiDocument`; each service's `OpenApiConfig` supplies only its own tags | (a) Copy M21.1's `OpenApiConfig` into each of the five remaining services, following the schema-per-service precedent (D4/D36) every service uses for its own types; (b) put the whole document, tags included, in common-lib and have services contribute nothing | (a) is the established pattern and is wrong here for the same reason D140 gave when it moved `CanonicalEventType` into `common-dto`. D4/D36's local copies exist so no service compiles against another's *internal model*, where divergence is legitimate. This is the opposite: a **frozen public contract** that M21.3 merges into one `openapi.yaml`, and a merge is only meaningful if the fragments agree. Six hand-copied `info` blocks disagreeing on `version` is not a hypothetical — it is what M21.5 guarantees the moment the contract version changes and five of six files get edited. Worse, **no test inside any single service could detect it**: each service's own document would look perfectly correct. (b) fails in the other direction — tags genuinely differ per service, since they name the resources that service owns, so a shared tag list would either be a registry of every resource in the platform maintained in one file or an empty extension point. The split falls exactly on "is this true of the API or of this service?", and `PublicApiDocumentTest` in common-lib asserts the property no service test can: that there is only one thing for the six fragments to be right about |
 | D150 | (M21.3) `WebhookEndpointResponse` and `WebhookDeliveryResponse` gain the **`object` discriminator** every other public resource carries, as the first step of M21.3 rather than as part of M21.4's error-contract work | (a) Leave the two resources without it and document the inconsistency as permanent; (b) fix it in M21.4 alongside the annotation prose, where the rest of the "what a public object looks like" work lives; (c) fix it and take the opportunity to add `object` to the nested `WebhookDeliveryAttemptResponse` too | The field is how a caller identifies a bare object out of context, §7.1's SDK contract leans on it, and M22 generates four SDKs from the merged document — (a) makes "does this resource have `object`?" a per-resource question an integrator must memorise, forever, for no reason beyond the order the milestones happened to run in. The timing is the actual decision, and it is forced: **M21.3 commits the `openapi.yaml` baseline**, M21.6 makes that baseline the thing CI diffs, and D108's policy is that additive changes ship unversioned while anything else needs a dated revision and a transformation layer. Adding the field *before* the freeze is a one-line additive change; adding it *after* means either editing a frozen baseline or carrying a revision through M21.5's transformation machinery to fix a typo-grade omission. (b) is only half a milestone later but lands on the wrong side of that line. (c) was rejected because `WebhookDeliveryAttemptResponse` is not addressable — it exists only nested inside a delivery, is never returned alone, and never appears in a webhook body, so a discriminator on it would be a field no caller could ever need to branch on. The `object` contract is for objects a caller can hold by itself |
+| D152 | (M21.4) `ApiError`'s new fields are **`type`, `param`, `requestId`, `docUrl` in camelCase**, not the `doc_url`/`request_id` §5/M21's prose spells; and `type` is a small closed vocabulary alongside the open `code` set | (a) snake_case, as §5/M21 literally writes it; (b) `code` alone, without a `type` — the platform already has stable codes, so a second classification is arguably redundant | On (a): §7.1 already settled it. The SDK contract states outright that every error carries "`code`, `message`, `param`, `requestId`, `statusCode`, and `docUrl`" — camelCase — and §5/M18's naming decision records that this platform emits camelCase everywhere. §5/M21's prose is informal shorthand written before either; taking it literally would put two snake_case fields in an envelope whose other nine are camelCase, and freeze that in the baseline a sub-milestone later. On (b): `code` and `type` answer different questions and only one of them is safe to `switch` on. §4.10 makes adding an error code an **additive** change that ships unversioned, so the code set is open by policy — a client branching on it will one day meet a value it has never seen. `type` is the closed half: six values, mapped directly onto §7.1's exception hierarchy, and sufficient to answer "is retrying plausible?" without naming the cause. The split also does real work at 409 and 429, where two codes share a status and differ in exactly the way a client cares about (`CONFLICT` vs `IDEMPOTENCY_CONFLICT`, `RATE_LIMIT_EXCEEDED` vs `DAILY_QUOTA_EXCEEDED`) |
+| D153 | (M21.4) The universal error responses (401/403/429/500) are added to all 31 operations by an **`OperationCustomizer` in common-lib**, not by `@ApiResponse` annotations on each operation | (a) Annotate each operation, which is what springdoc's documentation shows and what keeps the declaration next to the mapping; (b) annotate a shared interface or base class the controllers implement | These four errors are properties of the **tier**, not of any operation: they come from the gateway's key check, its scope check, its rate limiter, and from anything failing. (a) means 124 annotations that all say the same thing, and the failure mode of the one that gets missed is invisible — the document still renders, and the SDK generated from it simply has no error type for that call. It is the same argument D149 made for the `info` block, applied one level down. (b) fails because springdoc reads annotations from the concrete handler method and these controllers share no hierarchy; introducing one purely to hang documentation on would be a real coupling for a documentation gain. The customizer never overwrites a response the operation already declares, so a per-operation 404 or 409 — which the service *is* the only thing that knows — still wins. Registering it as a bean per service rather than auto-configuring it keeps the opt-in explicit, matching how `OpenApiConfig` already works |
 | D151 | (M21.3) The merge is a **new `:openapi-tools` module** whose fragments are produced by each service's existing `OpenApiDocumentIntegrationTest`, not by `springdoc-openapi-gradle-plugin` and not by Gradle-script logic in `build-logic` | (a) `org.springdoc.openapi-gradle-plugin`, the tool built for exactly this job — it `bootRun`s the service and fetches `/v3/api-docs`; (b) merge logic written directly in the root build file or as a `build-logic` task class; (c) commit six per-service documents and skip the merge until M25 needs one | (a) is the obvious choice and fails on this platform's shape: it starts each service for real, so producing the document would require Postgres, Redis **and** Kafka reachable at build time for six services. The pre-M21.3 audit had just finished demonstrating what that dependency costs — 18 spurious test failures from Docker exhaustion, and a compose stack whose stale images answered `/v3/api-docs` with 401 (§14). Worse, it would be a *second* path to the published contract, one that asserts nothing: the fragment it produced could differ from the one the document tests approved and no test would notice. Reusing the integration test makes the fragment a by-product of an assertion — the path set, the tier exclusion and the shared contract are all checked before the bytes are written. (b) keeps the wiring together but makes the interesting part — deduplicating shared components, refusing to merge fragments that disagree — reachable only through a Gradle invocation, when it is ordinary logic with ordinary failure modes; §10's standing position is that logic like that gets unit tests, and `OpenApiMergerTest`'s hand-written *disagreeing* fragments could not be written at all against the real six, which agree. (c) defers the one artefact everything downstream consumes and leaves nothing to diff, which is precisely the "documentation drifts into fiction" failure §9.5 and R10 exist to prevent. The module also has to exist for M21.6, which diffs this same document for breaking changes |
 
 ---
@@ -2763,9 +2771,10 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **Integration tests can depend on the developer's docker-compose stack without declaring it, and the failure mode is invisible locally.** `WebhookDeliveryLogAndReplayIntegrationTest` passed for two milestones only because `application.yaml`'s default `localhost:59092` happened to reach a running compose broker; in CI it failed. Fixed for that class (M20's CI investigation), but the underlying hazard is structural: every service's `application.yaml` carries a working localhost default for Kafka, Redis and Postgres, so *any* test that omits a container silently borrows the developer's stack. The cost is not only red CI — the same gap made `WebhookEndpointApiIntegrationTest` take **1063.9s** instead of **10.7s**, ~18 minutes of CI time attributable to blocked producer calls that were swallowed rather than failed. A structural guard (a test-profile Kafka/Redis/datasource pointing at an unroutable address, so an undeclared dependency fails loudly and immediately instead of blocking for 60 seconds) would prevent the next one. Not owned by any milestone; M27 or a dedicated stability pass is the natural home.
 - **The six `OpenApiDocumentIntegrationTest` classes duplicate their scaffold, and this breaks §5.0 standing rule 4** ("no duplicated code — if a pattern appears a third time, it moves into `common-lib`"). Found by the pre-M21.3 audit, not during M21.2. Each of the six files independently re-implements the cached `document()` fetch, the `tagsOf`/`usedTags` helpers, and five assertions that are identical in intent and near-identical in text: the document is 3.1, the path set matches in both directions, the internal tiers are absent, the fragment carries the shared contract, and the YAML sibling is served. Roughly 70 lines × 6. It was written this way because the monorepo has **no shared test-fixtures artifact** — there is no module the six could inherit from, and D149's `PublicApiDocument` is main-source, not test-source. The cost is not the line count but the drift: a seventh service, or M21.7's contract tests, would either copy it a seventh time or fix it under pressure. **Not fixed during the audit** because the remedy is a cross-module change (a `testFixtures` source set on `common-lib`, or a small `test-support` module, consumed by six services) and that is implementation rather than a documentation correction. The natural moment is immediately before **M21.7**, which adds a second round of per-service document assertions on exactly this scaffold — or before M21.3 if the merge task's verification wants to reuse it.
 - ~~**The two webhook resources carry no `object` discriminator, unlike every other public object**~~ — **closed by M21.3** (2026-07-28, D150). Found in M21.2 by generating notification-service's document and reading its schemas: `PaymentResponse`, `RefundResponse`, `EventResponse`, `BalanceTransactionResponse`, `RequestLogResponse` and `AnalyticsSummaryResponse` all published a constant `object` field (`"payment"`, `"event"`, `"balance_transaction"`, …) — it is how a caller identifies a bare object out of context, and §7.1's SDK contract leans on it — while `WebhookEndpointResponse` and `WebhookDeliveryResponse` did not have the field at all. The inconsistency dated from M18 and was invisible until the schemas were written down side by side, which is a fair argument for the document having been worth generating. Deliberately not fixed in M21.2, because adding a field to a shipped public response is an API change and M21.2's remit was to describe the API rather than alter it; fixed as M21.3's first step instead, since M21.3 is the sub-milestone that freezes the `openapi.yaml` baseline and a gap left open past that point becomes a documented promise. Kept as a struck-through entry rather than deleted, because it is the clearest example V2 has of a contract defect that only became visible once the contract was written down.
+- ~~**`NotificationIntegrationTest.anEventIsFannedOutOnlyToEndpointsSubscribedToItsType` raced the delivery-status write**~~ — **fixed in M21.4** (2026-07-28). The test awaited the *sink's* hit counter and then asserted immediately that both delivery rows read `DELIVERED`, but the row is marked delivered after the HTTP call returns, so the two are not the same event. It passed almost always and failed under load — observed once during M21.4's full build with one delivery still `PENDING`. Fixed by awaiting the status rather than asserting it. Recorded rather than silently fixed because the shape recurs: this suite has several "await the observable side effect, then assert the database" pairs, and each one is the same race waiting for a slow enough machine. It is also the third distinct way this milestone's builds went red for reasons that were not defects, after the Docker-exhaustion failures and the corrupted `test-results` directory — the pattern is worth seeing as a whole when M27 or a stability pass looks at test reliability.
 - **`verifyOpenApiBaseline` exists but nothing runs it automatically** (M21.3). The task merges the six fragments and fails if `docs/openapi.yaml` no longer matches — and it has been observed doing so on a real change — but it is deliberately not wired into `check`, because that would put six Spring contexts and six Testcontainers Postgres instances on every `./gradlew build`. Until **M21.6** adds the CI gate (§5/M21 task 5, which owns exactly this), a change to any public response shape lands green with a stale baseline, and the baseline is what M22's SDKs are generated from. The exposure is one sub-milestone wide and the remedy is already scheduled; recorded because "the gate is written" and "the gate runs" are different claims and only the first is true today.
 - **A cached-green `./gradlew build` can hide a red test suite, and did.** Found by the pre-M21.3 audit (2026-07-28). `clean build` reported **BUILD SUCCESSFUL** with 33 of 96 tasks served `FROM-CACHE`; forcing real execution with `test --rerun-tasks` produced **18 failures** across six services. The failures were environmental rather than defects — `ContainerFetchException: Can't get Docker image: postgres:17-alpine` for an image that was present locally, i.e. the Docker daemon buckling under 19 running compose containers plus Testcontainers on parallel Gradle workers — and all 719 tests passed once the compose stack was stopped. The cache was not wrong: content-addressed hits mean the inputs were byte-identical to a previously green run. The hazard is what a *reader* concludes, because "BUILD SUCCESSFUL" is identical in both cases and nothing in the output distinguishes "the tests passed" from "the tests were not run." This is the same family as the compose-stack entry above and compounds it: an environment flaky enough to fail 18 suites is also an environment where a cached success looks like proof. No milestone owns it; **M21.6** is the natural home, since a CI breaking-change gate is only as trustworthy as the build it runs inside — a `--rerun-tasks` or cache-disabled verification leg before the gate would close it.
-- **The generated OpenAPI document is structurally correct but prose-empty** (M21.1). Every operation, schema field, and error response in payment-service's document carries a *name* and a *type* but no human-readable description: no `summary`, no `description`, no documented non-200 responses, no examples. §5/M21 task 1 asks for "annotated schemas, examples, and error responses" and M21.1 deliberately delivered only the structure, on the grounds that the annotation prose is worth writing once against the *final* shape of `ApiError` — which M21.4 extends with `type`, `doc_url`, and `request_id`. The accepted risk is that a document which renders and validates can look finished: anything reading it before M21.4 (an SDK generator, the docs site) would produce output that is correctly typed and completely undocumented. Owned by M21.4, not unassigned.
+- **The generated OpenAPI document is still prose-empty, though no longer error-empty** (M21.1, half-closed by M21.4). Originally: every operation, schema field, and error response carried a *name* and a *type* but no human-readable description — no `summary`, no `description`, no documented non-200 responses, no examples. **M21.4 closed the error half**: all 31 operations now document 401/403/429/500 against the `ApiError` schema with a real example body each, and `docs/ERRORS.md` explains every code. What remains absent is the per-operation prose — no `summary` or `description` on any operation, no field descriptions on any schema, and no *per-operation* error responses (the 404 on `GET /v1/payments/{id}`, the 409 on a double capture), which the universal customizer deliberately does not cover because only the service knows them. The accepted risk is unchanged in kind: a document that renders and validates looks finished, and an SDK generated from it today is correctly typed and undocumented. **Re-owned by M21.7**, which already reads this document for its contract tests — writing 31 operation summaries is a different kind of work from building the error contract, and folding it into M21.4 would have produced exactly the hurried prose this entry exists to warn about.
 - **`payment-service` relaxes Tomcat's query-string parser for `[` and `]`** (D142). Scoped to two characters and one service, but it *is* a widening of what the HTTP layer accepts, made to serve a documented filter syntax. Recorded as an accepted risk rather than a neutral configuration line: any future audit of input handling should know the parser is non-default here and why, and M21's error-contract work should confirm the relaxed characters still route malformed input to the JSON error handler rather than Tomcat's HTML page — which is the failure D142 exists to have fixed.
 
 ---
@@ -6304,7 +6313,7 @@ only one whose work repeats per service.
 | **M21.1** | 1 (first service) | springdoc verified against the platform; integrated into payment-service; the first OpenAPI 3.1 document, restricted to `/v1` | ✅ 2026-07-27 |
 | **M21.2** | 1 (remaining services) | springdoc on the other five services exposing a public `/v1` tier: transaction-service, audit-service, analytics-service, notification-service, sandbox-service | ✅ 2026-07-27 |
 | **M21.3** | 2 | The Gradle merge task; shared components deduplicated; `openapi.yaml` committed as the baseline | ✅ 2026-07-28 |
-| **M21.4** | 3 | `ApiError` extended with `type`, `doc_url`, `request_id` (additive); the error-code catalogue as one source of truth | ⬜ |
+| **M21.4** | 3 | `ApiError` extended with `type`, `doc_url`, `request_id` (additive); the error-code catalogue as one source of truth | ✅ 2026-07-28 |
 | **M21.5** | 4 | `PaymentFlow-Version` header; per-merchant pinning; the generic, registry-driven transformation layer and its one narrowly scoped revision | ⬜ |
 | **M21.6** | 5 | CI spec-diff gate: additive vs breaking classification, observed failing on a real breaking change | ⬜ |
 | **M21.7** | 6 | Contract tests validating live responses against the published schema | ⬜ |
@@ -6814,6 +6823,146 @@ is why the merged document is structurally complete and descriptively empty.
 catalogue (which will also put the first genuinely shared component through the merge's
 deduplication path), the `PaymentFlow-Version` header with per-merchant pinning and the
 registry-driven transformation layer, the CI breaking-change gate, and the contract tests.
+
+---
+
+#### M21.4 — The error contract: `ApiError` extended, and the catalogue as one source of truth ✅ (2026-07-28)
+
+**Objective.** §5/M21 task 3: extend `ApiError` (D12) with `type`, `docUrl` and `requestId`
+— additive, so existing clients are unaffected — and document every code in one table that
+is the source of truth for both the documentation site and the SDKs. The milestone's
+completion criterion is the strong form: *every* error response carries a catalogued code
+and a `request_id`.
+
+**What was built.**
+
+- **`ErrorType`** (common-dto) — six values: `authentication_error`, `permission_error`,
+  `invalid_request_error`, `idempotency_error`, `rate_limit_error`, `api_error`. Deliberately
+  no `api_connection_error`: §7.1 lists one in the SDK hierarchy, but it describes a request
+  that never reached the platform, so there is no response for it to appear in.
+- **`ApiError` + four fields** — `type`, `param`, `requestId`, `docUrl`, all `NON_NULL`.
+  Nothing renamed, removed or retyped, which is what keeps this unversioned under §4.10.
+- **`ErrorCode` + `type()` and `docUrl()`** — `type()` is abstract, so the compiler refuses a
+  new code that has not been classified; `docUrl()` is derived, so a code cannot ship with a
+  link pointing at a different code's section.
+- **`ErrorCatalogue`** — the registry of every code the public tier can return. Registration
+  is manual on purpose: a classpath scan would silently publish any code a service happened
+  to declare, including internal-only ones, and appearing here is meant to be a statement
+  that a code is part of the public contract.
+- **`ApiErrorFactory`** — one assembly point, shared by every service's servlet
+  `GlobalExceptionHandler` and the gateway's reactive `GatewayErrorResponseWriter`.
+- **`PublicApiErrorResponses`** (D153) — the `OperationCustomizer` that documents 401, 403,
+  429 and 500 on all 31 operations, with a real example body each, plus the
+  `OpenApiCustomizer` that puts the `ApiError` schema they reference into the document.
+- **`docs/ERRORS.md`** — the catalogue page, with `ErrorCatalogueDocumentationConsistencyTest`
+  asserting it in both directions.
+
+**The naming question, and why it was not a question** (D152). §5/M21's prose says
+`doc_url` and `request_id`. §7.1 — the SDK contract — says every error carries "`code`,
+`message`, `param`, `requestId`, `statusCode`, and `docUrl`", and §5/M18 recorded that this
+platform emits camelCase everywhere. Taking the roadmap's shorthand literally would have put
+two snake_case fields into an envelope whose other nine are camelCase and frozen that in the
+baseline one sub-milestone later. The one place snake_case *is* correct is `ErrorType`'s
+values, which are enum values rather than field names, and which every comparable payments
+API spells that way.
+
+**Three codes were on the wire and not in the catalogue.** Found by compiling, not by
+inspection: removing the old `write(exchange, HttpStatus, code, message)` overload broke four
+call sites, and three of them were passing string literals — `INSUFFICIENT_SCOPE`,
+`RATE_LIMIT_EXCEEDED`, `DAILY_QUOTA_EXCEEDED` — declared privately inside gateway filters.
+The platform was publishing error codes its own catalogue did not list, which makes the
+"single source of truth" §5/M21 asks for straightforwardly false. All three are now
+`CommonErrorCode` constants.
+
+**And one code was in the catalogue and not on the wire.** `CommonErrorCode.RATE_LIMITED`
+had **zero usages anywhere in the repository** — the gateway has been sending
+`RATE_LIMIT_EXCEEDED` since M20.5. The enum was renamed to the shipped spelling rather than
+the gateway changed to the enum's: the wire form is the public promise, and no response
+changes as a result. Catalogue and wire had drifted in both directions simultaneously, which
+is a fair argument for this sub-milestone existing.
+
+**A new code, and why 409 needed two.** `IDEMPOTENCY_CONFLICT` joins `CONFLICT`. Both are
+409 and they are the one pair a client must tell apart: `CONFLICT` means the operation is
+not legal against this resource and retrying fails identically, while an idempotency
+conflict may mean a concurrent request holds the key, which resolves on its own. §7.1 gives
+`IdempotencyError` its own SDK exception class for exactly this reason. The same argument
+applies at 429, where `RATE_LIMIT_EXCEEDED` clears in seconds and `DAILY_QUOTA_EXCEEDED`
+clears at midnight UTC — backing off exponentially against the second wastes hours.
+
+**A defect found by reading the generated baseline.** With the customizer applied, every
+operation gained 401 and 403 — including `GET /v1/test/cards`, the platform's one genuinely
+unauthenticated endpoint (§8.1), which cannot fail to authenticate. This is the same class of
+defect M21.2 fixed from the other direction, arrived at from the opposite side: M21.2 stopped
+the document claiming that endpoint *needs* a key, and M21.4 nearly had it claim the endpoint
+can *reject* one. The customizer now skips credential-related errors for any operation
+declaring `security: []`, keyed on `ErrorType` rather than status number so a future
+authentication code lands on the right side of it automatically. 429 and 500 still apply —
+unauthenticated traffic is rate limited by IP (D24), and anything can fail.
+
+**Files created**
+
+| File | Purpose |
+|---|---|
+| `common-dto/…/error/ErrorType.java` | The closed classification vocabulary |
+| `common-lib/…/error/ErrorCatalogue.java` | The registry of publicly returnable codes |
+| `common-lib/…/error/ApiErrorFactory.java` | The single assembly point, servlet and reactive |
+| `common-lib/…/openapi/PublicApiErrorResponses.java` | Standard error responses + the `ApiError` schema |
+| `common-lib/…/error/ApiErrorFactoryTest.java` | 7 tests |
+| `common-lib/…/error/ErrorCatalogueDocumentationConsistencyTest.java` | 5 tests, both directions |
+| `common-lib/…/openapi/PublicApiErrorResponsesTest.java` | 6 tests |
+| **`docs/ERRORS.md`** | The published catalogue |
+
+**Files modified**
+
+| File | Change |
+|---|---|
+| `common-dto/…/error/ApiError.java` | `type`, `param`, `requestId`, `docUrl` |
+| `common-lib/…/error/{ErrorCode,CommonErrorCode}.java` | `type()`, `docUrl()`; 3 codes catalogued, 1 renamed, 1 added |
+| `common-lib/…/web/GlobalExceptionHandler.java` | Assembles through `ApiErrorFactory`; populates `requestId` |
+| `common-lib/…/openapi/PublicApiDocument.java` | Exposes the two customizers |
+| `gateway-service/…/security/GatewayErrorResponseWriter.java` | Same factory; the status/code overload removed |
+| `gateway-service/…/{ratelimit/ApiKeyRateLimitWebFilter,security/apikey/ApiKeyAuthenticationWebFilter,web/GatewayErrorWebExceptionHandler}.java` | Catalogued codes instead of literals |
+| `{6 services}/…/config/OpenApiConfig.java` | The two customizer beans |
+| `{payment,sandbox}-service/…/OpenApiDocumentIntegrationTest.java` | Error-response assertions |
+| `docs/openapi.yaml` | Regenerated — **1,668 → 3,686 lines** |
+
+**API contract changes.** Additive only. Four new fields on an error body, all omitted when
+absent; two new codes (`INSUFFICIENT_SCOPE` and `DAILY_QUOTA_EXCEEDED` were already being
+*sent*, they were simply undocumented); one enum renamed to match what it was already
+sending. **No error response's status, code, or message changed.** No endpoint, schema, DB,
+Kafka or infra change.
+
+**Windows PowerShell commands**
+
+```powershell
+.\gradlew :common-lib:test                     # the factory, the catalogue, the customizer
+.\gradlew :openapi-tools:mergeOpenApi          # regenerate docs/openapi.yaml
+.\gradlew build
+```
+
+**Testing performed.** 18 new unit tests plus 4 new document assertions. `ApiErrorFactoryTest`
+covers the three judgements the factory makes that the call sites used to make
+inconsistently: deriving `type`/`docUrl` from the code, falling back to the default message
+(the gateway's `ResponseStatusException` path passes a null reason more often than not, which
+previously produced a null message), and filling `param` only when exactly one field failed —
+picking the first of several would tell a developer to fix one field while others were also
+wrong. `ErrorCatalogueDocumentationConsistencyTest` asserts in both directions: an
+undocumented code fails, and so does a documented code that does not exist, because a row
+describing a removed code reads as authoritative and produces dead client handlers.
+**All existing tests passed unchanged**, which is the clearest evidence available that the
+change is additive.
+
+**Not done here.** The **annotation prose** — per-operation summaries and descriptions, field
+descriptions, and per-operation error responses such as the 404 on
+`GET /v1/payments/{id}` — is still absent, and §14's entry is updated rather than closed. What
+M21.4 owned and delivered is the error contract that prose depends on; writing 31 operation
+summaries is a different kind of work, and doing it badly under the same commit would produce
+exactly the "correctly typed and completely undocumented" output §14 warns about. It is now
+explicitly M21.7's, alongside the contract tests that read the same document.
+
+**Remaining work in M21.** M21.5 (the `PaymentFlow-Version` header, per-merchant pinning, the
+registry-driven transformation layer), M21.6 (the CI breaking-change gate, which also wires
+`verifyOpenApiBaseline`), and M21.7 (contract tests, plus the annotation prose above).
 
 ---
 

@@ -2,6 +2,8 @@ package com.paymentflow.sandbox.config;
 
 import com.paymentflow.common.openapi.PublicApiDocument;
 import io.swagger.v3.oas.models.OpenAPI;
+import org.springdoc.core.customizers.OpenApiCustomizer;
+import org.springdoc.core.customizers.OperationCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -35,5 +37,22 @@ public class OpenApiConfig {
                                 + "failure paths on demand."),
                 PublicApiDocument.tag("Decisions",
                         "Why the sandbox decided each authorization the way it did."));
+    }
+
+    /**
+     * The error responses every operation on the public tier can return (M21.4). Declared
+     * as beans rather than annotations because 401/403/429/500 are true of the tier rather
+     * than of any operation, and 124 copies of the same four annotations is 124 chances to
+     * miss one — invisibly, since the document would still render.
+     */
+    @Bean
+    public OperationCustomizer publicApiErrorResponses() {
+        return PublicApiDocument.errorResponseCustomizer();
+    }
+
+    /** Puts the {@code ApiError} schema those responses reference into the document. */
+    @Bean
+    public OpenApiCustomizer publicApiErrorSchema() {
+        return PublicApiDocument.errorSchemaCustomizer();
     }
 }

@@ -224,6 +224,25 @@ class OpenApiDocumentIntegrationTest {
         mockMvc.perform(get("/v3/api-docs.yaml")).andExpect(status().isOk());
     }
 
+    @Test
+    void theUnauthenticatedEndpointIsNotDocumentedAsReturning401Or403() throws Exception {
+        // The counterpart to the security assertion above (M21.4). `GET /v1/test/cards`
+        // needs no credential, so it cannot fail to authenticate — documenting a 401 on it
+        // would contradict the running system and make an SDK generate credential handling
+        // for a call that takes none. Every other operation here still declares both.
+        List<String> cardResponses =
+                List.copyOf(document().path("paths").path("/v1/test/cards").path("get")
+                        .path("responses").propertyNames());
+
+        assertThat(cardResponses).doesNotContain("401", "403");
+        assertThat(cardResponses).contains("429", "500");
+
+        List<String> simulationResponses =
+                List.copyOf(document().path("paths").path("/v1/test/simulations").path("post")
+                        .path("responses").propertyNames());
+        assertThat(simulationResponses).contains("401", "403");
+    }
+
     /**
      * Writes this service's fragment where {@code mergeOpenApi} will find it (M21.3).
      *

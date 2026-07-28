@@ -214,8 +214,17 @@ class NotificationIntegrationTest {
                 && hitsOn("/wants-everything") == 1);
         assertThat(hitsOn("/wants-refunds-only")).isZero();
 
-        assertThat(deliveriesForEvent(eventId)).hasSize(2)
-                .allMatch(delivery -> delivery.getStatus() == DeliveryStatus.DELIVERED);
+        // The delivery row is marked DELIVERED *after* the HTTP call returns, so waiting on
+        // the sink's hit counter is not the same as waiting on the outcome being recorded.
+        // Asserting the status immediately after the hits arrive was a race: it passed
+        // almost always and failed under load (observed during M21.4's full build, with one
+        // of the two deliveries still PENDING). Awaited rather than asserted, so the test
+        // waits for the thing it is actually about.
+        await().atMost(Duration.ofSeconds(20)).until(() -> {
+            List<WebhookDelivery> deliveries = deliveriesForEvent(eventId);
+            return deliveries.size() == 2
+                    && deliveries.stream().allMatch(d -> d.getStatus() == DeliveryStatus.DELIVERED);
+        });
     }
 
     @Test

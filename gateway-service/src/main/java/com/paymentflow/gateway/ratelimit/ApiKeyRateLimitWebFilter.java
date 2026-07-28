@@ -1,5 +1,6 @@
 package com.paymentflow.gateway.ratelimit;
 
+import com.paymentflow.common.error.CommonErrorCode;
 import com.paymentflow.gateway.config.RateLimitProperties;
 import com.paymentflow.gateway.security.GatewayErrorResponseWriter;
 import com.paymentflow.gateway.security.apikey.ApiKeyAuthenticationWebFilter;
@@ -54,10 +55,6 @@ import java.util.List;
 @Component
 public class ApiKeyRateLimitWebFilter implements WebFilter, Ordered {
 
-    /** Emitted when the per-second bucket refuses; distinct from the quota code below. */
-    static final String ERROR_CODE_RATE_LIMITED = "RATE_LIMIT_EXCEEDED";
-    /** Emitted when the daily quota is exhausted — a different problem needing a different fix. */
-    static final String ERROR_CODE_QUOTA_EXCEEDED = "DAILY_QUOTA_EXCEEDED";
 
     static final String HEADER_LIMIT = "RateLimit-Limit";
     static final String HEADER_REMAINING = "RateLimit-Remaining";
@@ -189,11 +186,11 @@ public class ApiKeyRateLimitWebFilter implements WebFilter, Ordered {
         applyQuotaHeaders(exchange, limits, decision, now);
         exchange.getResponse().getHeaders().set(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfter));
 
-        return errorWriter.write(exchange, HttpStatus.TOO_MANY_REQUESTS,
-                quotaExhausted ? ERROR_CODE_QUOTA_EXCEEDED : ERROR_CODE_RATE_LIMITED,
-                quotaExhausted
-                        ? "The daily request quota for this merchant and mode has been exhausted. It resets at 00:00 UTC."
-                        : "Too many requests. Slow down and retry after the interval in the Retry-After header.");
+        // Both codes are catalogued (M21.4); their default messages are the ones that used
+        // to be written out here, so the response body is unchanged.
+        return errorWriter.write(exchange, quotaExhausted
+                ? CommonErrorCode.DAILY_QUOTA_EXCEEDED
+                : CommonErrorCode.RATE_LIMIT_EXCEEDED);
     }
 
     /**

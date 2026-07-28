@@ -2,6 +2,7 @@ package com.paymentflow.gateway.security;
 
 import com.paymentflow.common.correlation.CorrelationConstants;
 import com.paymentflow.common.dto.error.ApiError;
+import com.paymentflow.common.error.ApiErrorFactory;
 import com.paymentflow.common.error.ErrorCode;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpStatus;
@@ -27,13 +28,22 @@ public class GatewayErrorResponseWriter {
     }
 
     public Mono<Void> write(ServerWebExchange exchange, ErrorCode errorCode) {
-        return write(exchange, HttpStatus.valueOf(errorCode.httpStatus()), errorCode.code(), errorCode.defaultMessage());
+        return write(exchange, errorCode, errorCode.defaultMessage());
     }
 
-    public Mono<Void> write(ServerWebExchange exchange, HttpStatus status, String code, String message) {
-        String correlationId = exchange.getRequest().getHeaders().getFirst(CorrelationConstants.CORRELATION_ID_HEADER);
-        ApiError body = ApiError.of(status.value(), code, message,
-                exchange.getRequest().getPath().value(), correlationId);
+    /**
+     * Assembly goes through {@link ApiErrorFactory}, shared with every service's
+     * {@code GlobalExceptionHandler} (M21.4). This path answers requests that never reach a
+     * service at all — an unauthenticated call, or one over its rate limit — so if it were
+     * the one place that forgot `type`, `docUrl` or `requestId`, the fields would be missing
+     * from exactly the errors an integrator hits first.
+     */
+    public Mono<Void> write(ServerWebExchange exchange, ErrorCode errorCode, String message) {
+        HttpStatus status = HttpStatus.valueOf(errorCode.httpStatus());
+        ApiError body = ApiErrorFactory.create(errorCode, message,
+                exchange.getRequest().getPath().value(),
+                exchange.getRequest().getHeaders().getFirst(CorrelationConstants.REQUEST_ID_HEADER),
+                exchange.getRequest().getHeaders().getFirst(CorrelationConstants.CORRELATION_ID_HEADER));
 
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(status);
