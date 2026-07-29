@@ -83,3 +83,26 @@ dependencies {
     testImplementation(libs.springdoc.starter.webmvc.api)
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
+
+// Two of this module's tests assert against files that live outside it —
+// ErrorCatalogueDocumentationConsistencyTest reads docs/ERRORS.md, and
+// DockerBuildContextConsistencyTest reads the Dockerfile, .dockerignore and
+// settings.gradle.kts. Gradle infers a task's inputs from its source set, so without this
+// declaration `test` is UP-TO-DATE after a change to any of them and the assertion simply
+// does not run: editing the Dockerfile and getting a green local build is exactly the
+// sequence that let the missing test-support COPY line reach CI. CI would have caught it
+// regardless (`clean build --no-build-cache`), which is the point — a guard that only fires
+// in CI is a guard that reports the defect one push later than it could have.
+tasks.named<Test>("test") {
+    inputs.files(
+        rootDir.resolve("Dockerfile"),
+        rootDir.resolve(".dockerignore"),
+        rootDir.resolve("settings.gradle.kts"),
+        rootDir.resolve("docs/ERRORS.md"),
+    )
+        .withPropertyName("repositoryFilesAssertedByConsistencyTests")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+        // The repository has been bitten by a PowerShell rewrite turning a file CRLF; a line
+        // ending is not a change these tests are asserting anything about.
+        .normalizeLineEndings()
+}

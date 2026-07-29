@@ -64,6 +64,14 @@ COPY load-tests/build.gradle.kts load-tests/build.gradle.kts
 # which is a configuration-phase error and therefore says nothing about the module
 # actually being built.
 COPY openapi-tools/build.gradle.kts openapi-tools/build.gradle.kts
+# test-support (M21.7) — third module in a row to need this line, and the second to
+# be discovered needing it by a red CI rather than by anyone remembering. Same
+# reasoning as the two above: settings.gradle.kts names it, so Gradle configures it
+# on every invocation; the six public-API services depend on it in *test* scope only,
+# and this stage builds `bootJar -x test`, so the build file is all that is required.
+# DockerBuildContextConsistencyTest now fails when a module is included without a
+# matching line here, so there should not be a fourth discovery of this kind.
+COPY test-support/build.gradle.kts test-support/build.gradle.kts
 
 RUN chmod +x gradlew
 

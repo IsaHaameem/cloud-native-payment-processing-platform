@@ -7567,6 +7567,85 @@ and each safety check was individually observed still firing after it.
 why CI pays `--no-build-cache` and why the step this entry is about exists. The change is
 confined to a workflow file and is not a Gradle input; no module, task or test was touched.
 
+---
+
+#### CI defect — the image matrix broke on a module no image contains (2026-07-29)
+
+**Symptom.** With `build-and-test` and `openapi-contract` green, all **nine** legs of the image
+matrix failed, each at the same Dockerfile instruction and each reporting only `exit code 1`.
+Identical across nine services is itself the diagnosis: nothing service-specific can fail nine
+ways at once.
+
+**Root cause.** `settings.gradle.kts` names `:test-support` (M21.7). Gradle configures **every**
+project in the settings file on every invocation, whichever single module is being built — so
+`./gradlew :audit-service:bootJar` configures `:test-support` too, and the builder stage never
+copied it in:
+
+```
+Configuring project ':test-support' without an existing directory is not allowed.
+The configured projectDirectory '/workspace/test-support' does not exist
+```
+
+A **configuration-phase** failure. It happens before task selection, so it says nothing about the
+module being built, `bootJar`, the layered-jar extraction or Spring Boot 4's `jarmode=tools` — all
+of which are fine and none of which were ever reached. The build stopped 14 seconds in, and
+because BuildKit reports only the exit status of the whole `RUN`, the Gradle text that names the
+real cause is only visible with `--progress=plain` locally.
+
+**Why every service failed identically.** The missing module is one every service configures and
+none contains. `:test-support` is a `testImplementation` dependency of the six public-API
+services via the `paymentflow.openapi-fragment` plugin, and this stage builds `bootJar -x test`,
+so no image needs a byte of it — but *configuration* does not care what a task needs. The same
+mechanism makes the failure universal: the three services that do not depend on `:test-support`
+at all (identity, transaction, gateway) failed exactly as the six that do.
+
+**The fix.** One line, `COPY test-support/build.gradle.kts test-support/build.gradle.kts`,
+alongside the identical lines M14 and M21.3 added for `load-tests` and `openapi-tools`.
+`.dockerignore` was already correct — M21.7 excluded `test-support/` and re-admitted its build
+file; only the Dockerfile half was missed.
+
+**Why a line was added to the Dockerfile and a test to `common-lib`.** This is the third module
+to need that line and the second to be discovered needing it by a red CI. The Dockerfile already
+carried a comment saying, of `openapi-tools`, that missing the line "breaks the image build for
+every service" — documenting the hazard demonstrably did not prevent it. Per §15, a rule that has
+to be remembered three times becomes a rule that is enforced: **`DockerBuildContextConsistencyTest`**
+asserts that every `include(...)` in `settings.gradle.kts` has a matching `COPY <module>/build.gradle.kts`
+in the Dockerfile, that no copy line survives its module's removal (a `COPY` of an absent path
+is an error, so that direction breaks the build too), and that any module `.dockerignore` excludes
+re-admits its build file. It lives in `common-lib` beside `ErrorCatalogueDocumentationConsistencyTest`,
+which is where this repository's other file-reading consistency tests already are, and it guards
+its own regexes against matching nothing — M21.6's lesson about a test that can pass by doing
+nothing.
+
+**The guard did not guard, at first.** Removing the new `COPY` line to watch the test fail
+produced `BUILD SUCCESSFUL in 574ms`: Gradle infers a test task's inputs from its source set, and
+none of the four files these two consistency tests read is in one, so `test` was simply
+`UP-TO-DATE`. It had only passed a moment earlier because the test *class* was new. Left alone,
+the guard would have fired in CI (`clean build --no-build-cache` runs everything) and never on the
+machine where the Dockerfile was being edited — one push later than it could have, which is the
+whole complaint this entry opens with. `common-lib`'s `test` task now declares `Dockerfile`,
+`.dockerignore`, `settings.gradle.kts` and `docs/ERRORS.md` as inputs, line-ending-normalised
+against the CRLF hazard §14 already records. `ErrorCatalogueDocumentationConsistencyTest` had
+carried the same blind spot silently since M21.4 and is covered by the same declaration.
+
+**Verification.**
+
+| Step | Result |
+|---|---|
+| Reproduce with `--progress=plain`, pre-fix | `Configuring project ':test-support'…` — the first real error, captured in full |
+| Rebuild `audit-service` after the fix | image built, layers extracted |
+| All nine images, plus CI's own three assertions per image | **9/9 built**; non-root `paymentflow:paymentflow`, correct port exposed, healthcheck present on every one |
+| `DockerBuildContextConsistencyTest` with the new `COPY` line removed | fails, naming `test-support` |
+| `./gradlew build` | green, 932 → 935 tests |
+
+**Files modified**
+
+| File | Change |
+|---|---|
+| `Dockerfile` | `COPY test-support/build.gradle.kts` — the module Gradle configures and no image contains |
+| `common-lib/…/DockerBuildContextConsistencyTest.java` | *(new)* the settings ↔ Dockerfile ↔ `.dockerignore` invariant, asserted |
+| `common-lib/build.gradle.kts` | `test` declares the four repository files its consistency tests read, so a change to one of them actually re-runs them |
+
 *(Populated by M28. V1's benchmarks remain in `PROJECT_CONTEXT.md` §14 and are the
 regression baseline for the original payment hot path.)*
 

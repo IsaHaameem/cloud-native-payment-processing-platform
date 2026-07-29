@@ -27,10 +27,10 @@
 | **Development phase** | Phase B complete — *Product surface*; Phase C next (see §3) |
 | **Current milestone** | **M21 complete.** Next: **M22** — Node & Python SDKs |
 | **Branch** | `main` |
-| **Latest commit** | *fix(ci): the proof step compared two sets of paths that could never match* |
+| **Latest commit** | *fix(docker): copy test-support's build file — the module every service configures and no image contains* |
 | **Repository health** | Healthy |
-| **Build status** | `./gradlew build` — **BUILD SUCCESSFUL in 6m 14s** |
-| **Test status** | **932 tests, 0 failures, 0 errors, 0 skipped** |
+| **Build status** | `./gradlew clean build` — **BUILD SUCCESSFUL** |
+| **Test status** | **935 tests, 0 failures, 0 errors, 0 skipped** |
 | **Working tree** | Clean |
 | **Public API revision** | `2026-08-01` current; `2026-07-27` superseded (sunset 2027-08-01) |
 
@@ -507,8 +507,11 @@ layered jar onto a JRE-only Alpine base, running as non-root `paymentflow:paymen
 
 **Build-context rule.** Only the target module's `src` plus `common-dto`/`common-lib` are copied —
 but **every** module's `build.gradle.kts` must be present, because Gradle configures all projects
-in `settings.gradle.kts` on every invocation. `load-tests` and `openapi-tools` are in
-`.dockerignore` *except* their build files.
+in `settings.gradle.kts` on every invocation. `load-tests`, `openapi-tools` and `test-support` are
+in `.dockerignore` *except* their build files. Omitting one fails the image build for **all nine**
+services during Gradle's configuration phase, naming the forgotten module rather than the one being
+built — so the rule is enforced by `DockerBuildContextConsistencyTest` (in `common-lib`) rather than
+remembered: it asserts settings ↔ Dockerfile ↔ `.dockerignore` agreement in both directions.
 
 ### Docker Compose
 
@@ -898,7 +901,7 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 | 12 | **`payment.events.retry`/`.dlq` and V1's webhook delivery path are dormant**, retained only to drain pre-M18.6 rows. | Low — dead code with tests | Unowned | Low |
 | 13 | **`failed_count` exists only on hourly buckets**, not the running totals, so lifetime success rate cannot be computed. | Low | Unowned | Low |
 | 14 | **Not every seeded test card is driven through a real authorize call.** 17 seeded, 9 metadata-checked, 4 exercised end-to-end. | Low — a bad seed row would go unnoticed | Unowned | Low |
-| 15 | **`docs/` is in `.dockerignore`** while `ErrorCatalogueDocumentationConsistencyTest` and M21.7's six contract tests read `../docs/`. Latent only — image builds run `-x test` — but M21.7 widened it from one test to seven. | Very low | Unowned | Low |
+| 15 | **Several tests read repository files that are not in the Docker build context** — `../docs/` (`ErrorCatalogueDocumentationConsistencyTest` + M21.7's six contract tests) and `../Dockerfile`/`../.dockerignore` (`DockerBuildContextConsistencyTest`). Latent only: image builds run `-x test`, so nothing executes them there. | Very low | Unowned | Low |
 | 16 | **`README.md`'s "At a glance" is stale**: claims 8 services, 230+ tests, 96 decisions. Actual: **9 services, 826 tests, 156 decisions**. | Low — reader-facing only | **M30** (README rewrite) | Low |
 
 ---
@@ -943,15 +946,15 @@ M22's generators consume it — they are the first thing to read the document ra
 
 | Signal | Status | Detail |
 |---|---|---|
-| **Build** | ✅ | `./gradlew build` — BUILD SUCCESSFUL in 6m 14s |
-| **Tests** | ✅ | **932 / 932**, 0 failures, 0 errors, 0 skipped |
+| **Build** | ✅ | `./gradlew clean build` — BUILD SUCCESSFUL |
+| **Tests** | ✅ | **935 / 935**, 0 failures, 0 errors, 0 skipped |
 | **Working tree** | ✅ | Clean |
 | **OpenAPI baseline** | ✅ | `verifyOpenApiBaseline` — in sync |
 | **OpenAPI compatibility** | ✅ | 0 breaking, 53 accepted (M21.7's corrections), 48 additive |
 | **Live-response contract** | ✅ | 41 real calls across six services validated against `docs/openapi.yaml` |
 | **CI** | ✅ | All nine images; cache disabled; the test-execution proof step verified by running the shipped script in both directions |
 | **CD** | ⚠️ | Exists, never run — blocked on M29 |
-| **Docker images** | ✅ | All nine rebuilt from current code |
+| **Docker images** | ✅ | All nine built from current code and asserted non-root, port-exposed, healthchecked |
 | **TODOs / FIXMEs** | ✅ | **Zero** across `.java`, `.kts`, `.yaml` |
 
 ### Per-module test distribution
@@ -961,7 +964,7 @@ M22's generators consume it — they are the first thing to read the document ra
 | notification-service | 175 | analytics-service | 75 |
 | payment-service | 151 | openapi-tools | 65 |
 | sandbox-service | 103 | transaction-service | 48 |
-| common-lib | 102 | audit-service | 38 |
+| common-lib | 105 | audit-service | 38 |
 | gateway-service | 98 | common-dto | 35 |
 | | | merchant-service | 30 |
 | | | identity-service | 12 |
@@ -983,7 +986,12 @@ M22's generators consume it — they are the first thing to read the document ra
 5. **Never edit `docs/openapi.yaml` with PowerShell's `Set-Content`.** It rewrites the file CRLF,
    and the contract diff then correctly reports every multi-line description as changed. Use
    `[IO.File]::WriteAllText` with a BOM-less UTF8 encoding, or regenerate with `mergeOpenApi`.
-6. **An editor holding this repository's markdown open can overwrite it from a stale buffer.**
+6. **A test that asserts against a file outside its own module will not re-run when that file
+   changes** — Gradle infers a test task's inputs from its source set, so `test` reports
+   `UP-TO-DATE` and the assertion silently does not run. `common-lib`'s `test` declares
+   `Dockerfile`, `.dockerignore`, `settings.gradle.kts` and `docs/ERRORS.md` explicitly for this
+   reason. Any new consistency test that reads a repository file must be added there.
+7. **An editor holding this repository's markdown open can overwrite it from a stale buffer.**
    `PROJECT_CONTEXT_2.md` was found reverted by 773 lines in the working tree while the committed
    copy was intact. Always check `git status` before concluding that work is missing.
 
@@ -1018,7 +1026,7 @@ starting Postgres is enough to make the Docker daemon fail an image pull for an 
 present locally (`ContainerFetchException`), and it does so intermittently — it cost two wasted
 runs during M21.6 alone.
 
-**If the tree is dirty, diff it before assuming it is work in progress** — see warning 4 in §18.
+**If the tree is dirty, diff it before assuming it is work in progress** — see warning 7 in §18.
 
 ### Step 3 — Verify honestly, not conveniently
 
