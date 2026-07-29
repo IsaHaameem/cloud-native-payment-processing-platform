@@ -105,3 +105,49 @@ tasks.register<JavaExec>("verifyOpenApiBaseline") {
     args = listOf("--out", openApiMergedCopy.absolutePath, "--baseline", openApiBaseline.absolutePath) +
         openApiFragmentFiles.map { it.absolutePath }
 }
+
+// ── The breaking-change gate (M21.6, §5/M21 task 5) ─────────────────────────────────────
+//
+// Two different questions, deliberately two tasks:
+//
+//   verifyOpenApiBaseline       is docs/openapi.yaml still what the code serves?
+//   verifyOpenApiCompatibility  is docs/openapi.yaml still compatible with the one before it?
+//
+// The first needs six Spring contexts and six Postgres containers, because the only place
+// the document exists is a running application. The second is a comparison of two files and
+// runs in under a second. Fusing them would make the cheap, most-often-failing check pay the
+// expensive one's price on every invocation, and would leave no way to ask "is this change
+// breaking?" about a document you already have.
+
+/** The document being compared against — CI writes the base branch's copy here. */
+val openApiPreviousBaseline: String = providers.gradleProperty("openApiPreviousBaseline")
+    .getOrElse(layout.buildDirectory.file("openapi/previous-openapi.yaml").get().asFile.absolutePath)
+
+// Overridable too, so the task is usable as a general "are these two documents compatible?"
+// question and not only as "is HEAD compatible with the base branch". That is the form the
+// gate gets used in while a revision is being cut, when the interesting comparison is
+// against a document that is not committed anywhere yet.
+val openApiCurrentBaseline: String = providers.gradleProperty("openApiCurrentBaseline")
+    .getOrElse(openApiBaseline.absolutePath)
+
+val openApiDiffReport: File = layout.buildDirectory.file("openapi/contract-diff.txt").get().asFile
+
+tasks.register<JavaExec>("verifyOpenApiCompatibility") {
+    group = "verification"
+    description = "Fails if docs/openapi.yaml breaks the previous contract without declaring a new API revision (M21.6)."
+
+    // Deliberately no `dependsOn(fragmentTasks)`. This task judges the *committed* baseline,
+    // which is the artefact M22's SDKs are generated from; whether that file still matches
+    // the code is verifyOpenApiBaseline's question and is asked separately. Coupling them
+    // here would mean a developer could not ask "did I break the contract?" without first
+    // standing up six services.
+    inputs.file(openApiCurrentBaseline)
+
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "com.paymentflow.openapi.OpenApiDiffCli"
+    args = listOf(
+        "--previous", openApiPreviousBaseline,
+        "--current", openApiCurrentBaseline,
+        "--summary", openApiDiffReport.absolutePath,
+    )
+}

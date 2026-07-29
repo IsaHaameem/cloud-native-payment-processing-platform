@@ -1,13 +1,21 @@
 #
-# CI pipeline (M10) — build/test the whole monorepo, then build (but not yet
-# push) a Docker image for every one of the 8 microservices.
+# CI pipeline (M10, extended by M21.6) — build/test the whole monorepo, gate the
+# published API contract, then build (but not yet push) a Docker image for every
+# one of the 9 microservices.
 #
-# Two jobs, in sequence:
-#   1. build-and-test — ./gradlew clean build across all 14 modules. Any test
-#      failure fails this job immediately, which skips job 2 entirely
+# Three jobs:
+#   1. build-and-test — ./gradlew clean build across all modules. Any test
+#      failure fails this job immediately, which skips the others entirely
 #      (`needs:` below) — no Docker minutes are spent building images for a
 #      broken commit.
-#   2. docker-build — one matrix leg per service, each leg building exactly
+#   2. openapi-contract (M21.6) — the two questions about docs/openapi.yaml that
+#      `check` deliberately does not ask, because asking them costs six Spring
+#      contexts and six Postgres containers: is the committed baseline still what
+#      the services serve, and is it still compatible with the copy on the branch
+#      being merged into. Its own job rather than two more steps on job 1 so that
+#      "the API contract is intact" is a distinct, requireable status check whose
+#      failure message is not buried at the bottom of a long build log.
+#   3. docker-build — one matrix leg per service, each leg building exactly
 #      one image via the shared M9 Dockerfile (docker-compose.yml's own
 #      SERVICE_MODULE/SERVICE_PORT build args, unchanged). Tagged
 #      GHCR-shaped (ghcr.io/<owner>/<service>:latest and :<sha>) but NOT
@@ -24,6 +32,10 @@
 # (see D58) — the point of M9's lesson (never let unbounded concurrent image
 # builds outrun the resources actually available) still applies, just against
 # this account's concurrent-job quota instead of local VM memory.
+#
+# The matrix covers all nine services. It covered eight until M21.6:
+# sandbox-service was added to the platform in M17 and to docker-compose.yml,
+# but never here.
 #
 name: CI
 
@@ -76,8 +88,67 @@ jobs:
           docker pull redis:8-alpine
           docker pull confluentinc/cp-kafka:7.7.1
 
-      - name: ./gradlew clean build
-        run: ./gradlew clean build --no-daemon --stacktrace
+      # --no-build-cache is deliberate and is the point of this step, not a
+      # performance oversight. A cached-green build reads identically to a real
+      # one: "BUILD SUCCESSFUL" is the same string whether the tests ran or were
+      # restored from a previous run's outputs, and that has already misled this
+      # repository once — a green `clean build` with 33 tasks served FROM-CACHE
+      # sat on top of 18 suites that failed the moment they were actually
+      # executed. CI is the one place where the *only* thing being bought is
+      # trustworthy signal, so it pays full price for it. Local builds keep the
+      # cache; see gradle.properties.
+      - name: ./gradlew clean build (cache disabled — CI must really run the tests)
+        run: ./gradlew clean build --no-daemon --no-build-cache --stacktrace
+
+      # The other half of the same problem. The step above guarantees the tests
+      # were executed; this one guarantees they were executed *everywhere* and
+      # that none of them were skipped, by reading the JUnit XML rather than the
+      # build's summary line. A module that silently stopped contributing tests —
+      # a renamed source set, a filter that matches nothing, a suite excluded by
+      # accident — is invisible in "BUILD SUCCESSFUL" and obvious here.
+      - name: Prove the tests actually ran
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import glob, os, sys, xml.etree.ElementTree as ET
+
+          totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+          per_module = {}
+          for report in glob.glob("**/build/test-results/test/TEST-*.xml", recursive=True):
+              module = report.split("/build/test-results/")[0].lstrip("./")
+              suite = ET.parse(report).getroot()
+              counts = per_module.setdefault(module, 0)
+              per_module[module] = counts + int(suite.get("tests", 0))
+              for key in totals:
+                  totals[key] += int(suite.get(key, 0))
+
+          # Every module with test sources must have produced results. Deriving the
+          # expectation from the source tree rather than from a hardcoded list means a
+          # module added later is covered without anyone remembering to add it here.
+          missing = [
+              os.path.dirname(path)
+              for path in glob.glob("*/src/test/java")
+              if per_module.get(os.path.dirname(path), 0) == 0
+          ]
+
+          print("### Test execution")
+          print(f"- **{totals['tests']} tests** executed across {len(per_module)} modules")
+          print(f"- {totals['failures']} failures, {totals['errors']} errors, {totals['skipped']} skipped")
+          print("")
+          for module in sorted(per_module):
+              print(f"  - `{module}` — {per_module[module]}")
+
+          problems = []
+          if totals["tests"] == 0:
+              problems.append("no tests were executed at all")
+          if totals["skipped"]:
+              problems.append(f"{totals['skipped']} test(s) were skipped — this repository runs none")
+          if missing:
+              problems.append("modules with test sources that produced no results: " + ", ".join(missing))
+          for problem in problems:
+              print(f"::error::{problem}", file=sys.stderr)
+          sys.exit(1 if problems else 0)
+          PY
 
       # Runs even if the build/tests failed above, so a failure is always
       # inspectable from the Actions UI without re-running anything locally.
@@ -99,6 +170,117 @@ jobs:
           echo "- Commit: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
 
+  # ──────────────────────────────────────────────────────────────────────────
+  # M21.6 — the OpenAPI contract gate.
+  #
+  # `/v1` is a promise (invariant 1): breaking it requires a new dated revision
+  # and a transformation for the previous one. This job is what makes that a
+  # rule rather than an intention. It asks two questions that `check` cannot
+  # afford to ask on every local build:
+  #
+  #   verifyOpenApiBaseline       does docs/openapi.yaml still describe the code?
+  #   verifyOpenApiCompatibility  is it still compatible with the base branch's copy?
+  #
+  # The second is the breaking-change gate proper. It classifies every
+  # difference as additive or breaking (OpenApiDiff) and fails only on a
+  # *breaking* change that no new API revision declares — so shipping new
+  # endpoints, new fields and new enum values stays frictionless, which is the
+  # only way a gate like this survives contact with a real roadmap.
+  # ──────────────────────────────────────────────────────────────────────────
+  openapi-contract:
+    name: OpenAPI contract gate
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The gate compares this commit's baseline against the one it is being
+          # merged onto, so the history has to be present. The default shallow
+          # clone has exactly one commit and `git show <base>:docs/openapi.yaml`
+          # would fail on every run.
+          fetch-depth: 0
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle (with dependency/build cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      # verifyOpenApiBaseline stands up all six public-API services on
+      # Testcontainers — the document does not exist until springdoc has scanned
+      # a running application context. Same pre-pull rationale as job 1.
+      - name: Pre-pull Testcontainers images
+        run: |
+          docker pull postgres:17-alpine
+          docker pull redis:8-alpine
+          docker pull confluentinc/cp-kafka:7.7.1
+
+      # The document to compare against: the baseline as it exists on the branch
+      # being merged into (pull_request) or before this push (push). A missing or
+      # empty file is handled by the gate itself and reported as "nothing to
+      # compare against" — which is the correct answer for the commit that first
+      # published a baseline, and for a branch whose history does not reach one.
+      - name: Resolve the previous published contract
+        run: |
+          set -eu
+          base="${{ github.event.pull_request.base.sha || github.event.before || '' }}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base=$(git rev-parse --verify "HEAD^" 2>/dev/null || echo "")
+          fi
+          mkdir -p build/openapi
+          if [ -n "$base" ] && git cat-file -e "$base:docs/openapi.yaml" 2>/dev/null; then
+            git show "$base:docs/openapi.yaml" > build/openapi/previous-openapi.yaml
+            echo "Comparing against docs/openapi.yaml at $base"
+          else
+            : > build/openapi/previous-openapi.yaml
+            echo "No previous docs/openapi.yaml reachable — the gate will report nothing to compare."
+          fi
+
+      # Cheap (a file comparison, no containers) and the most likely to fail, so
+      # it runs first: a developer who broke the contract learns it in seconds
+      # rather than after six Spring contexts have started.
+      - name: Breaking-change gate
+        run: |
+          ./gradlew :openapi-tools:verifyOpenApiCompatibility --no-daemon --stacktrace \
+            -PopenApiPreviousBaseline="$PWD/build/openapi/previous-openapi.yaml"
+
+      # `if: always()` so one run reports both problems. A stale baseline and a
+      # breaking change are independent failures, and finding them one push at a
+      # time is how a two-part gate becomes resented.
+      - name: Baseline freshness gate
+        if: always()
+        run: ./gradlew :openapi-tools:verifyOpenApiBaseline --no-daemon --stacktrace
+
+      # §5/M21 task 5: publish the spec as a build artefact. M22's SDK
+      # generators and M25's documentation site consume this file, and pulling it
+      # from a run rather than from a checkout is how they get the version that
+      # was actually verified.
+      - name: Upload the published OpenAPI document
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi
+          path: |
+            docs/openapi.yaml
+            openapi-tools/build/openapi/contract-diff.txt
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### OpenAPI contract gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f openapi-tools/build/openapi/contract-diff.txt ]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat openapi-tools/build/openapi/contract-diff.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   docker-build:
     name: Docker build (${{ matrix.service }})
     needs: build-and-test
@@ -106,7 +288,7 @@ jobs:
     strategy:
       fail-fast: false
       # See the header comment / D58 — caps concurrent image builds instead of
-      # letting all 8 matrix legs fire at once.
+      # letting all 9 matrix legs fire at once.
       max-parallel: 4
       matrix:
         include:
@@ -126,6 +308,13 @@ jobs:
             port: 8092
           - service: analytics-service
             port: 8093
+          # M21.6: sandbox-service was missing from this matrix. It has been a
+          # first-class service since M17 and docker-compose.yml builds it, so
+          # its Dockerfile path was the one of nine that nothing in CI covered —
+          # a build-arg regression there would have surfaced during a deployment
+          # rather than here.
+          - service: sandbox-service
+            port: 8094
     steps:
       - name: Checkout
         uses: actions/checkout@v4

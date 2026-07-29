@@ -68,4 +68,21 @@ public final class OpenApiYaml {
         }
         return yaml.endsWith("\n") ? yaml : yaml + "\n";
     }
+
+    /**
+     * Parses a document back into a tree (M21.6).
+     *
+     * <p>The same mapper reads both {@code docs/openapi.yaml} and the services' JSON
+     * fragments, because YAML is a superset of JSON and a single reader means the diff
+     * cannot behave differently depending on which form it was handed. That matters: the
+     * gate compares a committed YAML baseline against a document that started life as six
+     * JSON fragments.
+     */
+    public static JsonNode read(String document) {
+        try {
+            return YAML.readTree(document);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("could not parse the OpenAPI document: " + e.getOriginalMessage(), e);
+        }
+    }
 }
