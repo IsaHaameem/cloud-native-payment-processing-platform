@@ -18,15 +18,25 @@ security:
 paths:
   /v1/analytics/payments:
     get:
-      operationId: payments
+      description: |-
+        Returns totals and an hourly series for your payment activity over a window, in one round trip — a dashboard renders both on one screen, so splitting them across endpoints would mean two queries over the same rows.
+
+        `successRate` is computed here rather than left to you, because there is more than one defensible denominator and a platform that returns raw counters invites every client to pick a different one. The published definition is `authorized / (authorized + failed)`.
+
+        The hourly series begins where this platform started recording it; totals are complete, but a window reaching further back than the series will show fewer buckets than hours.
+      operationId: getPaymentAnalytics
       parameters:
-      - in: query
+      - description: "The start of the window, as RFC 3339. Defaults to 24 hours ago."
+        example: 2026-07-28T00:00:00Z
+        in: query
         name: from
         required: false
         schema:
           type: string
           format: date-time
-      - in: query
+      - description: "The end of the window, as RFC 3339. Defaults to now."
+        example: 2026-07-29T00:00:00Z
+        in: query
         name: to
         required: false
         schema:
@@ -38,7 +48,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AnalyticsSummaryResponse"
-          description: OK
+          description: "Totals for the window, and the hourly series behind them."
         "401":
           content:
             application/json:
@@ -103,18 +113,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Summarize payment activity
       tags:
       - Analytics
   /v1/balance:
     get:
-      operationId: balance
+      description: |-
+        Returns what you hold, per currency, in the mode of the key you called with.
+
+        Two figures per currency, and the difference matters: `pendingMinor` is money authorized but not yet captured — it can still be voided or expire, so it is not yours — while `availableMinor` is money captured and owed to you, net of refunds. Both are projections of the double-entry ledger rather than counters kept alongside it, so they cannot drift from the entries at `/v1/balance_transactions`.
+      operationId: getBalance
       responses:
         "200":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/BalanceResponse"
-          description: OK
+          description: Your balance in every currency you hold.
         "401":
           content:
             application/json:
@@ -179,30 +194,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Retrieve your balance
       tags:
       - Balance
   /v1/balance_transactions:
     get:
-      operationId: balanceTransactions
+      description: |-
+        Returns the individual ledger entries behind your balance, most recent first, cursor-paginated. Every entry names the payment and the lifecycle event that produced it, so a balance can always be reconciled back to the payments that made it.
+
+        Only your own side of each entry is returned. Every posting is balanced against the platform's clearing account, which is not a merchant's business to see — this is a projection of the ledger, not a dump of it.
+      operationId: listBalanceTransactions
       parameters:
-      - in: query
+      - description: "How many objects to return, 1–100. Values above the ceiling are clamped to it rather than rejected, so a client asking for more simply receives the maximum. Defaults to 25."
+        in: query
         name: limit
         required: false
         schema:
           type: integer
           format: int32
-      - in: query
+      - description: A cursor for pagination. Pass the `nextCursor` from the previous response to fetch the following page. The value is opaque and signed — treat it as a token and never parse or construct one.
+        in: query
         name: starting_after
         required: false
         schema:
           type: string
-      - in: query
+      - description: "Return only objects created at or after this instant, as RFC 3339 (`2026-07-29T00:00:00Z`)."
+        in: query
         name: created_after
         required: false
         schema:
           type: string
           format: date-time
-      - in: query
+      - description: "Return only objects created at or before this instant, as RFC 3339 (`2026-07-29T23:59:59Z`)."
+        in: query
         name: created_before
         required: false
         schema:
@@ -214,7 +238,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CursorPageBalanceTransactionResponse"
-          description: OK
+          description: "A page of ledger entries, most recent first."
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "The query could not be understood: a tampered or malformed `starting_after` cursor, a `limit` that is not positive, or a filter value outside the vocabulary this endpoint accepts. A rejected filter is deliberately an error rather than an empty page — an empty page is something you would then have to explain to yourself."
         "401":
           content:
             application/json:
@@ -279,35 +309,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: List balance transactions
       tags:
       - Balance transactions
   /v1/events:
     get:
-      operationId: list
+      description: |-
+        Returns everything that has happened on your account, most recent first, cursor-paginated.
+
+        This is the same feed your webhook endpoints are delivered from, which makes it the recovery path when they are not: an endpoint that was down, misconfigured, or auto-disabled loses deliveries, not events. Poll here to catch up, and reconcile by `id` — an event's `evt_` id is identical in both places.
+
+        Ordered by when things **occurred**, not when they were recorded, so a redelivery cannot reorder your feed.
+      operationId: listEvents
       parameters:
-      - in: query
+      - description: "How many objects to return, 1–100. Values above the ceiling are clamped to it rather than rejected, so a client asking for more simply receives the maximum. Defaults to 25."
+        in: query
         name: limit
         required: false
         schema:
           type: integer
           format: int32
-      - in: query
+      - description: A cursor for pagination. Pass the `nextCursor` from the previous response to fetch the following page. The value is opaque and signed — treat it as a token and never parse or construct one.
+        in: query
         name: starting_after
         required: false
         schema:
           type: string
-      - in: query
+      - description: Return only events of this type. Must be a name from the event vocabulary — a typo is a `400` naming the valid values rather than an empty page.
+        example: payment.captured
+        in: query
         name: type
         required: false
         schema:
           type: string
-      - in: query
+      - description: "Return only objects created at or after this instant, as RFC 3339 (`2026-07-29T00:00:00Z`)."
+        in: query
         name: created_after
         required: false
         schema:
           type: string
           format: date-time
-      - in: query
+      - description: "Return only objects created at or before this instant, as RFC 3339 (`2026-07-29T23:59:59Z`)."
+        in: query
         name: created_before
         required: false
         schema:
@@ -319,7 +362,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CursorPageEventResponse"
-          description: OK
+          description: "A page of events, most recent first."
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "The query could not be understood: a tampered or malformed `starting_after` cursor, a `limit` that is not positive, or a filter value outside the vocabulary this endpoint accepts. A rejected filter is deliberately an error rather than an empty page — an empty page is something you would then have to explain to yourself."
         "401":
           content:
             application/json:
@@ -384,13 +433,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: List events
       tags:
       - Events
   /v1/events/{id}:
     get:
-      operationId: get
+      description: "Returns one event by the `evt_` id you received in a webhook body. This is how a receiver confirms that a delivery it was sent is genuine and still says what it said — the id in the webhook and the id here are the same value, derived from the same source."
+      operationId: getEvent
       parameters:
-      - in: path
+      - description: The `evt_` id of the event to retrieve.
+        example: evt_9f2c1e7a4b8d4c3e8a1d2b4f6a8c05d1
+        in: path
         name: id
         required: true
         schema:
@@ -401,7 +454,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EventResponse"
-          description: OK
+          description: The event.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: The id is not a well-formed `evt_` identifier.
         "401":
           content:
             application/json:
@@ -434,6 +493,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "No such event. Also returned for an event that exists but belongs to another merchant, to the other mode, or is internal to the platform and not part of your feed — never `403`, which would confirm it exists."
         "429":
           content:
             application/json:
@@ -466,58 +531,79 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Retrieve an event
       tags:
       - Events
   /v1/payments:
     get:
+      description: |-
+        Returns your payments, most recent first, cursor-paginated.
+
+        Pagination is cursor-based rather than offset-based because this list is append-heavy: under concurrent inserts an offset page silently skips rows, which on a financial list is a correctness bug rather than a cosmetic one. Follow `nextCursor` until `hasMore` is false.
+
+        Every filter combines with `AND`. The list is always scoped to your own merchant and to the mode of the key you called with.
       operationId: listPayments
       parameters:
-      - in: query
+      - description: "How many objects to return, 1–100. Values above the ceiling are clamped to it rather than rejected, so a client asking for more simply receives the maximum. Defaults to 25."
+        in: query
         name: limit
         required: false
         schema:
           type: integer
           format: int32
-      - in: query
+      - description: A cursor for pagination. Pass the `nextCursor` from the previous response to fetch the following page. The value is opaque and signed — treat it as a token and never parse or construct one.
+        in: query
         name: starting_after
         required: false
         schema:
           type: string
-      - in: query
+      - description: Return only payments in this state. Must be one of the statuses this revision defines — a typo is a `400` naming the vocabulary rather than an empty page you then have to explain to yourself.
+        example: authorized
+        in: query
         name: status
         required: false
         schema:
           type: string
-      - in: query
+      - description: Return only payments in this ISO 4217 currency.
+        example: USD
+        in: query
         name: currency
         required: false
         schema:
           type: string
-      - in: query
+      - description: "Return only payments of at least this amount, in minor units."
+        example: 1000
+        in: query
         name: amount_min
         required: false
         schema:
           type: integer
           format: int64
-      - in: query
+      - description: "Return only payments of at most this amount, in minor units."
+        example: 100000
+        in: query
         name: amount_max
         required: false
         schema:
           type: integer
           format: int64
-      - in: query
+      - description: "Return only objects created at or after this instant, as RFC 3339 (`2026-07-29T00:00:00Z`)."
+        in: query
         name: created_after
         required: false
         schema:
           type: string
           format: date-time
-      - in: query
+      - description: "Return only objects created at or before this instant, as RFC 3339 (`2026-07-29T23:59:59Z`)."
+        in: query
         name: created_before
         required: false
         schema:
           type: string
           format: date-time
-      - in: query
+      - description: "Ask for related objects to be included inline. The only expandable relation on this resource is `refunds`. A relation this revision does not have is ignored rather than rejected, so an SDK written against a later version still works here."
+        example: refunds
+        in: query
         name: expand
         required: false
         schema:
@@ -536,7 +622,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CursorPagePaymentResponse"
-          description: OK
+          description: "A page of payments, most recent first."
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "The query could not be understood: a tampered or malformed `starting_after` cursor, a `limit` that is not positive, or a filter value outside the vocabulary this endpoint accepts. A rejected filter is deliberately an error rather than an empty page — an empty page is something you would then have to explain to yourself."
         "401":
           content:
             application/json:
@@ -601,14 +693,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: List payments
       tags:
       - Payments
     post:
-      operationId: create
+      description: |-
+        Creates a payment in the `created` state. Nothing is charged yet — creating a payment reserves an intent to charge, and authorization is a separate call, so a client can build the object before it has a payment method to authorize against.
+
+        The `mode` of the resulting payment comes from your API key: an `sk_test_` key creates test payments, an `sk_live_` key live ones. Nothing in this request can change that.
+      operationId: createPayment
       parameters:
-      - in: header
+      - description: A unique key that makes this request safe to retry. **Required on every mutating request.** Replaying the same key returns the original response instead of performing the operation twice; a second request arriving while the first is still in flight fails fast with `409 IDEMPOTENCY_CONFLICT`. Use a fresh UUID per logical operation.
+        in: header
         name: Idempotency-Key
-        required: false
+        required: true
         schema:
           type: string
       requestBody:
@@ -623,7 +721,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
-          description: Created
+          description: The payment was created.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: The request body failed validation. `errors` names every field that failed; the rejected values are deliberately not echoed back.
         "401":
           content:
             application/json:
@@ -656,6 +760,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Another request with the same `Idempotency-Key` is still in flight. Distinct from `CONFLICT` precisely because it is retryable — wait and send it again.
         "429":
           content:
             application/json:
@@ -688,19 +798,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Create a payment
       tags:
       - Payments
   /v1/payments/{id}:
     get:
+      description: "Returns one payment by id, including how much of it has been captured and refunded so far. Add `?expand=refunds` to receive the individual refunds inline instead of fetching them separately."
       operationId: getPayment
       parameters:
-      - in: path
+      - description: The payment to retrieve.
+        in: path
         name: id
         required: true
         schema:
           type: string
           format: uuid
-      - in: query
+      - description: "Ask for related objects to be included inline. The only expandable relation on this resource is `refunds`. A relation this revision does not have is ignored rather than rejected, so an SDK written against a later version still works here."
+        example: refunds
+        in: query
         name: expand
         required: false
         schema:
@@ -711,7 +826,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
-          description: OK
+          description: The payment.
         "401":
           content:
             application/json:
@@ -744,6 +859,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "No such payment. Also returned when the payment exists but belongs to another merchant, or to the other mode — never `403`, because a `403` would confirm that it exists."
         "429":
           content:
             application/json:
@@ -776,21 +897,28 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Retrieve a payment
       tags:
       - Payments
   /v1/payments/{id}/authorize:
     post:
-      operationId: authorize
+      description: |-
+        Places a hold on the customer's funds for the payment's full amount, moving it to `authorized`. No money moves until you capture.
+
+        In test mode the outcome is decided by the `paymentMethodToken` the payment carries — see `GET /v1/test/cards` for the tokens that approve, decline, or fail — so every branch of your integration is reachable on demand rather than by chance.
+      operationId: authorizePayment
       parameters:
-      - in: path
+      - description: The payment to authorize.
+        in: path
         name: id
         required: true
         schema:
           type: string
           format: uuid
-      - in: header
+      - description: A unique key that makes this request safe to retry. **Required on every mutating request.** Replaying the same key returns the original response instead of performing the operation twice; a second request arriving while the first is still in flight fails fast with `409 IDEMPOTENCY_CONFLICT`. Use a fresh UUID per logical operation.
+        in: header
         name: Idempotency-Key
-        required: false
+        required: true
         schema:
           type: string
       responses:
@@ -799,7 +927,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
-          description: OK
+          description: "The payment was authorized, or the acquirer declined it and the payment is now `failed`."
         "401":
           content:
             application/json:
@@ -832,6 +960,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "No such payment. Also returned when the payment exists but belongs to another merchant, or to the other mode — never `403`, because a `403` would confirm that it exists."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "The payment is not in a state where this operation is legal — capturing one that was never authorized, voiding one already captured, refunding more than remains. The `code` says which."
         "429":
           content:
             application/json:
@@ -864,21 +1004,28 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Authorize a payment
       tags:
       - Payments
   /v1/payments/{id}/capture:
     post:
-      operationId: capture
+      description: |-
+        Moves the authorized funds, settling the payment. Capture is all-or-nothing here: the full authorized amount is taken, and a capture can never exceed the authorization it settles.
+
+        Capturing an already-captured payment is a `409` rather than a silent success — if you need retry safety, send an `Idempotency-Key` and replay the same one.
+      operationId: capturePayment
       parameters:
-      - in: path
+      - description: The payment to capture.
+        in: path
         name: id
         required: true
         schema:
           type: string
           format: uuid
-      - in: header
+      - description: A unique key that makes this request safe to retry. **Required on every mutating request.** Replaying the same key returns the original response instead of performing the operation twice; a second request arriving while the first is still in flight fails fast with `409 IDEMPOTENCY_CONFLICT`. Use a fresh UUID per logical operation.
+        in: header
         name: Idempotency-Key
-        required: false
+        required: true
         schema:
           type: string
       responses:
@@ -887,7 +1034,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
-          description: OK
+          description: The payment was captured.
         "401":
           content:
             application/json:
@@ -920,6 +1067,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "No such payment. Also returned when the payment exists but belongs to another merchant, or to the other mode — never `403`, because a `403` would confirm that it exists."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "The payment is not in a state where this operation is legal — capturing one that was never authorized, voiding one already captured, refunding more than remains. The `code` says which."
         "429":
           content:
             application/json:
@@ -952,21 +1111,28 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Capture an authorized payment
       tags:
       - Payments
   /v1/payments/{id}/refund:
     post:
-      operationId: refund
+      description: |-
+        Returns captured funds to the customer, in full or in part. Send no body to refund everything that remains.
+
+        Refunds are first-class objects with their own ids — this call returns the updated **payment**, and the refund it created is readable at `GET /v1/refunds` or inline via `GET /v1/payments/{id}?expand=refunds`. Partial refunds accumulate: `refundedAmountMinor` can never exceed `capturedAmountMinor`.
+      operationId: refundPayment
       parameters:
-      - in: path
+      - description: The payment to refund.
+        in: path
         name: id
         required: true
         schema:
           type: string
           format: uuid
-      - in: header
+      - description: A unique key that makes this request safe to retry. **Required on every mutating request.** Replaying the same key returns the original response instead of performing the operation twice; a second request arriving while the first is still in flight fails fast with `409 IDEMPOTENCY_CONFLICT`. Use a fresh UUID per logical operation.
+        in: header
         name: Idempotency-Key
-        required: false
+        required: true
         schema:
           type: string
       requestBody:
@@ -980,7 +1146,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
-          description: OK
+          description: The refund was issued; the payment is returned with its updated `refundedAmountMinor`.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: The request body failed validation. `errors` names every field that failed; the rejected values are deliberately not echoed back.
         "401":
           content:
             application/json:
@@ -1013,6 +1185,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "No such payment. Also returned when the payment exists but belongs to another merchant, or to the other mode — never `403`, because a `403` would confirm that it exists."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "The payment is not in a state where this operation is legal — capturing one that was never authorized, voiding one already captured, refunding more than remains. The `code` says which."
         "429":
           content:
             application/json:
@@ -1045,21 +1229,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Refund a captured payment
       tags:
       - Payments
   /v1/payments/{id}/void:
     post:
+      description: "Releases an authorization without taking the money, moving the payment to `voided`. This is the counterpart to capture, not to refund: void applies before funds have moved, refund after. A captured payment cannot be voided — refund it instead."
       operationId: voidPayment
       parameters:
-      - in: path
+      - description: The payment to void.
+        in: path
         name: id
         required: true
         schema:
           type: string
           format: uuid
-      - in: header
+      - description: A unique key that makes this request safe to retry. **Required on every mutating request.** Replaying the same key returns the original response instead of performing the operation twice; a second request arriving while the first is still in flight fails fast with `409 IDEMPOTENCY_CONFLICT`. Use a fresh UUID per logical operation.
+        in: header
         name: Idempotency-Key
-        required: false
+        required: true
         schema:
           type: string
       responses:
@@ -1068,7 +1256,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
-          description: OK
+          description: The authorization was released.
         "401":
           content:
             application/json:
@@ -1101,6 +1289,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "No such payment. Also returned when the payment exists but belongs to another merchant, or to the other mode — never `403`, because a `403` would confirm that it exists."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "The payment is not in a state where this operation is legal — capturing one that was never authorized, voiding one already captured, refunding more than remains. The `code` says which."
         "429":
           content:
             application/json:
@@ -1133,41 +1333,53 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Void a payment
       tags:
       - Payments
   /v1/refunds:
     get:
+      description: |-
+        Returns the refunds you have issued, most recent first, cursor-paginated on the same contract as the payments list.
+
+        Refunds became first-class objects in this platform's M19 release, so this list starts there — a payment refunded before then carries the refunded total on the payment itself but has no refund object here.
       operationId: listRefunds
       parameters:
-      - in: query
+      - description: "How many objects to return, 1–100. Values above the ceiling are clamped to it rather than rejected, so a client asking for more simply receives the maximum. Defaults to 25."
+        in: query
         name: limit
         required: false
         schema:
           type: integer
           format: int32
-      - in: query
+      - description: A cursor for pagination. Pass the `nextCursor` from the previous response to fetch the following page. The value is opaque and signed — treat it as a token and never parse or construct one.
+        in: query
         name: starting_after
         required: false
         schema:
           type: string
-      - in: query
+      - description: Return only refunds issued against this payment.
+        in: query
         name: payment
         required: false
         schema:
           type: string
           format: uuid
-      - in: query
+      - description: Return only refunds in this state.
+        example: succeeded
+        in: query
         name: status
         required: false
         schema:
           type: string
-      - in: query
+      - description: "Return only objects created at or after this instant, as RFC 3339 (`2026-07-29T00:00:00Z`)."
+        in: query
         name: created_after
         required: false
         schema:
           type: string
           format: date-time
-      - in: query
+      - description: "Return only objects created at or before this instant, as RFC 3339 (`2026-07-29T23:59:59Z`)."
+        in: query
         name: created_before
         required: false
         schema:
@@ -1187,7 +1399,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CursorPageRefundResponse"
-          description: OK
+          description: "A page of refunds, most recent first."
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "The query could not be understood: a tampered or malformed `starting_after` cursor, a `limit` that is not positive, or a filter value outside the vocabulary this endpoint accepts. A rejected filter is deliberately an error rather than an empty page — an empty page is something you would then have to explain to yourself."
         "401":
           content:
             application/json:
@@ -1252,13 +1470,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: List refunds
       tags:
       - Refunds
   /v1/refunds/{id}:
     get:
+      description: "Returns one refund by id, including the payment it was issued against and why it was issued."
       operationId: getRefund
       parameters:
-      - in: path
+      - description: The refund to retrieve.
+        in: path
         name: id
         required: true
         schema:
@@ -1270,7 +1491,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RefundResponse"
-          description: OK
+          description: The refund.
         "401":
           content:
             application/json:
@@ -1303,6 +1524,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "No such refund. Also returned when the refund exists but belongs to another merchant, or to the other mode."
         "429":
           content:
             application/json:
@@ -1335,42 +1562,57 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Retrieve a refund
       tags:
       - Refunds
   /v1/request_logs:
     get:
-      operationId: requestLogs
+      description: |-
+        Returns the API calls you have made, most recent first, cursor-paginated — the record you reach for when an integration behaved differently from how you expected.
+
+        Each entry carries the `requestId` the response returned, so an error a customer reported can be found here by the identifier they quote. Bodies and headers are **redacted at the edge before they are stored**: card numbers, API keys and secrets never reach this log, so what you see here is what was safe to keep rather than what was sent.
+
+        Entries are pruned on a schedule; older traffic survives as aggregates at `/v1/usage`.
+      operationId: listRequestLogs
       parameters:
-      - in: query
+      - description: "How many objects to return, 1–100. Values above the ceiling are clamped to it rather than rejected, so a client asking for more simply receives the maximum. Defaults to 25."
+        in: query
         name: limit
         required: false
         schema:
           type: integer
           format: int32
-      - in: query
+      - description: A cursor for pagination. Pass the `nextCursor` from the previous response to fetch the following page. The value is opaque and signed — treat it as a token and never parse or construct one.
+        in: query
         name: starting_after
         required: false
         schema:
           type: string
-      - in: query
+      - description: "Return only objects created at or after this instant, as RFC 3339 (`2026-07-29T00:00:00Z`)."
+        in: query
         name: created_after
         required: false
         schema:
           type: string
           format: date-time
-      - in: query
+      - description: "Return only objects created at or before this instant, as RFC 3339 (`2026-07-29T23:59:59Z`)."
+        in: query
         name: created_before
         required: false
         schema:
           type: string
           format: date-time
-      - in: query
+      - description: Return only requests that returned this exact HTTP status.
+        example: 409
+        in: query
         name: status_code
         required: false
         schema:
           type: integer
           format: int32
-      - in: query
+      - description: Return only requests made with this HTTP method.
+        example: POST
+        in: query
         name: method
         required: false
         schema:
@@ -1381,7 +1623,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CursorPageRequestLogResponse"
-          description: OK
+          description: "A page of request log entries, most recent first."
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "The query could not be understood: a tampered or malformed `starting_after` cursor, a `limit` that is not positive, or a filter value outside the vocabulary this endpoint accepts. A rejected filter is deliberately an error rather than an empty page — an empty page is something you would then have to explain to yourself."
         "401":
           content:
             application/json:
@@ -1446,11 +1694,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: List API request logs
       tags:
       - Request logs
   /v1/test/cards:
     get:
-      operationId: listCards
+      description: |-
+        Returns the catalogue of tokens you can pass as `paymentMethodToken` in test mode, and exactly what each one will do — approve, decline with a given code, fail with an error, stall, or settle after a delay.
+
+        **This endpoint needs no API key.** It is the same catalogue for every merchant, and requiring a credential to read the list of credentials-free test data would be a poor first impression; it is the one endpoint in the public API that takes no authentication.
+
+        The catalogue is the single source the documentation renders from, so what you read here and what a real call does cannot drift.
+      operationId: listTestCards
       responses:
         "200":
           content:
@@ -1459,7 +1714,7 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TestCardResponse"
-          description: OK
+          description: Every test card the sandbox recognises.
         "429":
           content:
             application/json:
@@ -1493,11 +1748,18 @@ paths:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
       security: []
+      summary: List the test cards
       tags:
       - Test cards
   /v1/test/decisions:
     get:
-      operationId: list
+      description: |-
+        Returns every verdict the simulated acquirer has reached for you, most recent first — and, in `source`, **why**: the test card's own catalogue entry, an active simulation override, or the mode's default.
+
+        payment-service learns the verdict; the sandbox keeps the reasoning. This is where to look when a payment declined and you expected it not to.
+
+        Offset-paginated with `page` and `size` rather than the cursor pagination the rest of the public API uses. That is deliberate and documented (D139): this endpoint predates the cursor contract and was not retrofitted, because doing so would break callers to no benefit on a list nobody paginates deeply.
+      operationId: listSandboxDecisions
       parameters:
       - description: Zero-based page index (0..N)
         in: query
@@ -1529,7 +1791,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PageResponseDecisionLogEntryResponse"
-          description: OK
+          description: "A page of decisions, most recent first."
         "401":
           content:
             application/json:
@@ -1594,13 +1856,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: List sandbox decisions
       tags:
       - Decisions
   /v1/test/decisions/payments/{paymentId}:
     get:
-      operationId: forPayment
+      description: |-
+        Returns every decision made about a single payment, in the order they were made — the authorization, then any capture or refund — so a payment's whole sandbox history reads as one sequence.
+
+        A payment with no decisions returns an empty list rather than a `404`: "this payment was never authorized" is an answer, not a missing resource.
+      operationId: listSandboxDecisionsForPayment
       parameters:
-      - in: path
+      - description: The payment whose decisions to return.
+        in: path
         name: paymentId
         required: true
         schema:
@@ -1614,7 +1882,7 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/DecisionLogEntryResponse"
-          description: OK
+          description: "The decisions for this payment, oldest first. Empty when none were made."
         "401":
           content:
             application/json:
@@ -1679,11 +1947,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: List the decisions for one payment
       tags:
       - Decisions
   /v1/test/simulations:
     post:
-      operationId: create
+      description: |-
+        Installs an override that makes the sandbox behave a given way for your next authorizations, regardless of which test card they use.
+
+        Test cards cover the outcomes you can choose per payment; an override covers the ones you cannot — a processor outage, a sudden run of declines, latency that trips your timeouts — without needing a token for every combination. Bound it with `remainingCount` or `durationSeconds` so it stops on its own.
+
+        One override is active per merchant and mode at a time; creating another replaces it.
+      operationId: createSimulationOverride
       requestBody:
         content:
           application/json:
@@ -1691,12 +1966,18 @@ paths:
               $ref: "#/components/schemas/CreateSimulationOverrideRequest"
         required: true
       responses:
-        "200":
+        "201":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SimulationOverrideResponse"
-          description: OK
+          description: The override is active.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "The override is not internally consistent — a `FORCE_DECLINE` with no `declineCode`, or neither `remainingCount` nor `durationSeconds` to end it."
         "401":
           content:
             application/json:
@@ -1761,14 +2042,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Force a sandbox behaviour
       tags:
       - Simulations
   /v1/test/simulations/active:
     delete:
-      operationId: revokeActive
+      description: "Removes the override in force for your merchant and mode, returning the sandbox to its normal behaviour. Succeeds whether or not one was active — the point is the resulting state, so this is safe to call unconditionally at the start of a test."
+      operationId: revokeActiveSimulationOverride
       responses:
-        "200":
-          description: OK
+        "204":
+          description: No override is in force. Returned whether or not one was.
         "401":
           content:
             application/json:
@@ -1833,17 +2116,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Revoke the active override
       tags:
       - Simulations
     get:
-      operationId: getActive
+      description: "Returns the override currently in force for your merchant and mode, including how much of it is left. The first thing to check when the sandbox is behaving in a way you did not ask for — an override with `remainingCount` left over from an earlier test is the usual cause."
+      operationId: getActiveSimulationOverride
       responses:
         "200":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SimulationOverrideResponse"
-          description: OK
+          description: The active override.
         "401":
           content:
             application/json:
@@ -1876,6 +2161,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: No override is active — the sandbox is behaving normally.
         "429":
           content:
             application/json:
@@ -1908,19 +2199,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Retrieve the active override
       tags:
       - Simulations
   /v1/usage:
     get:
-      operationId: usage
+      description: |-
+        Returns how much of the API you used over a date range, broken down by day, key and route, with latency percentiles per bucket.
+
+        Dated rather than timestamped, because the aggregate is per UTC day — accepting an instant would imply a precision the stored data does not have. Usage is grouped by key, so two keys hitting the same route on the same day appear as two buckets rather than one merged number; percentiles cannot be meaningfully averaged across keys, which is why they are not.
+
+        This outlives the raw request log: entries there are pruned, and their counts are rolled forward into these aggregates first.
+      operationId: getUsage
       parameters:
-      - in: query
+      - description: "The first day to include, in UTC. Defaults to 30 days ago."
+        example: 2026-07-01
+        in: query
         name: from
         required: false
         schema:
           type: string
           format: date
-      - in: query
+      - description: "The last day to include, in UTC. Defaults to today."
+        example: 2026-07-29
+        in: query
         name: to
         required: false
         schema:
@@ -1932,7 +2234,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UsageSummaryResponse"
-          description: OK
+          description: "Usage totals for the range, and the per-day, per-key, per-route breakdown."
         "401":
           content:
             application/json:
@@ -1997,11 +2299,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Summarize API usage
       tags:
       - Usage
   /v1/webhook_deliveries:
     get:
-      operationId: list_1
+      description: |-
+        Returns every delivery made to your endpoints, most recent first, each with its full attempt history — the request sent and the response received, per attempt.
+
+        This is what to read when a webhook did not arrive. The useful answer is almost never "it failed"; it is "it failed with 502 and this body, four times", which is here and nowhere else.
+
+        Offset-paginated with `page` and `size` rather than the cursor pagination the rest of the public API uses — this endpoint predates that contract and was deliberately not retrofitted (D139).
+      operationId: listWebhookDeliveries
       parameters:
       - description: Zero-based page index (0..N)
         in: query
@@ -2033,7 +2342,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PageResponseWebhookDeliveryResponse"
-          description: OK
+          description: "A page of deliveries, most recent first, each with its attempts."
         "401":
           content:
             application/json:
@@ -2098,13 +2407,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: List webhook deliveries
       tags:
       - Webhook deliveries
   /v1/webhook_deliveries/{id}:
     get:
-      operationId: get_1
+      description: "Returns one delivery with every attempt made for it, including the `PaymentFlow-Signature` header sent — which is what to compare against when a signature you computed does not match ours."
+      operationId: getWebhookDelivery
       parameters:
-      - in: path
+      - description: The delivery to retrieve.
+        in: path
         name: id
         required: true
         schema:
@@ -2116,7 +2428,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WebhookDeliveryResponse"
-          description: OK
+          description: The delivery and its attempts.
         "401":
           content:
             application/json:
@@ -2149,6 +2461,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "No such delivery. Also returned when it exists but belongs to another merchant, or to the other mode — never `403`, which would confirm it exists."
         "429":
           content:
             application/json:
@@ -2181,13 +2499,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Retrieve a webhook delivery
       tags:
       - Webhook deliveries
   /v1/webhook_deliveries/{id}/replay:
     post:
-      operationId: replay
+      description: |-
+        Sends the same event to the same endpoint again, as a **new** delivery. The original is never modified — it keeps its own history, and the replay records `replayedFromDeliveryId` so the relationship stays visible.
+
+        Use this after fixing a receiver that was rejecting deliveries, or after re-enabling an endpoint the platform disabled. The response describes a delivery that has been *dispatched*, not delivered: it comes back with no attempts yet, because reporting more would be a promise the platform has not kept.
+      operationId: replayWebhookDelivery
       parameters:
-      - in: path
+      - description: The delivery to re-send.
+        in: path
         name: id
         required: true
         schema:
@@ -2199,7 +2523,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WebhookDeliveryResponse"
-          description: Created
+          description: A new delivery has been dispatched. It has no attempts yet.
         "401":
           content:
             application/json:
@@ -2232,6 +2556,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "No such delivery. Also returned when it exists but belongs to another merchant, or to the other mode — never `403`, which would confirm it exists."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "The delivery cannot be replayed — its endpoint has since been deleted, so there is nowhere to send it."
         "429":
           content:
             application/json:
@@ -2264,11 +2600,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Replay a webhook delivery
       tags:
       - Webhook deliveries
   /v1/webhook_endpoints:
     get:
-      operationId: list
+      description: "Returns every endpoint registered for your merchant in the mode of the key you called with, including any the platform has auto-disabled. Not paginated: the number of endpoints per merchant and mode is capped, so this is always one short list."
+      operationId: listWebhookEndpoints
       responses:
         "200":
           content:
@@ -2277,7 +2615,7 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/WebhookEndpointResponse"
-          description: OK
+          description: Your webhook endpoints.
         "401":
           content:
             application/json:
@@ -2342,10 +2680,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: List your webhook endpoints
       tags:
       - Webhook endpoints
     post:
-      operationId: create
+      description: |-
+        Registers a URL to receive events, and returns the signing secret.
+
+        **The signing secret is shown exactly once, here.** It cannot be retrieved afterwards — only a hash is kept — so store it before you do anything else. Every delivery to this endpoint is signed with it, and verifying that signature is what distinguishes a genuine delivery from anyone who has learned your URL.
+
+        The URL must be reachable over HTTPS from the public internet. Private, link-local and cloud-metadata addresses are refused at registration and re-checked at delivery time, so a hostname cannot be repointed at one later.
+      operationId: createWebhookEndpoint
       requestBody:
         content:
           application/json:
@@ -2358,7 +2703,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WebhookEndpointCreatedResponse"
-          description: Created
+          description: The endpoint is registered. This response carries the signing secret; it is not shown again.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "The endpoint was refused: a URL that is not HTTPS, resolves to a private or metadata address, or an empty `enabledEvents`."
         "401":
           content:
             application/json:
@@ -2391,6 +2742,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: You already have an endpoint registered at this URL in this mode.
         "429":
           content:
             application/json:
@@ -2423,21 +2780,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Register a webhook endpoint
       tags:
       - Webhook endpoints
   /v1/webhook_endpoints/{id}:
     delete:
-      operationId: delete
+      description: "Removes an endpoint permanently. Nothing further is delivered to it, and its signing secret stops being valid. To stop deliveries temporarily, set `enabled` to false instead — that is reversible, and this is not."
+      operationId: deleteWebhookEndpoint
       parameters:
-      - in: path
+      - description: The endpoint to delete.
+        in: path
         name: id
         required: true
         schema:
           type: string
           format: uuid
       responses:
-        "200":
-          description: OK
+        "204":
+          description: The endpoint is gone.
         "401":
           content:
             application/json:
@@ -2470,6 +2830,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "No such endpoint. Also returned when it exists but belongs to another merchant, or to the other mode — never `403`, which would confirm it exists."
         "429":
           content:
             application/json:
@@ -2502,12 +2868,15 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Delete a webhook endpoint
       tags:
       - Webhook endpoints
     get:
-      operationId: get
+      description: "Returns one endpoint, including its consecutive failure count and — if it has been disabled — whether you disabled it or the platform did."
+      operationId: getWebhookEndpoint
       parameters:
-      - in: path
+      - description: The endpoint to retrieve.
+        in: path
         name: id
         required: true
         schema:
@@ -2519,7 +2888,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WebhookEndpointResponse"
-          description: OK
+          description: The endpoint.
         "401":
           content:
             application/json:
@@ -2552,6 +2921,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "No such endpoint. Also returned when it exists but belongs to another merchant, or to the other mode — never `403`, which would confirm it exists."
         "429":
           content:
             application/json:
@@ -2584,12 +2959,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Retrieve a webhook endpoint
       tags:
       - Webhook endpoints
     patch:
-      operationId: update
+      description: |-
+        Changes an endpoint's description, subscriptions, metadata, or enabled state. A partial update: omitted fields are left alone, so re-enabling an endpoint does not require re-sending its subscription list and risking truncating it.
+
+        The URL cannot be changed. It is half of the endpoint's identity, and repointing one would keep its delivery history attached to a destination that never received any of it — register a new endpoint and delete this one.
+      operationId: updateWebhookEndpoint
       parameters:
-      - in: path
+      - description: The endpoint to update.
+        in: path
         name: id
         required: true
         schema:
@@ -2607,7 +2988,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WebhookEndpointResponse"
-          description: OK
+          description: The updated endpoint.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "The update failed validation — an `enabledEvents` naming an unknown event type, for instance."
         "401":
           content:
             application/json:
@@ -2640,6 +3027,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "No such endpoint. Also returned when it exists but belongs to another merchant, or to the other mode — never `403`, which would confirm it exists."
         "429":
           content:
             application/json:
@@ -2672,13 +3065,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Update a webhook endpoint
       tags:
       - Webhook endpoints
   /v1/webhook_endpoints/{id}/rotate_secret:
     post:
-      operationId: rotateSecret
+      description: |-
+        Issues a new signing secret for the endpoint and returns it — the second and only other place a raw secret is ever shown.
+
+        **Both secrets verify during a grace window**, so you can deploy the new one without dropping in-flight deliveries: rotate, deploy, and let the old secret lapse. Verifying against either during that window is the intended behaviour, not a weakness.
+
+        Rotate when a secret may have been exposed, or when you have lost the one you were shown at registration — it cannot be recovered, only replaced.
+      operationId: rotateWebhookEndpointSecret
       parameters:
-      - in: path
+      - description: The endpoint whose secret to rotate.
+        in: path
         name: id
         required: true
         schema:
@@ -2690,7 +3091,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WebhookEndpointCreatedResponse"
-          description: OK
+          description: "The endpoint, with its new signing secret. Not shown again."
         "401":
           content:
             application/json:
@@ -2723,6 +3124,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: "No such endpoint. Also returned when it exists but belongs to another merchant, or to the other mode — never `403`, which would confirm it exists."
         "429":
           content:
             application/json:
@@ -2755,6 +3162,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+      summary: Rotate an endpoint's signing secret
       tags:
       - Webhook endpoints
 tags:
@@ -2792,166 +3200,265 @@ components:
         authorizedCount:
           type: integer
           format: int64
+          description: Payments authorized in this hour.
+          example: 58
         bucketStart:
           type: string
           format: date-time
+          description: The inclusive start of this bucket. Each bucket covers the hour beginning here.
         capturedCount:
           type: integer
           format: int64
+          description: Payments captured in this hour.
+          example: 57
         createdCount:
           type: integer
           format: int64
+          description: Payments created in this hour.
+          example: 62
         currency:
           type: string
+          description: "The ISO 4217 currency these counts and amounts are for. Buckets are split by currency, so amounts are never mixed."
+          example: USD
         failedCount:
           type: integer
           format: int64
+          description: Authorization attempts that failed in this hour.
+          example: 4
         object:
           type: string
+          description: Always `analytics_bucket`.
+          example: analytics_bucket
         refundedCount:
           type: integer
           format: int64
+          description: Payments refunded in this hour.
+          example: 2
         totalCapturedAmountMinor:
           type: integer
           format: int64
+          description: "Total captured in this hour, in the bucket's currency's minor unit."
+          example: 57000
         totalRefundedAmountMinor:
           type: integer
           format: int64
+          description: "Total refunded in this hour, in the bucket's currency's minor unit."
+          example: 2000
         voidedCount:
           type: integer
           format: int64
+          description: Authorizations released without capture in this hour.
+          example: 1
     AnalyticsSummaryResponse:
       type: object
       properties:
         authorizedCount:
           type: integer
           format: int64
+          description: How many payments were authorized.
+          example: 1310
         buckets:
           type: array
+          description: "The hourly series behind these totals, split by currency. The series begins where this platform started recording it."
           items:
             $ref: "#/components/schemas/AnalyticsBucketResponse"
         capturedCount:
           type: integer
           format: int64
+          description: How many payments were captured.
+          example: 1298
         createdCount:
           type: integer
           format: int64
+          description: How many payments were created in the window.
+          example: 1420
         failedCount:
           type: integer
           format: int64
+          description: How many authorization attempts failed.
+          example: 110
         from:
           type: string
           format: date-time
+          description: "The start of the window these totals cover, inclusive."
         object:
           type: string
+          description: Always `analytics_summary`.
+          example: analytics_summary
         refundedCount:
           type: integer
           format: int64
+          description: "How many payments were refunded, in whole or in part."
+          example: 37
         successRate:
-          type: number
+          type:
+          - number
+          - "null"
           format: double
+          description: |-
+            The share of authorization attempts that succeeded, between 0 and 1, computed as `authorizedCount / (authorizedCount + failedCount)`. Payments still in `created` are excluded — they have not been attempted, and counting them as failures would make the rate fall simply because traffic arrived.
+
+            **Explicitly `null`**, never omitted, when nothing was attempted in the window: a rate over zero attempts is unknown rather than zero.
+          example: 0.9225
         to:
           type: string
           format: date-time
+          description: "The end of the window these totals cover, inclusive."
         totalCapturedAmountMinor:
           type: integer
           format: int64
+          description: "Total captured across the window, in minor units. Not currency-split — use `buckets` for that."
+          example: 1298000
         totalRefundedAmountMinor:
           type: integer
           format: int64
+          description: "Total refunded across the window, in minor units."
+          example: 37000
         voidedCount:
           type: integer
           format: int64
+          description: How many authorizations were released without capture.
+          example: 12
     ApiError:
+      type: object
       properties:
         code:
           type: string
+          description: "A stable, machine-readable identifier for this specific failure, such as `PAYMENT_NOT_CAPTURABLE`. The set of codes grows by policy, which is why `type` and not this is what a client should switch on. Every code is catalogued in docs/ERRORS.md."
         correlationId:
           type: string
+          description: "Identifies the whole distributed trace this call belongs to, which may span several services. Broader than `requestId`."
         docUrl:
           type: string
+          description: Where to read about this specific code.
         errors:
           type: array
+          description: "Field-level validation failures, when the request failed validation in more than one place."
           items:
             $ref: "#/components/schemas/ApiFieldError"
         message:
           type: string
+          description: "A human-readable explanation. Safe to log; not intended to be shown to your customers, and never programmatically parsed."
         param:
           type: string
+          description: "The single offending parameter, when there is exactly one. Multi-field validation failures use `errors` instead."
         path:
           type: string
+          description: The request path that produced the error.
         requestId:
           type: string
+          description: Identifies this one HTTP call. **Quote this in a support request** — it is on every log line and every row of your request log.
         status:
           type: integer
           format: int32
+          description: "The HTTP status code, repeated in the body so a logged response is self-contained."
         timestamp:
           type: string
           format: date-time
+          description: "When the error occurred, as RFC 3339."
         type:
           type: string
+          description: "The error's classification, and **the field to branch on**. This is a small closed set an SDK maps to exception classes: `authentication_error`, `permission_error`, `invalid_request_error`, `idempotency_error`, `rate_limit_error`, `api_error`."
     ApiFieldError:
+      type: object
       properties:
         field:
           type: string
+          description: The request field that failed validation.
         message:
           type: string
+          description: Why it failed. The rejected value is deliberately never echoed back.
     BalanceResponse:
       type: object
       properties:
         balances:
           type: array
+          description: One entry per currency you hold a balance in. A currency you have never transacted in is absent rather than reported as zero.
           items:
             $ref: "#/components/schemas/CurrencyBalance"
         object:
           type: string
+          description: Always `balance`. The discriminator that identifies this object out of context.
+          example: balance
     BalanceTransactionResponse:
       type: object
       properties:
         accountType:
           type: string
+          description: Which of your accounts moved. `MERCHANT_PENDING` holds authorized funds; `MERCHANT_SETTLED` holds captured funds owed to you. The other leg of every entry touches the platform's clearing account and is deliberately not exposed.
+          example: MERCHANT_SETTLED
         amountMinor:
           type: integer
           format: int64
+          description: "The amount moved, in the currency's minor unit. Always positive — `direction` carries the sign."
+          example: 1000
         createdAt:
           type: string
           format: date-time
+          description: "When the entry was posted, as RFC 3339."
         currency:
           type: string
+          description: The three-letter ISO 4217 currency code.
+          example: USD
         direction:
           type: string
+          description: Whether the entry added to (`CREDIT`) or removed from (`DEBIT`) the account.
+          enum:
+          - DEBIT
+          - CREDIT
+          example: CREDIT
         eventType:
           type: string
+          description: "Which payment lifecycle event produced the entry — an authorization, a capture, a refund, a void. This is the *why* of the movement."
+          example: payment.captured
         id:
           type: string
           format: uuid
+          description: Unique identifier for this ledger entry.
         mode:
           type: string
+          description: Whether this entry is `test` or `live` data.
+          enum:
+          - test
+          - live
+          example: test
         object:
           type: string
+          description: Always `balance_transaction`. The discriminator that identifies this object out of context.
+          example: balance_transaction
         paymentId:
           type: string
           format: uuid
+          description: The payment whose lifecycle produced this entry.
     CreatePaymentRequest:
       type: object
       properties:
         amountMinor:
           type: integer
           format: int64
+          description: "The amount to charge, as an integer in the currency's **minor unit**: `1000` in `USD` is $10.00. There are no floating-point amounts anywhere in this API. Must be positive."
+          example: 1000
         currency:
           type: string
+          description: "The three-letter ISO 4217 currency code, such as `USD`."
+          example: USD
           maxLength: 3
           minLength: 3
         description:
           type: string
+          description: "An arbitrary description of what is being paid for, up to 500 characters. For your own records — PaymentFlow never shows it to your customer."
+          example: Order A-1234
           maxLength: 500
           minLength: 0
         metadata:
           type: object
           additionalProperties:
             type: string
+          description: "Up to 20 arbitrary key-value pairs you can attach to this object. PaymentFlow never interprets them; they are returned on every read and are filterable with `metadata[key]=value`."
         paymentMethodToken:
           type: string
+          description: "A payment-method token to authorize against. Optional: a payment created without one takes the mode's default authorization behaviour. In test mode, pass one of the tokens from `GET /v1/test/cards` to choose the outcome."
+          example: tok_visa_approved
           maxLength: 64
           minLength: 0
       required:
@@ -2961,23 +3468,34 @@ components:
       properties:
         declineCode:
           type: string
+          description: "The decline code to return. Required for `FORCE_DECLINE`, ignored otherwise."
+          example: insufficient_funds
           maxLength: 48
           minLength: 0
         durationSeconds:
           type: integer
           format: int32
+          description: "How long the override lasts, in seconds. The alternative to `remainingCount`; supply one of the two."
+          example: 300
         errorCode:
           type: string
+          description: "The error code to fail with. Required for `FORCE_ERROR`, ignored otherwise."
+          example: processor_unavailable
           maxLength: 48
           minLength: 0
         latencyMs:
           type: integer
           format: int32
+          description: "How long to stall, in milliseconds. Required for the latency scenarios, ignored otherwise."
+          example: 3000
         remainingCount:
           type: integer
           format: int32
+          description: "How many authorizations the override applies to before it expires. **Supply this or `durationSeconds`** — an override with neither would never stop, and a sandbox you cannot get back out of is worse than one you cannot get into."
+          example: 3
         scenario:
           type: string
+          description: "Which behaviour to force. The scenario decides which of the fields below are required: `FORCE_DECLINE` needs `declineCode`, `FORCE_ERROR` needs `errorCode`, and the latency scenarios need `latencyMs`."
           enum:
           - FORCE_DECLINE
           - FORCE_ERROR
@@ -2987,6 +3505,7 @@ components:
           - DELAY_SETTLEMENT
           - DUPLICATE_WEBHOOKS
           - WEBHOOK_FAILURE
+          example: FORCE_DECLINE
       required:
       - scenario
     CreateWebhookEndpointRequest:
@@ -2994,21 +3513,32 @@ components:
       properties:
         description:
           type: string
+          description: Your own label for this endpoint. Useful once you have more than one.
+          example: Production order pipeline
           maxLength: 255
           minLength: 0
         enabledEvents:
           type: array
+          description: "The event types to send here. Must name at least one — an endpoint subscribed to nothing looks identical to a broken platform from your side, so it is refused rather than accepted silently. Use `[\"*\"]` to receive everything, including types added later."
+          example:
+          - payment.captured
+          - payment.refunded
           items:
             type: string
             maxLength: 64
             minLength: 0
-          minItems: 1
         metadata:
           type: object
           additionalProperties:
             type: string
+          description: "Up to 20 arbitrary key-value pairs you can attach to this object. PaymentFlow never interprets them; they are returned on every read and are filterable with `metadata[key]=value`."
         url:
           type: string
+          description: |-
+            Where to send deliveries. Must be reachable from the public internet over HTTPS: private, link-local and cloud-metadata addresses are refused, and the address is re-checked at delivery time so a hostname cannot be repointed at one afterwards.
+
+            Not updatable later — the URL is half of an endpoint's identity.
+          example: https://example.com/webhooks/paymentflow
           maxLength: 2048
           minLength: 0
       required:
@@ -3020,290 +3550,336 @@ components:
         availableMinor:
           type: integer
           format: int64
+          description: "Money captured and owed to you, in the currency's minor unit, net of refunds."
+          example: 125000
         currency:
           type: string
+          description: The three-letter ISO 4217 currency code.
+          example: USD
         pendingMinor:
           type: integer
           format: int64
+          description: "Money authorized but not yet captured, in the currency's minor unit. Not yours yet — an authorization can still be voided or expire."
+          example: 0
     CursorPageBalanceTransactionResponse:
       type: object
       properties:
         data:
           type: array
+          description: "The objects on this page, most recent first."
           items:
             $ref: "#/components/schemas/BalanceTransactionResponse"
         hasMore:
           type: boolean
+          description: Whether more objects exist after this page. A cursor page reports no total count — that would cost a second full count query on every request — and this is the only question a paginating client needs.
         nextCursor:
           type: string
+          description: "Pass this as `starting_after` to fetch the next page. Absent when `hasMore` is false. Opaque and signed: treat it as a token, never parse or construct one."
         object:
           type: string
+          description: "Always `list`. A constant discriminator, so a client deserializing a response can branch on a field rather than on the endpoint it called."
     CursorPageEventResponse:
       type: object
       properties:
         data:
           type: array
+          description: "The objects on this page, most recent first."
           items:
             $ref: "#/components/schemas/EventResponse"
         hasMore:
           type: boolean
+          description: Whether more objects exist after this page. A cursor page reports no total count — that would cost a second full count query on every request — and this is the only question a paginating client needs.
         nextCursor:
           type: string
+          description: "Pass this as `starting_after` to fetch the next page. Absent when `hasMore` is false. Opaque and signed: treat it as a token, never parse or construct one."
         object:
           type: string
+          description: "Always `list`. A constant discriminator, so a client deserializing a response can branch on a field rather than on the endpoint it called."
     CursorPagePaymentResponse:
       type: object
       properties:
         data:
           type: array
+          description: "The objects on this page, most recent first."
           items:
             $ref: "#/components/schemas/PaymentResponse"
         hasMore:
           type: boolean
+          description: Whether more objects exist after this page. A cursor page reports no total count — that would cost a second full count query on every request — and this is the only question a paginating client needs.
         nextCursor:
           type: string
+          description: "Pass this as `starting_after` to fetch the next page. Absent when `hasMore` is false. Opaque and signed: treat it as a token, never parse or construct one."
         object:
           type: string
+          description: "Always `list`. A constant discriminator, so a client deserializing a response can branch on a field rather than on the endpoint it called."
     CursorPageRefundResponse:
       type: object
       properties:
         data:
           type: array
+          description: "The objects on this page, most recent first."
           items:
             $ref: "#/components/schemas/RefundResponse"
         hasMore:
           type: boolean
+          description: Whether more objects exist after this page. A cursor page reports no total count — that would cost a second full count query on every request — and this is the only question a paginating client needs.
         nextCursor:
           type: string
+          description: "Pass this as `starting_after` to fetch the next page. Absent when `hasMore` is false. Opaque and signed: treat it as a token, never parse or construct one."
         object:
           type: string
+          description: "Always `list`. A constant discriminator, so a client deserializing a response can branch on a field rather than on the endpoint it called."
     CursorPageRequestLogResponse:
       type: object
       properties:
         data:
           type: array
+          description: "The objects on this page, most recent first."
           items:
             $ref: "#/components/schemas/RequestLogResponse"
         hasMore:
           type: boolean
+          description: Whether more objects exist after this page. A cursor page reports no total count — that would cost a second full count query on every request — and this is the only question a paginating client needs.
         nextCursor:
           type: string
+          description: "Pass this as `starting_after` to fetch the next page. Absent when `hasMore` is false. Opaque and signed: treat it as a token, never parse or construct one."
         object:
           type: string
+          description: "Always `list`. A constant discriminator, so a client deserializing a response can branch on a field rather than on the endpoint it called."
     DecisionLogEntryResponse:
       type: object
       properties:
         createdAt:
           type: string
           format: date-time
+          description: "When the decision was made, as RFC 3339."
         decisionKey:
           type: string
+          description: "The idempotency key this decision was made under. Re-deciding with the same key returns the original verdict rather than deciding again, so a retry cannot change an outcome your integration already saw."
         declineCode:
           type: string
+          description: "The decline code returned, when the outcome was a decline."
+          example: insufficient_funds
         deferredDelayMs:
           type: integer
           format: int32
+          description: "How long the deferred outcome was scheduled to wait, in milliseconds."
+          example: 5000
         deferredOperation:
           type: string
+          description: "The operation whose outcome was deferred, when the decision scheduled one for later."
+          example: CAPTURE
         errorCode:
           type: string
+          description: "The error code returned, when the outcome was an error."
+          example: processor_unavailable
         latencyMs:
           type: integer
           format: int32
+          description: "How long the simulated acquirer took to answer, in milliseconds."
+          example: 0
         operation:
           type: string
+          description: "Which operation was being decided — an authorization, a capture, a refund."
+          example: AUTHORIZE
         outcome:
           type: string
+          description: What the simulated acquirer decided.
+          example: APPROVE
         overrideId:
           type: string
           format: uuid
+          description: "The simulation override that produced this decision, when `source` names one. A bare reference rather than the override's contents — enough to know one was involved without this endpoint re-exposing the simulation control surface."
         paymentId:
           type: string
           format: uuid
+          description: The payment this decision was made about.
         source:
           type: string
+          description: "**Why the outcome was what it was**: the test card's own catalogue entry, an active simulation override, or the mode's default. This is the field that turns a surprising result into an explained one."
+          example: TEST_CARD
     EventResponse:
       type: object
       properties:
         created:
           type: string
           format: date-time
+          description: "When the event occurred — not when it was recorded. Events are ordered by this, so a redelivery cannot reorder your feed."
         data:
-          $ref: "#/components/schemas/JsonNode"
+          type: object
+          additionalProperties: true
+          description: "The event payload — the object the event happened to, as it was at the time. Its shape depends on `type` and is the same body your webhook endpoint received. Stored verbatim: audit-service records what it was given rather than a typed view it would then have to keep in step."
         id:
           type: string
+          description: "Unique identifier for this event, `evt_` followed by 32 hex characters. **Byte-identical to the `id` in the webhook body you received for the same event**, so a webhook can be reconciled against this log without storing anything extra."
+          example: evt_9f2c1e7a4b8d4c3e8a1d2b4f6a8c05d1
         mode:
           type: string
+          description: Whether this event describes `test` or `live` activity.
+          enum:
+          - test
+          - live
+          example: test
         object:
           type: string
+          description: Always `event`. The discriminator that identifies this object out of context.
+          example: event
         type:
           type: string
-    JsonNode:
-      type: object
-      properties:
-        array:
-          type: boolean
-        bigDecimal:
-          type: boolean
-        bigInteger:
-          type: boolean
-        binary:
-          type: boolean
-        boolean:
-          type: boolean
-        container:
-          type: boolean
-        double:
-          type: boolean
-        embeddedValue:
-          type: boolean
-        empty:
-          type: boolean
-        float:
-          type: boolean
-        floatingPointNumber:
-          type: boolean
-        int:
-          type: boolean
-        integralNumber:
-          type: boolean
-        long:
-          type: boolean
-        missingNode:
-          type: boolean
-        nodeType:
-          type: string
-          enum:
-          - ARRAY
-          - BINARY
-          - BOOLEAN
-          - MISSING
-          - "NULL"
-          - NUMBER
-          - OBJECT
-          - POJO
-          - STRING
-        "null":
-          type: boolean
-        number:
-          type: boolean
-        object:
-          type: boolean
-        pojo:
-          type: boolean
-        short:
-          type: boolean
-        string:
-          type: boolean
-        textual:
-          type: boolean
-          deprecated: true
-        valueNode:
-          type: boolean
+          description: "What happened, from the frozen event vocabulary — `payment.created`, `payment.authorized`, `payment.captured`, `payment.refunded`, `payment.voided`, `payment.failed`. **New types may be added without a new API revision**, so treat an unrecognised type as one you do not handle."
+          example: payment.captured
     PageResponseDecisionLogEntryResponse:
       type: object
       properties:
         content:
           type: array
+          description: The objects on this page.
           items:
             $ref: "#/components/schemas/DecisionLogEntryResponse"
         first:
           type: boolean
+          description: Whether this is the first page.
         last:
           type: boolean
+          description: Whether this is the last page.
         page:
           type: integer
           format: int32
+          description: The zero-based index of this page.
         size:
           type: integer
           format: int32
+          description: How many objects each page holds.
         totalElements:
           type: integer
           format: int64
+          description: How many objects match the query in total.
         totalPages:
           type: integer
           format: int32
+          description: How many pages the result set spans.
     PageResponseWebhookDeliveryResponse:
       type: object
       properties:
         content:
           type: array
+          description: The objects on this page.
           items:
             $ref: "#/components/schemas/WebhookDeliveryResponse"
         first:
           type: boolean
+          description: Whether this is the first page.
         last:
           type: boolean
+          description: Whether this is the last page.
         page:
           type: integer
           format: int32
+          description: The zero-based index of this page.
         size:
           type: integer
           format: int32
+          description: How many objects each page holds.
         totalElements:
           type: integer
           format: int64
+          description: How many objects match the query in total.
         totalPages:
           type: integer
           format: int32
+          description: How many pages the result set spans.
     PaymentResponse:
       type: object
       properties:
         amountMinor:
           type: integer
           format: int64
+          description: "The amount authorized, as an integer in the currency's minor unit: `1000` in `USD` is $10.00."
+          example: 1000
         capturedAmountMinor:
           type: integer
           format: int64
+          description: "How much of the authorized amount has been captured so far, in minor units."
+          example: 1000
         createdAt:
           type: string
           format: date-time
+          description: "When the payment was created, as RFC 3339."
         currency:
           type: string
+          description: The three-letter ISO 4217 currency code.
+          example: USD
         description:
           type: string
+          description: The description supplied when the payment was created.
+          example: Order A-1234
         failureReason:
           type: string
+          description: "Why the payment failed, when `status` is `failed`. Absent otherwise — this is the acquirer's reason, not a validation message."
+          example: card_declined
         id:
           type: string
           format: uuid
+          description: Unique identifier for this payment.
         merchantId:
           type: string
           format: uuid
+          description: The merchant this payment belongs to — always your own account.
         metadata:
           type: object
           additionalProperties:
             type: string
+          description: "Up to 20 arbitrary key-value pairs you can attach to this object. PaymentFlow never interprets them; they are returned on every read and are filterable with `metadata[key]=value`."
         mode:
           type: string
+          description: "Whether this payment is `test` or `live` data. Determined by the API key that created it and not changeable by any header, parameter or field."
+          enum:
+          - test
+          - live
+          example: test
         object:
           type: string
+          description: Always `payment`. The discriminator that identifies this object out of context.
+          example: payment
         paymentMethodToken:
           type: string
+          description: "The payment-method token this payment authorizes against, if one was supplied."
+          example: tok_visa_approved
         refundedAmountMinor:
           type: integer
           format: int64
+          description: "How much has been refunded so far, in minor units. Never exceeds `capturedAmountMinor`."
+          example: 0
         refunds:
           type: array
+          description: "The refunds issued against this payment. **Present only when you ask for it** with `?expand=refunds`, and omitted entirely otherwise rather than returned empty — an empty list would be indistinguishable from \"this payment has no refunds\"."
           items:
             $ref: "#/components/schemas/RefundResponse"
         status:
           type: string
+          description: "Where this payment is in its lifecycle. Lowercase `snake_case` as of API revision `2026-08-01`; callers pinned to `2026-07-27` receive the older upper-case spelling. **New values may be added without a new revision**, so treat an unrecognised status as one you do not handle rather than as an error."
+          example: authorized
         updatedAt:
           type: string
           format: date-time
+          description: "When the payment last changed, as RFC 3339."
     RefundRequest:
       type: object
       properties:
         amountMinor:
           type: integer
           format: int64
+          description: "How much to refund, in the currency's minor unit. Omit it — or send no body at all — to refund everything that remains captured."
+          example: 1000
         metadata:
           type: object
           additionalProperties:
             type: string
+          description: "Up to 20 arbitrary key-value pairs you can attach to this object. PaymentFlow never interprets them; they are returned on every read and are filterable with `metadata[key]=value`."
         reason:
           type: string
+          description: "Why the refund was issued, up to 500 characters. For your own records; PaymentFlow never interprets it."
+          example: Customer returned the item
           maxLength: 500
           minLength: 0
     RefundResponse:
@@ -3312,142 +3888,254 @@ components:
         amountMinor:
           type: integer
           format: int64
+          description: "The amount refunded, in the currency's minor unit."
+          example: 1000
         createdAt:
           type: string
           format: date-time
+          description: "When the refund was created, as RFC 3339."
         currency:
           type: string
+          description: "The three-letter ISO 4217 currency code, matching the payment's."
+          example: USD
         failureReason:
           type: string
+          description: "Why the refund failed, when `status` is `failed`. Absent otherwise."
         id:
           type: string
           format: uuid
+          description: Unique identifier for this refund.
         merchantId:
           type: string
           format: uuid
+          description: The merchant this refund belongs to — always your own account.
         metadata:
           type: object
           additionalProperties:
             type: string
+          description: "Up to 20 arbitrary key-value pairs you can attach to this object. PaymentFlow never interprets them; they are returned on every read and are filterable with `metadata[key]=value`."
         mode:
           type: string
+          description: Whether this refund is `test` or `live` data. Inherited from the payment.
+          enum:
+          - test
+          - live
+          example: test
         object:
           type: string
+          description: Always `refund`. The discriminator that identifies this object out of context.
+          example: refund
         paymentId:
           type: string
           format: uuid
+          description: The payment this refund was issued against.
         reason:
           type: string
+          description: "The reason supplied when the refund was issued, if any."
+          example: Customer returned the item
         status:
           type: string
+          description: Where this refund is in its lifecycle. Lowercase `snake_case` as of API revision `2026-08-01`. New values may be added without a new revision.
+          example: succeeded
         updatedAt:
           type: string
           format: date-time
+          description: "When the refund last changed, as RFC 3339."
     RequestLogResponse:
       type: object
       properties:
         clientIp:
           type: string
+          description: The client address the request arrived from.
+          example: 203.0.113.7
         correlationId:
           type: string
+          description: Identifies the whole distributed trace this call belongs to.
         durationMs:
           type: integer
           format: int64
+          description: "How long the platform took to answer, in milliseconds. Server time only — it excludes the network."
+          example: 42
         errorCode:
           type: string
+          description: "The catalogued error code, when the request failed. Absent for a successful request."
+          example: PAYMENT_NOT_CAPTURABLE
         id:
           type: string
           format: uuid
+          description: Unique identifier for this log entry.
         keyId:
           type: string
           format: uuid
+          description: The API key the request was made with. Absent for a key that has since been deleted.
         method:
           type: string
+          description: The HTTP method.
+          example: POST
         mode:
           type: string
+          description: Whether the request was made with a `test` or `live` key.
+          enum:
+          - test
+          - live
+          example: test
         object:
           type: string
+          description: Always `request_log`.
+          example: request_log
         occurredAt:
           type: string
           format: date-time
+          description: "When the request arrived, as RFC 3339."
         path:
           type: string
+          description: "The path requested, as sent."
+          example: /v1/payments
         queryString:
           type: string
+          description: "The query string, if any, with sensitive values already redacted."
+          example: limit=25
         requestBody:
           type: string
+          description: "The request body, **already redacted and truncated** at the edge before it was ever stored — card numbers, keys and secrets never reach this log."
         requestHeaders:
           type: object
           additionalProperties:
             type: string
+          description: "The request headers, with credential-bearing values redacted."
         requestId:
           type: string
+          description: "Identifies this one HTTP call — the same value the response's error body carried, if it failed."
+          example: req_9f2c1e7a4b8d
         responseBody:
           type: string
+          description: "The response body, redacted and truncated on the same terms as the request body."
         statusCode:
           type: integer
           format: int32
+          description: The HTTP status returned.
+          example: 201
         userAgent:
           type: string
+          description: "The `User-Agent` header, useful for telling one of your services from another."
+          example: paymentflow-node/1.2.0
     SimulationOverrideResponse:
       type: object
       properties:
         declineCode:
-          type: string
+          type:
+          - string
+          - "null"
+          description: "The decline code being returned, for a decline scenario. **Null** otherwise."
+          example: insufficient_funds
         enactedFrom:
-          type: string
+          type:
+          - string
+          - "null"
+          description: "Which part of the platform acts on this scenario. **`null` means the decision engine enforces it now**; a value names the release that will. The webhook scenarios are stored and validated but not yet acted on, and saying so here is more honest than accepting an override that silently does nothing."
+          example: M18
         errorCode:
-          type: string
+          type:
+          - string
+          - "null"
+          description: "The error code being returned, for an error scenario. **Null** otherwise."
+          example: processor_unavailable
         expiresAt:
-          type: string
+          type:
+          - string
+          - "null"
           format: date-time
+          description: When the override stops applying. **Null** for a count-bounded override.
         id:
           type: string
           format: uuid
+          description: Unique identifier for this override.
         latencyMs:
-          type: integer
+          type:
+          - integer
+          - "null"
           format: int32
+          description: "The latency being injected, in milliseconds. **Null** for a scenario that injects none."
+          example: 3000
         remainingCount:
-          type: integer
+          type:
+          - integer
+          - "null"
           format: int32
+          description: How many authorizations the override still applies to. Counts down as it is used; **null** for a time-bounded override.
+          example: 2
         scenario:
           type: string
+          description: The behaviour being forced.
+          example: FORCE_DECLINE
     TestCardResponse:
       type: object
       properties:
         brand:
           type: string
+          description: The card brand this token simulates.
+          example: visa
         captureBehaviour:
           type: string
+          description: "What a later capture against this token will do — succeed immediately, fail, or settle after a delay. Authorization and capture can behave differently on purpose: a card that authorizes cleanly and then fails to capture is a real and easily-missed case."
+          example: IMMEDIATE
         declineCode:
-          type: string
+          type:
+          - string
+          - "null"
+          description: "The decline code the authorization will carry, when `outcome` is a decline. **Null** otherwise."
+          example: insufficient_funds
         deferredDelayMs:
-          type: integer
+          type:
+          - integer
+          - "null"
           format: int32
+          description: "How long a deferred capture or refund waits before its outcome arrives, in milliseconds. **Null** on the tokens whose behaviour is immediate; where it is set, the result reaches you as a webhook, exactly as an asynchronous settlement would."
+          example: 5000
         description:
           type: string
+          description: "What this token is for, in one line."
+          example: Always approves; captures and refunds immediately.
         errorCode:
-          type: string
+          type:
+          - string
+          - "null"
+          description: "The error code the authorization will fail with, when `outcome` is an error. **Null** otherwise."
+          example: processor_unavailable
         latencyMs:
           type: integer
           format: int32
+          description: "How long the simulated acquirer will take to answer, in milliseconds. Non-zero on the tokens that exist to let you exercise timeouts deliberately rather than by waiting for a bad day."
+          example: 0
         outcome:
           type: string
+          description: "What authorizing against this token does: approve, decline, or fail with an error. A decline is the acquirer saying no and is a normal outcome your integration must handle; an error is the acquirer being unreachable or broken."
+          example: APPROVE
         refundBehaviour:
           type: string
+          description: What a later refund against this token will do.
+          example: IMMEDIATE
         token:
           type: string
+          description: The token to pass as `paymentMethodToken` when creating a payment. This is what selects the behaviour described by the rest of this object.
+          example: tok_visa_approved
     UpdateWebhookEndpointRequest:
       type: object
       properties:
         description:
           type: string
+          description: A new label for this endpoint. Omit to leave it unchanged.
+          example: Production order pipeline
           maxLength: 255
           minLength: 0
         enabled:
           type: boolean
+          description: "Turn deliveries on or off. Re-enabling an endpoint the platform disabled resets its failure count — fix the receiver first, or it will simply be disabled again."
         enabledEvents:
           type: array
+          description: "Replace the subscription list. Sent wholesale rather than merged, so this is the complete new list. Omit to leave it unchanged."
+          example:
+          - payment.captured
           items:
             type: string
             maxLength: 64
@@ -3456,193 +4144,299 @@ components:
           type: object
           additionalProperties:
             type: string
+          description: "Replace the metadata. A supplied map replaces the stored one wholesale rather than merging, so `{}` clears it — a merge would leave no way to remove a key. Omit to leave it unchanged."
     UsageBucketResponse:
       type: object
       properties:
         clientErrors:
           type: integer
           format: int64
+          description: How many returned a 4xx.
+          example: 11
         day:
           type: string
           format: date
+          description: "The day this bucket covers, in UTC."
+          example: 2026-07-29
         keyId:
-          type: string
+          type:
+          - string
+          - "null"
           format: uuid
+          description: "The API key the traffic was made with. Usage is grouped by key, so two keys hitting the same route on the same day produce two buckets. **Null** for traffic made with a key that has since been deleted — the usage is still a fact about your day."
         maxDurationMs:
           type: integer
           format: int64
+          description: "The slowest single request in the bucket, in milliseconds."
+          example: 812
         meanDurationMs:
-          type: integer
+          type:
+          - integer
+          - "null"
           format: int64
+          description: Mean server-side duration in milliseconds. Null when the bucket had no traffic.
+          example: 42
         p50DurationMs:
-          type: integer
+          type:
+          - integer
+          - "null"
           format: int64
+          description: Median server-side duration in milliseconds. Null when the bucket had no traffic.
+          example: 31
         p95DurationMs:
-          type: integer
+          type:
+          - integer
+          - "null"
           format: int64
+          description: "95th-percentile server-side duration in milliseconds. **Explicitly null**, never omitted, when the bucket had no traffic: a percentile over zero requests is unknown rather than zero."
+          example: 118
         p99DurationMs:
-          type: integer
+          type:
+          - integer
+          - "null"
           format: int64
+          description: 99th-percentile server-side duration in milliseconds. Null when the bucket had no traffic.
+          example: 260
         requests:
           type: integer
           format: int64
+          description: How many requests fell in this bucket.
+          example: 4820
         route:
           type: string
+          description: "The route pattern the requests hit, not the concrete path — so every payment retrieval aggregates together."
+          example: "/v1/payments/{id}"
         serverErrors:
           type: integer
           format: int64
+          description: How many returned a 5xx.
+          example: 0
     UsageSummaryResponse:
       type: object
       properties:
         buckets:
           type: array
+          description: "The breakdown behind the totals, one bucket per day, key and route."
           items:
             $ref: "#/components/schemas/UsageBucketResponse"
         from:
           type: string
           format: date
+          description: "The first day these totals cover, inclusive."
+          example: 2026-07-01
         to:
           type: string
           format: date
+          description: "The last day these totals cover, inclusive."
+          example: 2026-07-29
         totalClientErrors:
           type: integer
           format: int64
+          description: How many of those returned a 4xx — your requests that were rejected.
+          example: 312
         totalRequests:
           type: integer
           format: int64
+          description: How many API requests you made across the range.
+          example: 148203
         totalServerErrors:
           type: integer
           format: int64
+          description: "How many returned a 5xx — this platform's failures, not yours."
+          example: 4
     WebhookDeliveryAttemptResponse:
       type: object
       properties:
         attemptNumber:
           type: integer
           format: int32
+          description: "Which attempt this was, starting at 1."
+          example: 1
         attemptedAt:
           type: string
           format: date-time
+          description: "When the attempt was made, as RFC 3339."
         durationMs:
           type: integer
           format: int32
+          description: "How long the attempt took, in milliseconds."
+          example: 128
         error:
           type: string
+          description: "Why the attempt failed before it got a response — a DNS failure, a refused connection, a timeout, or an address the egress guard blocked. Absent when the receiver answered at all, even with an error status."
         id:
           type: string
           format: uuid
+          description: Unique identifier for this attempt.
         outcome:
           type: string
+          description: "What happened: the receiver accepted it, rejected it, or was never reached."
           enum:
           - SUCCEEDED
           - FAILED_STATUS
           - FAILED_TRANSPORT
           - BLOCKED
+          example: SUCCESS
         requestBody:
           type: string
+          description: The body sent — byte for byte what the signature was computed over.
         requestHeaders:
           type: string
+          description: "The headers sent, **including the `PaymentFlow-Signature`** this platform computed. That is deliberate and safe — a signature is not a secret, and comparing the value sent against the one you computed is how a verification failure gets diagnosed. The signing secret itself never appears here."
         requestUrl:
           type: string
+          description: The URL this attempt was sent to.
+          example: https://example.com/webhooks/paymentflow
         responseBody:
           type: string
+          description: "The body the receiver returned, truncated. Often the only explanation of a rejection."
         responseHeaders:
           type: string
+          description: The headers the receiver returned.
         responseStatus:
           type: integer
           format: int32
+          description: The HTTP status the receiver returned. Absent when it was never reached.
+          example: 200
     WebhookDeliveryResponse:
       type: object
       properties:
         attemptCount:
           type: integer
           format: int32
+          description: How many attempts have been made so far.
+          example: 1
         attempts:
           type: array
+          description: "Every attempt, with the request sent and the response received. This is the point of the delivery log: the answer a merchant needs is almost never \"failed\", it is \"failed with 502 and this body, four times\"."
           items:
             $ref: "#/components/schemas/WebhookDeliveryAttemptResponse"
         createdAt:
           type: string
           format: date-time
+          description: "When the delivery was created, as RFC 3339."
         endpointId:
           type: string
           format: uuid
+          description: The endpoint this delivery is addressed to.
         eventId:
           type: string
+          description: "The event being delivered. The same `evt_` id you can read back at `/v1/events`, so a delivery can always be traced to what caused it."
+          example: evt_9f2c1e7a4b8d4c3e8a1d2b4f6a8c05d1
         eventType:
           type: string
+          description: The type of the event being delivered.
+          example: payment.captured
         id:
           type: string
           format: uuid
+          description: Unique identifier for this delivery.
         lastAttemptedAt:
           type: string
           format: date-time
+          description: When it was last attempted. Absent if it has not been attempted yet.
         nextAttemptAt:
           type: string
           format: date-time
+          description: When the next retry is scheduled. Absent once the delivery has succeeded or been dead-lettered.
         object:
           type: string
+          description: Always `webhook_delivery`.
+          example: webhook_delivery
         replayedFromDeliveryId:
           type: string
           format: uuid
+          description: "The delivery this one re-sends, when it was created by a replay. Absent on an original delivery."
         status:
           type: string
+          description: "Where the delivery stands: still pending, delivered, retrying, or dead-lettered after exhausting the retry schedule."
           enum:
           - PENDING
           - DELIVERED
           - DEAD_LETTERED
+          example: DELIVERED
         url:
           type: string
+          description: "The URL it is being sent to, as it was when the delivery was created."
+          example: https://example.com/webhooks/paymentflow
     WebhookEndpointCreatedResponse:
       type: object
       properties:
         endpoint:
           $ref: "#/components/schemas/WebhookEndpointResponse"
+          description: "The endpoint, in the shape every other read returns it in."
         signingSecret:
           type: string
+          description: "The signing secret, in full. **Shown exactly once — store it now.** Every delivery to this endpoint is signed with it, and verifying that signature is the only thing standing between your receiver and anyone who learns its URL. It cannot be retrieved afterwards: only a hash is kept, so the platform genuinely cannot show it again rather than merely declining to. Lost one is replaced by rotating, not by recovering."
+          example: whsec_9f2c1e7a4b8d4c3e8a1d2b4f6a8c05d1
     WebhookEndpointResponse:
       type: object
       properties:
         apiVersion:
           type: string
+          description: The API revision delivery bodies are rendered in for this endpoint.
+          example: 2026-08-01
         consecutiveFailureCount:
           type: integer
           format: int32
+          description: How many deliveries have failed in a row. Resets to zero on the first success. When it reaches the platform's threshold the endpoint is disabled automatically — a permanently broken receiver is not retried forever.
+          example: 0
         createdAt:
           type: string
           format: date-time
+          description: "When the endpoint was registered, as RFC 3339."
         description:
           type: string
+          description: Your own label for this endpoint.
+          example: Production order pipeline
         disabledAt:
           type: string
           format: date-time
+          description: "When the endpoint was disabled, if it is."
         disabledReason:
           type: string
+          description: Why the endpoint was disabled. **This is how you tell "the platform turned this off because it kept failing" from "I turned this off"** — which decides whether re-enabling it requires fixing something first. Absent on an enabled endpoint.
           enum:
           - CONSECUTIVE_FAILURES
         enabled:
           type: boolean
+          description: Whether deliveries are currently being sent. May be false because you disabled it or because the platform did — see `disabledReason`.
         enabledEvents:
           type: array
+          description: "The event types this endpoint receives. `*` means every type, including ones added later."
+          example:
+          - payment.captured
+          - payment.refunded
           items:
             type: string
         id:
           type: string
           format: uuid
+          description: Unique identifier for this endpoint.
         metadata:
           type: object
           additionalProperties:
             type: string
+          description: "Up to 20 arbitrary key-value pairs you can attach to this object. PaymentFlow never interprets them; they are returned on every read and are filterable with `metadata[key]=value`."
         migratedFromLegacy:
           type: boolean
+          description: Whether this endpoint was carried over from the platform's pre-webhook-product configuration.
         object:
           type: string
+          description: Always `webhook_endpoint`.
+          example: webhook_endpoint
         signingSecretPrefix:
           type: string
+          description: "The first few characters of the signing secret, so you can tell which secret an endpoint holds. **The full secret is shown exactly once**, when the endpoint is created or its secret is rotated, and is not retrievable afterwards."
+          example: whsec_9f2c
         updatedAt:
           type: string
           format: date-time
+          description: "When the endpoint last changed, as RFC 3339."
         url:
           type: string
+          description: "Where deliveries are sent. Not updatable: the URL is half of an endpoint's identity, and repointing one would leave its delivery history attached to a destination that never received any of it. Register a new endpoint instead."
+          example: https://example.com/webhooks/paymentflow
   securitySchemes:
     SecretKey:
       bearerFormat: sk

@@ -149,5 +149,10 @@ tasks.register<JavaExec>("verifyOpenApiCompatibility") {
         "--previous", openApiPreviousBaseline,
         "--current", openApiCurrentBaseline,
         "--summary", openApiDiffReport.absolutePath,
+        // Reviewed breaking changes that correct the *description* of behaviour that did not
+        // move. Committed under docs/ because it is part of the published contract's record,
+        // not build output — see the file's own header for the rules.
+        "--accepted", rootProject.layout.projectDirectory.file("docs/openapi-accepted-breaking.txt")
+            .asFile.absolutePath,
     )
 }

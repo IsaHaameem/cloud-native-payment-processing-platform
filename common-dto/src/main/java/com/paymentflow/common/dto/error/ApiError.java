@@ -54,6 +54,23 @@ public record ApiError(
         String docUrl,
         List<ApiFieldError> errors) {
 
+    /**
+     * How an operation refers to this schema in its own documented responses (M21.7).
+     *
+     * <p>A plain string, so {@code common-dto} stays framework-free — this is the name of a
+     * component in the published document, not a swagger dependency.
+     *
+     * <p><b>Why a reference and not {@code implementation = ApiError.class}.</b> There are
+     * two ways this schema can reach a service's document: springdoc resolves it wherever an
+     * operation names the class, and {@code PublicApiErrorResponses} registers it through
+     * swagger's converter where nothing does. The two routes agree on every property and
+     * differ on one detail — the converter omits the object's own {@code type} — so the four
+     * services with per-operation error responses published a schema the other two did not,
+     * and M21.3's merge correctly refused to combine them. Referring to it by name means
+     * every service takes the same single route.
+     */
+    public static final String SCHEMA_REF = "#/components/schemas/ApiError";
+
     public ApiError {
         // Defensive copy keeps the record deeply immutable regardless of caller.
         errors = (errors == null) ? List.of() : List.copyOf(errors);

@@ -1,6 +1,8 @@
 package com.paymentflow.payment.web;
 
+import com.paymentflow.common.dto.error.ApiError;
 import com.paymentflow.common.dto.page.CursorPage;
+import com.paymentflow.common.openapi.PublicApiParameters;
 import com.paymentflow.common.query.CursorCodec;
 import com.paymentflow.common.query.ListQuery;
 import com.paymentflow.common.query.MetadataFilterParams;
@@ -21,7 +23,10 @@ import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.enums.Explode;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.enums.ParameterStyle;
+import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -115,6 +120,35 @@ public class PaymentV1Controller {
     /** {@code expand} is a whitelist, not free text — see {@link #expandRefunds}. */
     private static final String EXPAND_REFUNDS = "refunds";
 
+    /**
+     * Prose reused across operations (M21.7). Held as constants for the same reason
+     * {@link #METADATA_FILTER_DESCRIPTION} is: an annotation attribute must be a
+     * compile-time constant, and the alternative is the same paragraph typed five times and
+     * drifting.
+     */
+    private static final String EXPAND_DESCRIPTION = """
+            Ask for related objects to be included inline. The only expandable relation on \
+            this resource is `refunds`. A relation this revision does not have is ignored \
+            rather than rejected, so an SDK written against a later version still works here.""";
+
+    private static final String NOT_FOUND_DESCRIPTION = """
+            No such payment. Also returned when the payment exists but belongs to another \
+            merchant, or to the other mode — never `403`, because a `403` would confirm that \
+            it exists.""";
+
+    private static final String TRANSITION_CONFLICT_DESCRIPTION = """
+            The payment is not in a state where this operation is legal — capturing one that \
+            was never authorized, voiding one already captured, refunding more than remains. \
+            The `code` says which.""";
+
+    private static final String IDEMPOTENCY_CONFLICT_DESCRIPTION = """
+            Another request with the same `Idempotency-Key` is still in flight. Distinct from \
+            `CONFLICT` precisely because it is retryable — wait and send it again.""";
+
+    private static final String VALIDATION_DESCRIPTION = """
+            The request body failed validation. `errors` names every field that failed; the \
+            rejected values are deliberately not echoed back.""";
+
     private final PaymentQueryService queryService;
     private final PaymentService paymentService;
     private final MerchantResolver merchantResolver;
@@ -150,58 +184,188 @@ public class PaymentV1Controller {
      */
     @PostMapping("/v1/payments")
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(tags = PAYMENTS_TAG)
+    @Operation(tags = PAYMENTS_TAG, operationId = "createPayment",
+            summary = "Create a payment",
+            description = """
+                    Creates a payment in the `created` state. Nothing is charged yet — \
+                    creating a payment reserves an intent to charge, and authorization is a \
+                    separate call, so a client can build the object before it has a \
+                    payment method to authorize against.
+
+                    The `mode` of the resulting payment comes from your API key: an \
+                    `sk_test_` key creates test payments, an `sk_live_` key live ones. \
+                    Nothing in this request can change that.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "The payment was created."),
+            @ApiResponse(responseCode = "400", description = VALIDATION_DESCRIPTION,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF))),
+            @ApiResponse(responseCode = "409", description = IDEMPOTENCY_CONFLICT_DESCRIPTION,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF)))})
     public PaymentResponse create(@Valid @RequestBody CreatePaymentRequest request,
+                                  @Parameter(description = PublicApiParameters.IDEMPOTENCY_KEY, required = true)
                                   @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         return paymentService.create(request, idempotencyKey);
     }
 
     @PostMapping("/v1/payments/{id}/authorize")
-    @Operation(tags = PAYMENTS_TAG)
-    public PaymentResponse authorize(@PathVariable UUID id,
+    @Operation(tags = PAYMENTS_TAG, operationId = "authorizePayment",
+            summary = "Authorize a payment",
+            description = """
+                    Places a hold on the customer's funds for the payment's full amount, \
+                    moving it to `authorized`. No money moves until you capture.
+
+                    In test mode the outcome is decided by the `paymentMethodToken` the \
+                    payment carries — see `GET /v1/test/cards` for the tokens that approve, \
+                    decline, or fail — so every branch of your integration is reachable on \
+                    demand rather than by chance.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The payment was authorized, or "
+                    + "the acquirer declined it and the payment is now `failed`."),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND_DESCRIPTION,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF))),
+            @ApiResponse(responseCode = "409", description = TRANSITION_CONFLICT_DESCRIPTION,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF)))})
+    public PaymentResponse authorize(@Parameter(description = "The payment to authorize.")
+                                     @PathVariable UUID id,
+                                     @Parameter(description = PublicApiParameters.IDEMPOTENCY_KEY, required = true)
                                      @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         return paymentService.authorize(id, idempotencyKey);
     }
 
     @PostMapping("/v1/payments/{id}/capture")
-    @Operation(tags = PAYMENTS_TAG)
-    public PaymentResponse capture(@PathVariable UUID id,
+    @Operation(tags = PAYMENTS_TAG, operationId = "capturePayment",
+            summary = "Capture an authorized payment",
+            description = """
+                    Moves the authorized funds, settling the payment. Capture is all-or-nothing \
+                    here: the full authorized amount is taken, and a capture can never exceed \
+                    the authorization it settles.
+
+                    Capturing an already-captured payment is a `409` rather than a silent \
+                    success — if you need retry safety, send an `Idempotency-Key` and replay \
+                    the same one.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The payment was captured."),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND_DESCRIPTION,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF))),
+            @ApiResponse(responseCode = "409", description = TRANSITION_CONFLICT_DESCRIPTION,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF)))})
+    public PaymentResponse capture(@Parameter(description = "The payment to capture.")
+                                   @PathVariable UUID id,
+                                   @Parameter(description = PublicApiParameters.IDEMPOTENCY_KEY, required = true)
                                    @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         return paymentService.capture(id, idempotencyKey);
     }
 
     @PostMapping("/v1/payments/{id}/refund")
-    @Operation(tags = PAYMENTS_TAG)
-    public PaymentResponse refund(@PathVariable UUID id,
+    @Operation(tags = PAYMENTS_TAG, operationId = "refundPayment",
+            summary = "Refund a captured payment",
+            description = """
+                    Returns captured funds to the customer, in full or in part. Send no body \
+                    to refund everything that remains.
+
+                    Refunds are first-class objects with their own ids — this call returns \
+                    the updated **payment**, and the refund it created is readable at \
+                    `GET /v1/refunds` or inline via `GET /v1/payments/{id}?expand=refunds`. \
+                    Partial refunds accumulate: `refundedAmountMinor` can never exceed \
+                    `capturedAmountMinor`.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The refund was issued; the "
+                    + "payment is returned with its updated `refundedAmountMinor`."),
+            @ApiResponse(responseCode = "400", description = VALIDATION_DESCRIPTION,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND_DESCRIPTION,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF))),
+            @ApiResponse(responseCode = "409", description = TRANSITION_CONFLICT_DESCRIPTION,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF)))})
+    public PaymentResponse refund(@Parameter(description = "The payment to refund.")
+                                  @PathVariable UUID id,
                                   @Valid @RequestBody(required = false) RefundRequest request,
+                                  @Parameter(description = PublicApiParameters.IDEMPOTENCY_KEY, required = true)
                                   @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         return paymentService.refund(id, request, idempotencyKey);
     }
 
     @PostMapping("/v1/payments/{id}/void")
-    @Operation(tags = PAYMENTS_TAG)
-    public PaymentResponse voidPayment(@PathVariable UUID id,
+    @Operation(tags = PAYMENTS_TAG, operationId = "voidPayment",
+            summary = "Void a payment",
+            description = """
+                    Releases an authorization without taking the money, moving the payment to \
+                    `voided`. This is the counterpart to capture, not to refund: void applies \
+                    before funds have moved, refund after. A captured payment cannot be \
+                    voided — refund it instead.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The authorization was released."),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND_DESCRIPTION,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF))),
+            @ApiResponse(responseCode = "409", description = TRANSITION_CONFLICT_DESCRIPTION,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF)))})
+    public PaymentResponse voidPayment(@Parameter(description = "The payment to void.")
+                                       @PathVariable UUID id,
+                                       @Parameter(description = PublicApiParameters.IDEMPOTENCY_KEY, required = true)
                                        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         return paymentService.voidPayment(id, idempotencyKey);
     }
 
     @GetMapping("/v1/payments")
-    @Operation(tags = PAYMENTS_TAG)
+    @Operation(tags = PAYMENTS_TAG, operationId = "listPayments",
+            summary = "List payments",
+            description = """
+                    Returns your payments, most recent first, cursor-paginated.
+
+                    Pagination is cursor-based rather than offset-based because this list is \
+                    append-heavy: under concurrent inserts an offset page silently skips \
+                    rows, which on a financial list is a correctness bug rather than a \
+                    cosmetic one. Follow `nextCursor` until `hasMore` is false.
+
+                    Every filter combines with `AND`. The list is always scoped to your own \
+                    merchant and to the mode of the key you called with.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "A page of payments, most recent first."),
+            @ApiResponse(responseCode = "400", description = PublicApiParameters.INVALID_LIST_QUERY,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF)))})
     @Parameters(@Parameter(name = METADATA_FILTER, in = ParameterIn.QUERY,
             style = ParameterStyle.DEEPOBJECT, explode = Explode.TRUE,
             description = METADATA_FILTER_DESCRIPTION,
             schema = @Schema(type = "object", additionalProperties = Schema.AdditionalPropertiesValue.TRUE)))
     public CursorPage<PaymentResponse> listPayments(
+            @Parameter(description = PublicApiParameters.LIMIT)
             @RequestParam(name = "limit", required = false) Integer limit,
+            @Parameter(description = PublicApiParameters.STARTING_AFTER)
             @RequestParam(name = "starting_after", required = false) String startingAfter,
+            @Parameter(description = """
+                    Return only payments in this state. Must be one of the statuses this \
+                    revision defines — a typo is a `400` naming the vocabulary rather than an \
+                    empty page you then have to explain to yourself.""",
+                    example = "authorized")
             @RequestParam(name = "status", required = false) String status,
+            @Parameter(description = "Return only payments in this ISO 4217 currency.",
+                    example = "USD")
             @RequestParam(name = "currency", required = false) String currency,
+            @Parameter(description = "Return only payments of at least this amount, in minor "
+                    + "units.", example = "1000")
             @RequestParam(name = "amount_min", required = false) Long amountMin,
+            @Parameter(description = "Return only payments of at most this amount, in minor "
+                    + "units.", example = "100000")
             @RequestParam(name = "amount_max", required = false) Long amountMax,
+            @Parameter(description = PublicApiParameters.CREATED_AFTER)
             @RequestParam(name = "created_after", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdAfter,
+            @Parameter(description = PublicApiParameters.CREATED_BEFORE)
             @RequestParam(name = "created_before", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdBefore,
+            @Parameter(description = EXPAND_DESCRIPTION, example = EXPAND_REFUNDS)
             @RequestParam(name = "expand", required = false) String expand,
             // Unnamed and deliberately: Spring binds a Map to "every request parameter"
             // only when the annotation carries no name, and `metadata[key]=value` cannot
@@ -224,25 +388,56 @@ public class PaymentV1Controller {
     }
 
     @GetMapping("/v1/payments/{id}")
-    @Operation(tags = PAYMENTS_TAG)
-    public PaymentResponse getPayment(@PathVariable UUID id,
+    @Operation(tags = PAYMENTS_TAG, operationId = "getPayment",
+            summary = "Retrieve a payment",
+            description = """
+                    Returns one payment by id, including how much of it has been captured \
+                    and refunded so far. Add `?expand=refunds` to receive the individual \
+                    refunds inline instead of fetching them separately.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The payment."),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND_DESCRIPTION,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF)))})
+    public PaymentResponse getPayment(@Parameter(description = "The payment to retrieve.")
+                                      @PathVariable UUID id,
+                                      @Parameter(description = EXPAND_DESCRIPTION, example = EXPAND_REFUNDS)
                                       @RequestParam(name = "expand", required = false) String expand) {
         return queryService.getPayment(merchantId(), requestModeResolver.resolve(), id, expandRefunds(expand));
     }
 
     @GetMapping("/v1/refunds")
-    @Operation(tags = REFUNDS_TAG)
+    @Operation(tags = REFUNDS_TAG, operationId = "listRefunds",
+            summary = "List refunds",
+            description = """
+                    Returns the refunds you have issued, most recent first, cursor-paginated \
+                    on the same contract as the payments list.
+
+                    Refunds became first-class objects in this platform's M19 release, so \
+                    this list starts there — a payment refunded before then carries the \
+                    refunded total on the payment itself but has no refund object here.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "A page of refunds, most recent first."),
+            @ApiResponse(responseCode = "400", description = PublicApiParameters.INVALID_LIST_QUERY,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF)))})
     @Parameters(@Parameter(name = METADATA_FILTER, in = ParameterIn.QUERY,
             style = ParameterStyle.DEEPOBJECT, explode = Explode.TRUE,
             description = METADATA_FILTER_DESCRIPTION,
             schema = @Schema(type = "object", additionalProperties = Schema.AdditionalPropertiesValue.TRUE)))
     public CursorPage<RefundResponse> listRefunds(
+            @Parameter(description = PublicApiParameters.LIMIT)
             @RequestParam(name = "limit", required = false) Integer limit,
+            @Parameter(description = PublicApiParameters.STARTING_AFTER)
             @RequestParam(name = "starting_after", required = false) String startingAfter,
+            @Parameter(description = "Return only refunds issued against this payment.")
             @RequestParam(name = "payment", required = false) UUID paymentId,
+            @Parameter(description = "Return only refunds in this state.", example = "succeeded")
             @RequestParam(name = "status", required = false) String status,
+            @Parameter(description = PublicApiParameters.CREATED_AFTER)
             @RequestParam(name = "created_after", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdAfter,
+            @Parameter(description = PublicApiParameters.CREATED_BEFORE)
             @RequestParam(name = "created_before", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdBefore,
             // Same unnamed-Map binding, hidden for the same reason, as the payments list
@@ -260,8 +455,19 @@ public class PaymentV1Controller {
     }
 
     @GetMapping("/v1/refunds/{id}")
-    @Operation(tags = REFUNDS_TAG)
-    public RefundResponse getRefund(@PathVariable UUID id) {
+    @Operation(tags = REFUNDS_TAG, operationId = "getRefund",
+            summary = "Retrieve a refund",
+            description = "Returns one refund by id, including the payment it was issued "
+                    + "against and why it was issued.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The refund."),
+            @ApiResponse(responseCode = "404", description = """
+                    No such refund. Also returned when the refund exists but belongs to \
+                    another merchant, or to the other mode.""",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF)))})
+    public RefundResponse getRefund(@Parameter(description = "The refund to retrieve.")
+                                    @PathVariable UUID id) {
         return queryService.getRefund(merchantId(), requestModeResolver.resolve(), id);
     }
 

@@ -23,4 +23,8 @@ load-tests/
 # source (the services depend on it in test scope only, and this build skips tests).
 openapi-tools/
 !openapi-tools/build.gradle.kts
+# M21.7: and again for the shared test scaffold. Test-scope only, so no image needs
+# its source; its build file still has to be here because settings.gradle.kts names it.
+test-support/
+!test-support/build.gradle.kts
 README*.md

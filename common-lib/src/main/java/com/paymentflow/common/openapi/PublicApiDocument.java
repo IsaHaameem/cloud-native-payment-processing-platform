@@ -151,9 +151,21 @@ public final class PublicApiDocument {
         return (operation, handlerMethod) -> PublicApiErrorResponses.apply(operation);
     }
 
-    /** Registers the {@code ApiError} schema the standard error responses reference. */
-    public static OpenApiCustomizer errorSchemaCustomizer() {
-        return PublicApiErrorResponses::registerSchemas;
+    /**
+     * Registers the {@code ApiError} schema the standard error responses reference, and
+     * describes the schemas every fragment shares (M21.7).
+     *
+     * <p>Both jobs in one customizer because they are the same job: making the components
+     * that appear in all six fragments identical everywhere. M21.3's merge <em>refuses</em>
+     * to combine a component two services define differently, so anything applied to
+     * {@code ApiError} or a pagination envelope has to be applied from one place — six
+     * annotated copies would have to stay byte-identical forever.
+     */
+    public static OpenApiCustomizer sharedSchemaCustomizer() {
+        return document -> {
+            PublicApiErrorResponses.registerSchemas(document);
+            PublicApiSchemas.describeSharedSchemas(document);
+        };
     }
 
     /**

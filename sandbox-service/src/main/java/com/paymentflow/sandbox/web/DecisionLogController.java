@@ -8,6 +8,8 @@ import com.paymentflow.sandbox.dto.DecisionLogEntryResponse;
 import com.paymentflow.sandbox.mapper.DecisionLogMapper;
 import com.paymentflow.sandbox.service.DecisionLogQueryService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -51,7 +53,22 @@ public class DecisionLogController {
     }
 
     @GetMapping
-    @Operation(tags = DECISIONS_TAG)
+    @Operation(tags = DECISIONS_TAG, operationId = "listSandboxDecisions",
+            summary = "List sandbox decisions",
+            description = """
+                    Returns every verdict the simulated acquirer has reached for you, most \
+                    recent first — and, in `source`, **why**: the test card's own catalogue \
+                    entry, an active simulation override, or the mode's default.
+
+                    payment-service learns the verdict; the sandbox keeps the reasoning. This \
+                    is where to look when a payment declined and you expected it not to.
+
+                    Offset-paginated with `page` and `size` rather than the cursor \
+                    pagination the rest of the public API uses. That is deliberate and \
+                    documented (D139): this endpoint predates the cursor contract and was not \
+                    retrofitted, because doing so would break callers to no benefit on a list \
+                    nobody paginates deeply.""")
+    @ApiResponse(responseCode = "200", description = "A page of decisions, most recent first.")
     // M21.2: see WebhookDeliveryController.list — without @ParameterObject springdoc
     // publishes the `Pageable` binding type itself as a required `pageable` object
     // parameter that does not exist on the wire.
@@ -64,8 +81,21 @@ public class DecisionLogController {
     }
 
     @GetMapping("/payments/{paymentId}")
-    @Operation(tags = DECISIONS_TAG)
-    public List<DecisionLogEntryResponse> forPayment(@PathVariable UUID paymentId) {
+    @Operation(tags = DECISIONS_TAG, operationId = "listSandboxDecisionsForPayment",
+            summary = "List the decisions for one payment",
+            description = """
+                    Returns every decision made about a single payment, in the order they \
+                    were made — the authorization, then any capture or refund — so a \
+                    payment's whole sandbox history reads as one sequence.
+
+                    A payment with no decisions returns an empty list rather than a `404`: \
+                    "this payment was never authorized" is an answer, not a missing \
+                    resource.""")
+    @ApiResponse(responseCode = "200", description = "The decisions for this payment, oldest "
+            + "first. Empty when none were made.")
+    public List<DecisionLogEntryResponse> forPayment(
+            @Parameter(description = "The payment whose decisions to return.")
+            @PathVariable UUID paymentId) {
         MerchantContext context = requireContext();
         return decisionLogQueryService.forPayment(context.merchantId(), context.mode(), paymentId).stream()
                 .map(mapper::toResponse)

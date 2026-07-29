@@ -1,5 +1,6 @@
 package com.paymentflow.notification.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -18,11 +19,21 @@ import java.util.Map;
  */
 public record UpdateWebhookEndpointRequest(
 
+        @Schema(description = "A new label for this endpoint. Omit to leave it unchanged.",
+                example = "Production order pipeline")
         @Size(max = 255)
         String description,
 
+        @Schema(description = """
+                Turn deliveries on or off. Re-enabling an endpoint the platform disabled \
+                resets its failure count — fix the receiver first, or it will simply be \
+                disabled again.""")
         Boolean enabled,
 
+        @Schema(description = """
+                Replace the subscription list. Sent wholesale rather than merged, so this is \
+                the complete new list. Omit to leave it unchanged.""",
+                example = "[\"payment.captured\"]")
         List<@NotBlank @Size(max = 64) String> enabledEvents,
 
         /**
@@ -30,5 +41,9 @@ public record UpdateWebhookEndpointRequest(
          * map replaces the stored one wholesale rather than merging — sending {@code {}}
          * is how a merchant clears it, and a merge would leave no way to remove a key.
          */
+        @Schema(description = """
+                Replace the metadata. A supplied map replaces the stored one wholesale rather \
+                than merging, so `{}` clears it — a merge would leave no way to remove a key. \
+                Omit to leave it unchanged.""")
         Map<@NotBlank @Size(max = 40) String, @Size(max = 500) String> metadata) {
 }

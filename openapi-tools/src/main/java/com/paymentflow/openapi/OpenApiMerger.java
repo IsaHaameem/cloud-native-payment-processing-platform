@@ -70,6 +70,7 @@ public final class OpenApiMerger {
 
         mergeSharedKeys(fragments, merged, conflicts);
         mergePaths(fragments, merged, conflicts);
+        checkOperationIds(fragments, conflicts);
         mergeTags(fragments, merged, conflicts);
         mergeComponents(fragments, merged, conflicts);
 
@@ -130,6 +131,37 @@ public final class OpenApiMerger {
 
         ObjectNode mergedPaths = merged.putObject("paths");
         paths.forEach(mergedPaths::set);
+    }
+
+    /**
+     * Operation ids must be unique across the <em>merged</em> document (M21.7).
+     *
+     * <p>Each service can only see its own, so this is the one place the collision is
+     * visible. It matters because an operation id names the method in every generated SDK
+     * (M22): two services both publishing {@code list} produces a document that is valid
+     * OpenAPI and a generator that either overwrites one method with the other or fails
+     * outright, depending on which generator. Neither outcome is discovered by reading the
+     * document.
+     */
+    private void checkOperationIds(List<Fragment> fragments, List<String> conflicts) {
+        Map<String, String> owner = new LinkedHashMap<>();
+
+        for (Fragment fragment : fragments) {
+            for (Map.Entry<String, JsonNode> path : fragment.document().path("paths").properties()) {
+                for (Map.Entry<String, JsonNode> operation : path.getValue().properties()) {
+                    JsonNode id = operation.getValue().path("operationId");
+                    if (id.isMissingNode()) {
+                        continue;
+                    }
+                    String where = "%s (%s %s)".formatted(fragment.source(), operation.getKey(), path.getKey());
+                    String previous = owner.putIfAbsent(id.asText(), where);
+                    if (previous != null) {
+                        conflicts.add("operationId `%s` is used by both %s and %s - an operation id names the method in every generated SDK, so two operations cannot share one."
+                                .formatted(id.asText(), previous, where));
+                    }
+                }
+            }
+        }
     }
 
     /**

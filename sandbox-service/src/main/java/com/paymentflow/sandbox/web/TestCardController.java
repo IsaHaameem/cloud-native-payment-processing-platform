@@ -4,6 +4,7 @@ import com.paymentflow.sandbox.dto.TestCardResponse;
 import com.paymentflow.sandbox.mapper.TestCardMapper;
 import com.paymentflow.sandbox.service.TestCardService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -43,7 +44,21 @@ public class TestCardController {
      * a key the caller may not have yet.
      */
     @GetMapping("/v1/test/cards")
-    @Operation(tags = TEST_CARDS_TAG)
+    @Operation(tags = TEST_CARDS_TAG, operationId = "listTestCards",
+            summary = "List the test cards",
+            description = """
+                    Returns the catalogue of tokens you can pass as `paymentMethodToken` in \
+                    test mode, and exactly what each one will do — approve, decline with a \
+                    given code, fail with an error, stall, or settle after a delay.
+
+                    **This endpoint needs no API key.** It is the same catalogue for every \
+                    merchant, and requiring a credential to read the list of credentials-free \
+                    test data would be a poor first impression; it is the one endpoint in the \
+                    public API that takes no authentication.
+
+                    The catalogue is the single source the documentation renders from, so \
+                    what you read here and what a real call does cannot drift.""")
+    @ApiResponse(responseCode = "200", description = "Every test card the sandbox recognises.")
     @SecurityRequirements
     public List<TestCardResponse> listCards() {
         return testCardService.listActive().stream().map(testCardMapper::toResponse).toList();

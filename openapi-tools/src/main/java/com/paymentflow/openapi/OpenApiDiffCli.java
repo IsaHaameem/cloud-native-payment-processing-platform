@@ -6,7 +6,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The breaking-change gate CI runs (M21.6, §5/M21 task 5).
@@ -37,12 +39,14 @@ public final class OpenApiDiffCli {
         Path previousPath = null;
         Path currentPath = null;
         Path summaryPath = null;
+        Path acceptedPath = null;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--previous" -> previousPath = Path.of(args[++i]);
                 case "--current" -> currentPath = Path.of(args[++i]);
                 case "--summary" -> summaryPath = Path.of(args[++i]);
+                case "--accepted" -> acceptedPath = Path.of(args[++i]);
                 default -> {
                     System.err.printf("unrecognized argument: %s%n", args[i]);
                     System.exit(2);
@@ -72,17 +76,57 @@ public final class OpenApiDiffCli {
         JsonNode previous = OpenApiYaml.read(Files.readString(previousPath, StandardCharsets.UTF_8));
         JsonNode current = OpenApiYaml.read(Files.readString(currentPath, StandardCharsets.UTF_8));
         OpenApiDiff.Result result = new OpenApiDiff().compare(previous, current);
+        Set<String> accepted = readAccepted(acceptedPath);
 
-        String report = report(result);
+        String report = report(result, accepted);
         System.out.print(report);
         if (summaryPath != null) {
             Files.createDirectories(summaryPath.toAbsolutePath().getParent());
             Files.writeString(summaryPath, report, StandardCharsets.UTF_8);
         }
 
-        if (!result.isAcceptable()) {
+        boolean unaccepted = result.breaking().stream()
+                .anyMatch(change -> !accepted.contains(change.location()));
+        if (unaccepted && !result.revisionDeclared()) {
             System.exit(1);
         }
+    }
+
+    /**
+     * Reads the reviewed-and-accepted breaking changes (M21.7).
+     *
+     * <p><b>Why this exists, and why it is not a general escape hatch.</b> The diff compares
+     * two <em>documents</em> and cannot tell "the API changed" from "the description was
+     * corrected" — and the second is a real category. M21.7 renamed every operation id from
+     * the Java method name springdoc had derived, replaced three invented {@code 200}
+     * responses with the {@code 201}/{@code 204} the operations actually return, declared
+     * fields nullable that had always been able to be null, and deleted a schema that
+     * described a Java class rather than a payload. Not one byte of any request or response
+     * changed; every one of those is breaking to a reader of the previous document.
+     *
+     * <p>Cutting a dated revision for that would be worse than the problem: it would tell
+     * every pinned merchant their contract moved when it did not, and would require
+     * registering a transformation that transforms nothing (D156). So the acceptance is
+     * recorded instead — in a committed file, one location per line, each under a comment
+     * saying why, reviewed in the same diff as the change it excuses.
+     *
+     * <p>Three properties keep it from becoming a rubber stamp: it is committed and shows up
+     * in review, every accepted entry is <em>printed on every run</em> rather than silently
+     * swallowed, and entries that no longer match anything are reported as no longer
+     * applicable so the file is visibly stale rather than quietly permanent.
+     */
+    private static Set<String> readAccepted(Path accepted) throws IOException {
+        if (accepted == null || !Files.exists(accepted)) {
+            return Set.of();
+        }
+        Set<String> locations = new LinkedHashSet<>();
+        for (String line : Files.readAllLines(accepted, StandardCharsets.UTF_8)) {
+            String trimmed = line.strip();
+            if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
+                locations.add(trimmed);
+            }
+        }
+        return locations;
     }
 
     /**
@@ -92,17 +136,22 @@ public final class OpenApiDiffCli {
      * gate that only speaks when it is angry teaches people that silence means nothing
      * happened.
      */
-    private static String report(OpenApiDiff.Result result) {
+    private static String report(OpenApiDiff.Result result, Set<String> accepted) {
         StringBuilder report = new StringBuilder();
-        List<OpenApiChange> breaking = result.breaking();
+        List<OpenApiChange> breaking = result.breaking().stream()
+                .filter(change -> !accepted.contains(change.location())).toList();
+        List<OpenApiChange> excused = result.breaking().stream()
+                .filter(change -> accepted.contains(change.location())).toList();
         List<OpenApiChange> additive = result.additive();
 
         report.append("OpenAPI contract diff  %s -> %s%n".formatted(
                 result.previousRevision(), result.currentRevision()));
-        report.append("  %d breaking, %d additive%n%n".formatted(breaking.size(), additive.size()));
+        report.append("  %d breaking, %d accepted, %d additive%n%n"
+                .formatted(breaking.size(), excused.size(), additive.size()));
 
         if (result.changes().isEmpty()) {
             report.append("  The published contract is unchanged.\n");
+            reportStaleAcceptances(report, result, accepted);
             return report.toString();
         }
 
@@ -111,14 +160,29 @@ public final class OpenApiDiffCli {
             breaking.forEach(change -> report.append("  %s%n      %s%n".formatted(change.location(), change.detail())));
             report.append('\n');
         }
+        if (!excused.isEmpty()) {
+            // Printed in full rather than counted. An acceptance nobody re-reads is an
+            // acceptance that has stopped meaning anything.
+            report.append("ACCEPTED (reviewed, recorded in the acceptance file)\n");
+            excused.forEach(change -> report.append("  %s%n      %s%n".formatted(change.location(), change.detail())));
+            report.append('\n');
+        }
         if (!additive.isEmpty()) {
             report.append("ADDITIVE\n");
             additive.forEach(change -> report.append("  %s%n      %s%n".formatted(change.location(), change.detail())));
             report.append('\n');
         }
+        reportStaleAcceptances(report, result, accepted);
 
-        if (breaking.isEmpty()) {
+        if (breaking.isEmpty() && excused.isEmpty()) {
             report.append("PASS - every change is additive, so no new API revision is required.\n");
+        } else if (breaking.isEmpty()) {
+            report.append("""
+                    PASS - every breaking change above was reviewed and recorded in the \
+                    acceptance file. Nothing here changes what a request or a response \
+                    contains; each entry corrects what the document *said* about behaviour \
+                    that did not move.
+                    """);
         } else if (result.revisionDeclared()) {
             report.append("""
                     PASS - the changes above are breaking, but the API revision advanced from \
@@ -141,5 +205,27 @@ public final class OpenApiDiffCli {
                     """.formatted(result.previousRevision(), result.previousRevision()));
         }
         return report.toString();
+    }
+
+    /**
+     * Names acceptances that no longer match anything.
+     *
+     * <p>Reported rather than failed, deliberately. The commit that lands a correction needs
+     * its acceptances; the very next comparison is against the corrected baseline, where
+     * every one of them is trivially unmatched — so failing on staleness would make the file
+     * impossible to land. Printing them on every run is what stops it from becoming
+     * permanent by inattention instead.
+     */
+    private static void reportStaleAcceptances(StringBuilder report, OpenApiDiff.Result result,
+                                               Set<String> accepted) {
+        List<String> matched = result.breaking().stream().map(OpenApiChange::location).toList();
+        List<String> stale = accepted.stream().filter(location -> !matched.contains(location)).toList();
+        if (stale.isEmpty()) {
+            return;
+        }
+        report.append("NO LONGER APPLICABLE - %d acceptance(s) match nothing in this diff and should be deleted:%n"
+                .formatted(stale.size()));
+        stale.forEach(location -> report.append("  %s%n".formatted(location)));
+        report.append('\n');
     }
 }

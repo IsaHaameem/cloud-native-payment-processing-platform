@@ -1,51 +1,38 @@
 package com.paymentflow.notification;
 
-import com.paymentflow.common.openapi.PublicApiDocument;
-import com.paymentflow.openapi.OpenApiFragments;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.paymentflow.testsupport.openapi.PublicApiDocumentContract;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * The OpenAPI description of notification-service's public surface (M21.2).
+ * The OpenAPI description of notification-service's public surface (M21.2, rebased onto the
+ * shared scaffold in M21.7).
  *
- * <p>The shared half of the contract — that the version, server and security scheme are
- * the same ones every other service publishes — is proven by {@code PublicApiDocumentTest}
- * in common-lib, where the single implementation lives. What is asserted here is what only
- * this service can know: that the document describes <em>its</em> endpoints, all of them,
- * and nothing else.
- *
- * <p>This is the largest fragment and the one whose public tier is most heavily mutating,
- * so it is also where a path-prefix filter is least sufficient on its own: four of its nine
- * operations change state, and a filter expressed as a path prefix says nothing about
- * verbs.
+ * <p>The shared half is inherited from {@link PublicApiDocumentContract}. What is left is
+ * this service's own, and the assertion that carries the most weight is
+ * {@link #theSigningSecretAppearsOnlyWhereItIsActuallyReturned()}: a document that showed
+ * the raw {@code whsec_} secret on the ordinary read would tell every SDK author to expect
+ * a field that is null on every call but two, and would imply the platform can hand it back
+ * — which it genuinely cannot.
  */
 @SpringBootTest(properties = {
         "spring.kafka.listener.auto-startup=false",
         "paymentflow.webhooks.require-https=false"
 })
-@AutoConfigureMockMvc
 @Testcontainers
-class OpenApiDocumentIntegrationTest {
+class OpenApiDocumentIntegrationTest extends PublicApiDocumentContract {
 
     @Container
     @ServiceConnection
@@ -65,98 +52,36 @@ class OpenApiDocumentIntegrationTest {
             "/v1/webhook_deliveries/{id}",
             "/v1/webhook_deliveries/{id}/replay");
 
-    @Autowired
-    private MockMvc mockMvc;
-    @Autowired
-    private ObjectMapper objectMapper;
+    @Override
+    protected String serviceName() {
+        return "notification-service";
+    }
 
-    private static JsonNode document;
-    /** The bytes the service served, kept so the fragment is written verbatim (M21.3). */
-    private static String documentJson;
+    @Override
+    protected Set<String> publicPaths() {
+        return EXPECTED_PATHS;
+    }
 
-    /** Fetched once per class and cached; every assertion describes one artefact. */
-    private JsonNode document() throws Exception {
-        if (document == null) {
-            // No credential of any kind on this request (D148). If the endpoint ever stops
-            // being permitted, this fails here rather than in CI's spec-diff job with a 401
-            // body that does not parse as OpenAPI.
-            String body = mockMvc.perform(get("/v3/api-docs"))
-                    .andExpect(status().isOk())
-                    .andReturn().getResponse().getContentAsString();
-            documentJson = body;
-            document = objectMapper.readTree(body);
-        }
-        return document;
+    @Override
+    protected List<String> tagNames() {
+        return List.of("Webhook endpoints", "Webhook deliveries");
     }
 
     @Test
-    void theDocumentIsOpenApi31() throws Exception {
-        assertThat(document().path("openapi").asString()).startsWith("3.1");
-    }
-
-    @Test
-    void everyDocumentedPathIsPublicAndEveryPublicPathIsDocumented() throws Exception {
-        List<String> paths = List.copyOf(document().path("paths").propertyNames());
-
-        assertThat(paths)
-                .describedAs("the published spec describes exactly this service's public /v1 tier")
-                .containsExactlyInAnyOrderElementsOf(EXPECTED_PATHS);
-    }
-
-    @Test
-    void theInternalTiersAreAbsentRatherThanMerelyUnlisted() throws Exception {
-        List<String> paths = List.copyOf(document().path("paths").propertyNames());
-
-        assertThat(paths).noneMatch(path -> path.startsWith("/api/v1"));
-        assertThat(paths).noneMatch(path -> path.startsWith("/internal/"));
-        assertThat(paths).noneMatch(path -> path.startsWith("/actuator"));
-        assertThat(paths).doesNotContain("/error");
-    }
-
-    @Test
-    void everyMutatingVerbIsDocumentedAlongsideTheReadOnes() throws Exception {
+    void theFullVerbSurfaceIsDocumentedAndNotOnlyTheReads() throws Exception {
         JsonNode paths = document().path("paths");
 
-        // A filter expressed as a path prefix says nothing about verbs, and this tier is
-        // the platform's only public management API — an SDK missing PATCH or DELETE here
-        // would leave a merchant unable to change or remove an endpoint they registered.
-        assertThat(paths.path("/v1/webhook_endpoints").propertyNames())
+        // A path-prefix filter says nothing about verbs, and this is the only public
+        // resource in the platform a merchant creates, patches and deletes. An SDK missing
+        // DELETE here would leave endpoints unremovable.
+        assertThat(names(paths.path("/v1/webhook_endpoints")))
                 .containsExactlyInAnyOrder("get", "post");
-        assertThat(paths.path("/v1/webhook_endpoints/{id}").propertyNames())
+        assertThat(names(paths.path("/v1/webhook_endpoints/{id}")))
                 .containsExactlyInAnyOrder("get", "patch", "delete");
-        assertThat(paths.path("/v1/webhook_endpoints/{id}/rotate_secret").propertyNames())
+        assertThat(names(paths.path("/v1/webhook_endpoints/{id}/rotate_secret")))
                 .containsExactly("post");
-        assertThat(paths.path("/v1/webhook_deliveries/{id}/replay").propertyNames())
+        assertThat(names(paths.path("/v1/webhook_deliveries/{id}/replay")))
                 .containsExactly("post");
-    }
-
-    @Test
-    void theDocumentCarriesTheSharedContractRatherThanItsOwn() throws Exception {
-        JsonNode info = document().path("info");
-
-        assertThat(info.path("title").asString()).isEqualTo(PublicApiDocument.TITLE);
-        assertThat(info.path("version").asString()).isEqualTo(PublicApiDocument.API_VERSION);
-
-        JsonNode servers = document().path("servers");
-        assertThat(servers.size()).isEqualTo(1);
-        assertThat(servers.get(0).path("url").asString()).isEqualTo(PublicApiDocument.PUBLIC_SERVER_URL);
-
-        JsonNode scheme = document().path("components").path("securitySchemes").path("SecretKey");
-        assertThat(scheme.path("type").asString()).isEqualTo("http");
-        assertThat(scheme.path("bearerFormat").asString()).isEqualTo("sk");
-        assertThat(document().path("security").get(0).propertyNames()).containsExactly("SecretKey");
-    }
-
-    @Test
-    void requestAndResponseBodiesAreTypedAsJson() throws Exception {
-        // springdoc's default is `*/*` when a handler declares no `produces`, and none
-        // here do. An SDK author reading that has to guess the Accept header.
-        assertThat(document().path("paths").path("/v1/webhook_endpoints").path("get")
-                .path("responses").path("200").path("content").propertyNames())
-                .containsExactly("application/json");
-        assertThat(document().path("paths").path("/v1/webhook_endpoints").path("post")
-                .path("requestBody").path("content").propertyNames())
-                .containsExactly("application/json");
     }
 
     @Test
@@ -164,108 +89,75 @@ class OpenApiDocumentIntegrationTest {
         JsonNode paths = document().path("paths");
 
         // Left to springdoc these read `webhook-endpoint-controller` and
-        // `webhook-delivery-controller` — implementation details that would name the docs
-        // site's sections (M25) and the SDKs' method groups (M22).
+        // `webhook-delivery-controller`.
         assertThat(tagsOf(paths.path("/v1/webhook_endpoints").path("post")))
-                .containsExactly("Webhook endpoints");
-        assertThat(tagsOf(paths.path("/v1/webhook_endpoints/{id}").path("delete")))
                 .containsExactly("Webhook endpoints");
         assertThat(tagsOf(paths.path("/v1/webhook_deliveries").path("get")))
                 .containsExactly("Webhook deliveries");
-        assertThat(tagsOf(paths.path("/v1/webhook_deliveries/{id}/replay").path("post")))
-                .containsExactly("Webhook deliveries");
     }
 
     @Test
-    void everyTagUsedByAnOperationIsDeclaredAndDescribed() throws Exception {
-        JsonNode declared = document().path("tags");
-        List<String> declaredNames = declared.valueStream().map(t -> t.path("name").asString()).toList();
-
-        assertThat(declaredNames).containsExactly("Webhook endpoints", "Webhook deliveries");
-        assertThat(declared.valueStream().map(t -> t.path("description").asString()).toList())
-                .allSatisfy(description -> assertThat(description).isNotEmpty());
-
-        assertThat(usedTags()).isNotEmpty()
-                .allSatisfy(tag -> assertThat(declaredNames).contains(tag));
-    }
-
-    @Test
-    void theResourceSchemasAreGeneratedFromTheDtosRatherThanLeftAsBareObjects() throws Exception {
+    void theResourceSchemasCarryTheObjectDiscriminatorLikeEveryOtherResource() throws Exception {
         JsonNode schemas = document().path("components").path("schemas");
 
-        assertThat(schemas.path("WebhookEndpointResponse").path("properties").propertyNames())
-                .contains("id", "object", "url", "enabled", "enabledEvents", "signingSecretPrefix");
-        // The `object` discriminator was missing from both webhook resources until M21.3,
-        // and generating this document is what made it visible: every other public resource
-        // on the platform carries one (`payment`, `refund`, `event`, `balance_transaction`,
-        // `request_log`), and these two did not. Asserted here as well as on the live
-        // responses, because the schema is what M22's generators read — an SDK whose
-        // WebhookEndpoint type lacks the field cannot identify a bare object out of context
-        // however correct the runtime response is.
-        // The create response is the one that carries a raw `whsec_` secret, and it is
-        // unrecoverable afterwards — an SDK that did not model it would silently discard
-        // the only copy.
-        assertThat(schemas.path("WebhookEndpointCreatedResponse").path("properties").propertyNames())
-                .isNotEmpty();
-        assertThat(schemas.path("CreateWebhookEndpointRequest").path("properties").propertyNames())
-                .contains("url", "enabledEvents");
+        // D150. Both webhook resources lacked `object` until M21.3 — found by generating
+        // this document and reading the schemas side by side, which is a fair argument for
+        // the document having been worth generating.
+        assertThat(names(schemas.path("WebhookEndpointResponse").path("properties")))
+                .contains("id", "object", "url", "enabled", "enabledEvents", "metadata");
+        assertThat(names(schemas.path("WebhookDeliveryResponse").path("properties")))
+                .contains("id", "object", "eventId", "status", "attempts");
     }
 
     @Test
-    void theOffsetPagedListPublishesPageAndSizeRatherThanTheJavaPageableArgument() throws Exception {
-        JsonNode parameters = document().path("paths").path("/v1/webhook_deliveries")
-                .path("get").path("parameters");
-        List<String> names = parameters.valueStream().map(p -> p.path("name").asString()).toList();
+    void theSigningSecretAppearsOnlyWhereItIsActuallyReturned() throws Exception {
+        // M21.7. The raw secret is returned by exactly two operations — registration and
+        // rotation — and by nothing else, because only a hash is kept. The read schema
+        // publishes a prefix instead, and the distinction has to survive into the document:
+        // an SDK that expected `signingSecret` on every read would model a field that is
+        // absent on every call but two.
+        JsonNode schemas = document().path("components").path("schemas");
 
-        // This list still uses V1's offset `PageResponse` deliberately (M18: cursors
-        // arrived in M19 and were not retrofitted). The hazard is the same one M21.1 found
-        // with the metadata Map: `Pageable` is a Spring binding type, not a wire
-        // parameter, and published verbatim it becomes a `pageable` object argument no
-        // caller can send. @ParameterObject on the argument expands it into the query
-        // parameters that actually exist; without it the document published exactly one
-        // parameter, named `pageable`.
+        assertThat(names(schemas.path("WebhookEndpointCreatedResponse").path("properties")))
+                .containsExactlyInAnyOrder("endpoint", "signingSecret");
+        assertThat(names(schemas.path("WebhookEndpointResponse").path("properties")))
+                .doesNotContain("signingSecret")
+                .contains("signingSecretPrefix");
+        assertThat(schemas.path("WebhookEndpointCreatedResponse").path("properties")
+                .path("signingSecret").path("description").asText())
+                .contains("once");
+    }
+
+    @Test
+    void theOffsetPagedDeliveryListPublishesPageAndSizeRatherThanTheJavaPageableArgument()
+            throws Exception {
+        JsonNode parameters = document().path("paths").path("/v1/webhook_deliveries").path("get")
+                .path("parameters");
+        List<String> names = new ArrayList<>();
+        parameters.forEach(parameter -> names.add(parameter.path("name").asText()));
+
+        // `Pageable` is a Spring binding type, and published verbatim it becomes a required
+        // `pageable` object argument no caller can send (M21.2). @ParameterObject expands it
+        // into the real query parameters.
         assertThat(names).contains("page", "size");
         assertThat(names).doesNotContain("pageable");
-        assertThat(parameters.valueStream().map(p -> p.path("required").asBoolean(false)).toList())
-                .allSatisfy(required -> assertThat(required).isFalse());
     }
 
     @Test
-    void theDocumentIsAlsoServedAsYamlForTheMergeStep() throws Exception {
-        mockMvc.perform(get("/v3/api-docs.yaml")).andExpect(status().isOk());
-    }
+    void theMutatingOperationsDocumentTheirOwnFailures() throws Exception {
+        // M21.7, D154's per-operation half. Registering an endpoint at a URL you already
+        // use is a 409 and an unreachable URL is a 400 — neither is knowable by the
+        // universal customizer, and both are what an integrator meets first.
+        JsonNode create = document().path("paths").path("/v1/webhook_endpoints").path("post")
+                .path("responses");
+        assertThat(names(create)).contains("400", "409");
 
-    /**
-     * Writes this service's fragment where {@code mergeOpenApi} will find it (M21.3).
-     *
-     * <p>Less an assertion than a by-product, and deliberately placed here rather than in a
-     * task of its own: this class is the only place the document exists after a real
-     * application context has produced it, and every other test in this file is a
-     * precondition for the fragment being worth merging. A fragment generated somewhere
-     * that had not asserted the path set, the tier exclusion and the shared contract would
-     * be a second, unchecked source of the published API.
-     *
-     * <p>The bytes written are the ones the service served, compared back rather than
-     * assumed: the merged baseline should describe what the API actually returns, and a
-     * re-serialization could differ in key order or whitespace without anyone noticing.
-     */
-    @Test
-    void theFragmentIsWrittenForTheMergeStep() throws Exception {
-        document();
-        Path fragment = OpenApiFragments.write("notification-service", documentJson);
+        JsonNode replay = document().path("paths").path("/v1/webhook_deliveries/{id}/replay")
+                .path("post").path("responses");
+        assertThat(names(replay)).contains("404", "409");
 
-        assertThat(Files.readString(fragment, StandardCharsets.UTF_8)).isEqualTo(documentJson);
-    }
-
-    private List<String> usedTags() throws Exception {
-        return document().path("paths").valueStream()
-                .flatMap(JsonNode::valueStream)
-                .flatMap(operation -> tagsOf(operation).stream())
-                .distinct()
-                .toList();
-    }
-
-    private static List<String> tagsOf(JsonNode operation) {
-        return operation.path("tags").valueStream().map(JsonNode::asString).toList();
+        JsonNode delete = document().path("paths").path("/v1/webhook_endpoints/{id}")
+                .path("delete").path("responses");
+        assertThat(names(delete)).contains("204", "404");
     }
 }

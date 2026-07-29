@@ -1,5 +1,6 @@
 package com.paymentflow.sandbox.web;
 
+import com.paymentflow.common.exception.ResourceNotFoundException;
 import com.paymentflow.common.exception.UnauthorizedException;
 import com.paymentflow.common.security.MerchantContext;
 import com.paymentflow.common.security.MerchantContextHolder;
@@ -8,7 +9,12 @@ import com.paymentflow.sandbox.dto.CreateSimulationOverrideRequest;
 import com.paymentflow.sandbox.dto.SimulationOverrideResponse;
 import com.paymentflow.sandbox.mapper.SimulationOverrideMapper;
 import com.paymentflow.sandbox.service.OverrideService;
+import com.paymentflow.common.dto.error.ApiError;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -54,7 +60,28 @@ public class SimulationController {
     }
 
     @PostMapping
-    @Operation(tags = SIMULATIONS_TAG)
+    @Operation(tags = SIMULATIONS_TAG, operationId = "createSimulationOverride",
+            summary = "Force a sandbox behaviour",
+            description = """
+                    Installs an override that makes the sandbox behave a given way for your \
+                    next authorizations, regardless of which test card they use.
+
+                    Test cards cover the outcomes you can choose per payment; an override \
+                    covers the ones you cannot — a processor outage, a sudden run of \
+                    declines, latency that trips your timeouts — without needing a token for \
+                    every combination. Bound it with `remainingCount` or `durationSeconds` so \
+                    it stops on its own.
+
+                    One override is active per merchant and mode at a time; creating another \
+                    replaces it.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "The override is active."),
+            @ApiResponse(responseCode = "400", description = """
+                    The override is not internally consistent — a `FORCE_DECLINE` with no \
+                    `declineCode`, or neither `remainingCount` nor `durationSeconds` to end \
+                    it.""",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF)))})
     public ResponseEntity<SimulationOverrideResponse> create(@Valid @RequestBody CreateSimulationOverrideRequest request) {
         MerchantContext context = requireContext();
         SimulationOverride override = overrideService.create(context.merchantId(), context.mode(), request.scenario(),
@@ -64,16 +91,43 @@ public class SimulationController {
     }
 
     @GetMapping("/active")
-    @Operation(tags = SIMULATIONS_TAG)
-    public ResponseEntity<SimulationOverrideResponse> getActive() {
+    @Operation(tags = SIMULATIONS_TAG, operationId = "getActiveSimulationOverride",
+            summary = "Retrieve the active override",
+            description = """
+                    Returns the override currently in force for your merchant and mode, \
+                    including how much of it is left. The first thing to check when the \
+                    sandbox is behaving in a way you did not ask for — an override with \
+                    `remainingCount` left over from an earlier test is the usual cause.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The active override."),
+            @ApiResponse(responseCode = "404", description = "No override is active — the "
+                    + "sandbox is behaving normally.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF)))})
+    public SimulationOverrideResponse getActive() {
         MerchantContext context = requireContext();
+        // Throwing rather than `ResponseEntity.notFound().build()`, which is what this
+        // returned until M21.7's contract test caught it: a **bodiless** 404, on a platform
+        // whose error contract is that every non-2xx carries a catalogued code, a message and
+        // a requestId assembled in one place (M21.4). It was the only response in the public
+        // tier that returned nothing, and the document — which says 404 carries an ApiError,
+        // like every other 404 — was right while the code was wrong.
         return overrideService.findActive(context.merchantId(), context.mode())
-                .map(override -> ResponseEntity.ok(mapper.toResponse(override)))
-                .orElseGet(() -> ResponseEntity.notFound().build());
+                .map(mapper::toResponse)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "No simulation override is active for this merchant and mode."));
     }
 
     @DeleteMapping("/active")
-    @Operation(tags = SIMULATIONS_TAG)
+    @Operation(tags = SIMULATIONS_TAG, operationId = "revokeActiveSimulationOverride",
+            summary = "Revoke the active override",
+            description = """
+                    Removes the override in force for your merchant and mode, returning the \
+                    sandbox to its normal behaviour. Succeeds whether or not one was \
+                    active — the point is the resulting state, so this is safe to call \
+                    unconditionally at the start of a test.""")
+    @ApiResponse(responseCode = "204", description = "No override is in force. Returned "
+            + "whether or not one was.")
     public ResponseEntity<Void> revokeActive() {
         MerchantContext context = requireContext();
         overrideService.revokeActive(context.merchantId(), context.mode());

@@ -1,45 +1,37 @@
 package com.paymentflow.sandbox;
 
-import com.paymentflow.common.openapi.PublicApiDocument;
-import com.paymentflow.openapi.OpenApiFragments;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.paymentflow.testsupport.openapi.PublicApiDocumentContract;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * The OpenAPI description of sandbox-service's public surface (M21.2).
+ * The OpenAPI description of sandbox-service's public surface (M21.2, rebased onto the
+ * shared scaffold in M21.7).
  *
- * <p>The shared half of the contract is proven by {@code PublicApiDocumentTest} in
- * common-lib, where the single implementation lives. What is asserted here is what only
- * this service can know — and this fragment carries the platform's one genuine exception
- * to the document-level security requirement, which is the assertion that matters most:
- * {@code GET /v1/test/cards} is unauthenticated reference data (§8.1), and a document that
+ * <p>The shared half is inherited from {@link PublicApiDocumentContract} — including the
+ * universal-error rule, which knows about the exception this service owns: an operation that
+ * declares {@code security: []} must <em>not</em> document 401 or 403.
+ *
+ * <p>That exception is this fragment's whole peculiarity. {@code GET /v1/test/cards} is the
+ * platform's one genuinely unauthenticated public endpoint (§8.1), and a document that
  * described it as needing a key would send SDK users looking for a credential to read the
  * catalogue that tells them which credentials to test with.
  */
 @SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
-class OpenApiDocumentIntegrationTest {
+class OpenApiDocumentIntegrationTest extends PublicApiDocumentContract {
 
     @Container
     @ServiceConnection
@@ -58,70 +50,19 @@ class OpenApiDocumentIntegrationTest {
             "/v1/test/decisions",
             "/v1/test/decisions/payments/{paymentId}");
 
-    @Autowired
-    private MockMvc mockMvc;
-    @Autowired
-    private ObjectMapper objectMapper;
-
-    private static JsonNode document;
-    /** The bytes the service served, kept so the fragment is written verbatim (M21.3). */
-    private static String documentJson;
-
-    /** Fetched once per class and cached; every assertion describes one artefact. */
-    private JsonNode document() throws Exception {
-        if (document == null) {
-            // No credential of any kind on this request (D148).
-            String body = mockMvc.perform(get("/v3/api-docs"))
-                    .andExpect(status().isOk())
-                    .andReturn().getResponse().getContentAsString();
-            documentJson = body;
-            document = objectMapper.readTree(body);
-        }
-        return document;
+    @Override
+    protected String serviceName() {
+        return "sandbox-service";
     }
 
-    @Test
-    void theDocumentIsOpenApi31() throws Exception {
-        assertThat(document().path("openapi").asString()).startsWith("3.1");
+    @Override
+    protected Set<String> publicPaths() {
+        return EXPECTED_PATHS;
     }
 
-    @Test
-    void everyDocumentedPathIsPublicAndEveryPublicPathIsDocumented() throws Exception {
-        List<String> paths = List.copyOf(document().path("paths").propertyNames());
-
-        assertThat(paths)
-                .describedAs("the published spec describes exactly this service's public /v1 tier")
-                .containsExactlyInAnyOrderElementsOf(EXPECTED_PATHS);
-    }
-
-    @Test
-    void theInternalSandboxDecisionApiIsAbsentRatherThanMerelyUnlisted() throws Exception {
-        List<String> paths = List.copyOf(document().path("paths").propertyNames());
-
-        // This service's internal tier is the one payment-service calls to authorize
-        // (`/internal/v1/sandbox/decisions`, D103). Publishing it would advertise the
-        // acquirer boundary as though a merchant could call it.
-        assertThat(paths).noneMatch(path -> path.startsWith("/internal/"));
-        assertThat(paths).noneMatch(path -> path.startsWith("/api/v1"));
-        assertThat(paths).noneMatch(path -> path.startsWith("/actuator"));
-        assertThat(paths).doesNotContain("/error");
-    }
-
-    @Test
-    void theDocumentCarriesTheSharedContractRatherThanItsOwn() throws Exception {
-        JsonNode info = document().path("info");
-
-        assertThat(info.path("title").asString()).isEqualTo(PublicApiDocument.TITLE);
-        assertThat(info.path("version").asString()).isEqualTo(PublicApiDocument.API_VERSION);
-
-        JsonNode servers = document().path("servers");
-        assertThat(servers.size()).isEqualTo(1);
-        assertThat(servers.get(0).path("url").asString()).isEqualTo(PublicApiDocument.PUBLIC_SERVER_URL);
-
-        JsonNode scheme = document().path("components").path("securitySchemes").path("SecretKey");
-        assertThat(scheme.path("type").asString()).isEqualTo("http");
-        assertThat(scheme.path("bearerFormat").asString()).isEqualTo("sk");
-        assertThat(document().path("security").get(0).propertyNames()).containsExactly("SecretKey");
+    @Override
+    protected List<String> tagNames() {
+        return List.of("Test cards", "Simulations", "Decisions");
     }
 
     @Test
@@ -150,10 +91,11 @@ class OpenApiDocumentIntegrationTest {
         // endpoint fails here rather than silently publishing it as open.
         for (String path : List.of("/v1/test/simulations", "/v1/test/simulations/active",
                 "/v1/test/decisions", "/v1/test/decisions/payments/{paymentId}")) {
-            paths.path(path).valueStream().forEach(operation ->
-                    assertThat(operation.has("security"))
-                            .describedAs("%s inherits the document-level SecretKey requirement", path)
-                            .isFalse());
+            for (String verb : names(paths.path(path))) {
+                assertThat(paths.path(path).path(verb).has("security"))
+                        .describedAs("%s %s inherits the document-level SecretKey requirement", verb, path)
+                        .isFalse();
+            }
         }
     }
 
@@ -164,10 +106,10 @@ class OpenApiDocumentIntegrationTest {
         // A path-prefix filter says nothing about verbs, and this tier is how a developer
         // forces a failure path on demand — an SDK missing POST or DELETE here would make
         // the sandbox read-only.
-        assertThat(paths.path("/v1/test/simulations").propertyNames()).containsExactly("post");
-        assertThat(paths.path("/v1/test/simulations/active").propertyNames())
+        assertThat(names(paths.path("/v1/test/simulations"))).containsExactly("post");
+        assertThat(names(paths.path("/v1/test/simulations/active")))
                 .containsExactlyInAnyOrder("get", "delete");
-        assertThat(paths.path("/v1/test/cards").propertyNames()).containsExactly("get");
+        assertThat(names(paths.path("/v1/test/cards"))).containsExactly("get");
     }
 
     @Test
@@ -183,34 +125,24 @@ class OpenApiDocumentIntegrationTest {
     }
 
     @Test
-    void everyTagUsedByAnOperationIsDeclaredAndDescribed() throws Exception {
-        JsonNode declared = document().path("tags");
-        List<String> declaredNames = declared.valueStream().map(t -> t.path("name").asString()).toList();
-
-        assertThat(declaredNames).containsExactly("Test cards", "Simulations", "Decisions");
-        assertThat(declared.valueStream().map(t -> t.path("description").asString()).toList())
-                .allSatisfy(description -> assertThat(description).isNotEmpty());
-
-        assertThat(usedTags()).isNotEmpty()
-                .allSatisfy(tag -> assertThat(declaredNames).contains(tag));
-    }
-
-    @Test
     void theResourceSchemasAreGeneratedFromTheDtosRatherThanLeftAsBareObjects() throws Exception {
         JsonNode schemas = document().path("components").path("schemas");
 
-        assertThat(schemas.path("TestCardResponse").path("properties").propertyNames()).isNotEmpty();
-        assertThat(schemas.path("SimulationOverrideResponse").path("properties").propertyNames())
-                .isNotEmpty();
-        assertThat(schemas.path("CreateSimulationOverrideRequest").path("properties").propertyNames())
-                .isNotEmpty();
+        assertThat(names(schemas.path("TestCardResponse").path("properties")))
+                .contains("token", "brand", "outcome", "captureBehaviour");
+        assertThat(names(schemas.path("SimulationOverrideResponse").path("properties")))
+                .contains("id", "scenario", "remainingCount", "expiresAt");
+        assertThat(names(schemas.path("CreateSimulationOverrideRequest").path("properties")))
+                .contains("scenario", "declineCode", "errorCode", "latencyMs");
     }
 
     @Test
     void theOffsetPagedDecisionLogPublishesPageAndSizeRatherThanTheJavaPageableArgument()
             throws Exception {
-        List<String> names = document().path("paths").path("/v1/test/decisions").path("get")
-                .path("parameters").valueStream().map(p -> p.path("name").asString()).toList();
+        JsonNode parameters = document().path("paths").path("/v1/test/decisions").path("get")
+                .path("parameters");
+        List<String> names = new ArrayList<>();
+        parameters.forEach(parameter -> names.add(parameter.path("name").asText()));
 
         // Same hazard as notification-service's delivery list: `Pageable` is a Spring
         // binding type, and published verbatim it becomes a `pageable` object argument no
@@ -220,60 +152,36 @@ class OpenApiDocumentIntegrationTest {
     }
 
     @Test
-    void theDocumentIsAlsoServedAsYamlForTheMergeStep() throws Exception {
-        mockMvc.perform(get("/v3/api-docs.yaml")).andExpect(status().isOk());
-    }
-
-    @Test
     void theUnauthenticatedEndpointIsNotDocumentedAsReturning401Or403() throws Exception {
         // The counterpart to the security assertion above (M21.4). `GET /v1/test/cards`
         // needs no credential, so it cannot fail to authenticate — documenting a 401 on it
         // would contradict the running system and make an SDK generate credential handling
         // for a call that takes none. Every other operation here still declares both.
-        List<String> cardResponses =
-                List.copyOf(document().path("paths").path("/v1/test/cards").path("get")
-                        .path("responses").propertyNames());
+        Set<String> cardResponses = names(document().path("paths").path("/v1/test/cards")
+                .path("get").path("responses"));
 
         assertThat(cardResponses).doesNotContain("401", "403");
+        // 429 and 500 remain: unauthenticated traffic is still rate limited by IP (D24),
+        // and anything can fail.
         assertThat(cardResponses).contains("429", "500");
 
-        List<String> simulationResponses =
-                List.copyOf(document().path("paths").path("/v1/test/simulations").path("post")
-                        .path("responses").propertyNames());
-        assertThat(simulationResponses).contains("401", "403");
+        assertThat(names(document().path("paths").path("/v1/test/simulations").path("post")
+                .path("responses"))).contains("401", "403");
     }
 
-    /**
-     * Writes this service's fragment where {@code mergeOpenApi} will find it (M21.3).
-     *
-     * <p>Less an assertion than a by-product, and deliberately placed here rather than in a
-     * task of its own: this class is the only place the document exists after a real
-     * application context has produced it, and every other test in this file is a
-     * precondition for the fragment being worth merging. A fragment generated somewhere
-     * that had not asserted the path set, the tier exclusion and the shared contract would
-     * be a second, unchecked source of the published API.
-     *
-     * <p>The bytes written are the ones the service served, compared back rather than
-     * assumed: the merged baseline should describe what the API actually returns, and a
-     * re-serialization could differ in key order or whitespace without anyone noticing.
-     */
     @Test
-    void theFragmentIsWrittenForTheMergeStep() throws Exception {
-        document();
-        Path fragment = OpenApiFragments.write("sandbox-service", documentJson);
+    void theCatalogueExplainsWhatEachBehaviourFieldSelects() throws Exception {
+        // M21.7. This resource is the first thing an integrator reads, before they have made
+        // a single successful call, and `captureBehaviour` versus `outcome` is the
+        // distinction that decides whether they pick the right token — a card can authorize
+        // cleanly and still fail to capture, which is exactly the case people miss.
+        JsonNode properties = document().path("components").path("schemas")
+                .path("TestCardResponse").path("properties");
 
-        assertThat(Files.readString(fragment, StandardCharsets.UTF_8)).isEqualTo(documentJson);
-    }
-
-    private List<String> usedTags() throws Exception {
-        return document().path("paths").valueStream()
-                .flatMap(JsonNode::valueStream)
-                .flatMap(operation -> tagsOf(operation).stream())
-                .distinct()
-                .toList();
-    }
-
-    private static List<String> tagsOf(JsonNode operation) {
-        return operation.path("tags").valueStream().map(JsonNode::asString).toList();
+        assertThat(properties.path("outcome").path("description").asText()).isNotEmpty();
+        assertThat(properties.path("captureBehaviour").path("description").asText())
+                .contains("capture");
+        assertThat(properties.path("token").path("description").asText())
+                .contains("paymentMethodToken");
     }
 }

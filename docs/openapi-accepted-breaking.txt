@@ -1,0 +1,117 @@
+# Reviewed and accepted breaking changes to docs/openapi.yaml
+#
+# The CI contract gate (M21.6) compares two revisions of the published document and fails on
+# a breaking change that no new dated API revision declares. It compares *documents*, and so
+# it cannot tell "the API changed" from "the description was corrected" — the second is a
+# real category, and this file is where an instance of it is recorded and reviewed.
+#
+# One location per line. Everything else is a comment. Every entry is printed in full on
+# every gate run, and an entry that matches nothing is reported as no longer applicable, so
+# this file cannot quietly become a blanket suppression.
+#
+# Adding an entry is a claim that **nothing about what a request or a response contains has
+# changed**. If that is not true, the change needs a new dated revision in `ApiVersions` and
+# a transformation back to the previous one (D156) — not a line here.
+#
+# ─────────────────────────────────────────────────────────────────────────────────────────
+# M21.7 (2026-07-29) — the documentation pass corrects what the document said about
+# behaviour that did not move. The public revision stays `2026-08-01` because the wire
+# contract is byte-for-byte what it was; cutting a revision would tell every pinned merchant
+# their integration changed when it did not, and would require a transformation that
+# transforms nothing.
+# ─────────────────────────────────────────────────────────────────────────────────────────
+
+# 1. Operation ids were springdoc's derived Java method names and are now explicit and
+#    stable. The old ones were also *colliding* across services — `get`, `list` and `create`
+#    each appeared in more than one fragment — which is a defect M21.7's new merge check now
+#    refuses outright. No SDK exists yet (M22 is unstarted), so nothing consumes them.
+paths./v1/analytics/payments.get.operationId
+paths./v1/balance.get.operationId
+paths./v1/balance_transactions.get.operationId
+paths./v1/events.get.operationId
+paths./v1/events/{id}.get.operationId
+paths./v1/payments.post.operationId
+paths./v1/payments/{id}/authorize.post.operationId
+paths./v1/payments/{id}/capture.post.operationId
+paths./v1/payments/{id}/refund.post.operationId
+paths./v1/request_logs.get.operationId
+paths./v1/test/cards.get.operationId
+paths./v1/test/decisions.get.operationId
+paths./v1/test/decisions/payments/{paymentId}.get.operationId
+paths./v1/test/simulations.post.operationId
+paths./v1/test/simulations/active.delete.operationId
+paths./v1/test/simulations/active.get.operationId
+paths./v1/usage.get.operationId
+paths./v1/webhook_deliveries.get.operationId
+paths./v1/webhook_deliveries/{id}.get.operationId
+paths./v1/webhook_deliveries/{id}/replay.post.operationId
+paths./v1/webhook_endpoints.get.operationId
+paths./v1/webhook_endpoints.post.operationId
+paths./v1/webhook_endpoints/{id}.delete.operationId
+paths./v1/webhook_endpoints/{id}.get.operationId
+paths./v1/webhook_endpoints/{id}.patch.operationId
+paths./v1/webhook_endpoints/{id}/rotate_secret.post.operationId
+
+# 2. Three operations were documented as returning `200`, which springdoc assumes when
+#    nothing says otherwise. They return `201` and `204` respectively and always have — the
+#    documented response was the one that never happened.
+paths./v1/test/simulations.post.responses.200
+paths./v1/test/simulations/active.delete.responses.200
+paths./v1/webhook_endpoints/{id}.delete.responses.200
+
+# 3. Fields that have always been able to be null are now declared nullable. `successRate`
+#    is null when nothing was attempted and the duration percentiles are null for a day with
+#    no traffic — D143 made this platform publish those nulls explicitly rather than omit
+#    them, precisely so a client could tell "no answer" from "no such field". `keyId` is null
+#    for traffic made with a key that has since been deleted. The document said otherwise;
+#    an SDK generated from it would have failed on the quiet-period responses.
+components.schemas.AnalyticsSummaryResponse.properties.successRate.type
+components.schemas.UsageBucketResponse.properties.keyId.type
+components.schemas.UsageBucketResponse.properties.meanDurationMs.type
+components.schemas.UsageBucketResponse.properties.p50DurationMs.type
+components.schemas.UsageBucketResponse.properties.p95DurationMs.type
+components.schemas.UsageBucketResponse.properties.p99DurationMs.type
+#    The test-card catalogue is the same correction from the other direction: `TestCardResponse`
+#    carries no `@JsonInclude(NON_NULL)`, so an approving card really does serialize
+#    `"declineCode": null` — and the document declared all three fields non-null. Declaring the
+#    truth is the additive fix; suppressing the nulls would have changed the wire.
+components.schemas.TestCardResponse.properties.declineCode.type
+components.schemas.TestCardResponse.properties.errorCode.type
+components.schemas.TestCardResponse.properties.deferredDelayMs.type
+#    And `SimulationOverrideResponse`, for the identical reason: the fields that do not apply
+#    to the active scenario serialize as explicit nulls, and the document declared them
+#    non-null.
+components.schemas.SimulationOverrideResponse.properties.declineCode.type
+components.schemas.SimulationOverrideResponse.properties.errorCode.type
+components.schemas.SimulationOverrideResponse.properties.latencyMs.type
+components.schemas.SimulationOverrideResponse.properties.remainingCount.type
+components.schemas.SimulationOverrideResponse.properties.expiresAt.type
+components.schemas.SimulationOverrideResponse.properties.enactedFrom.type
+
+# 4. The event payload was described by reflecting Jackson's `JsonNode` class: the document
+#    published `isArray`, `isBigDecimal`, `getNodeType` and eighteen more bean getters as the
+#    shape of a webhook body, behind a generated `JsonNode` component. No response has ever
+#    had that shape. It is now the free-form object it always was, and the bogus component is
+#    gone. Found by M21.7's contract tests — a real event validated against none of it.
+components.schemas.EventResponse.properties.data.$ref
+components.schemas.JsonNode
+
+# 5. `Idempotency-Key` is now published as required on every payment mutation, because it
+#    always was. `PaymentService.requireIdempotencyKey` rejects a request without one with a
+#    `400`, and the document said the header was optional — so the document described a call
+#    the service has never accepted. Found by M21.7's own contract test making the call and
+#    getting a `400` where the document promised a `201`. The Spring-level
+#    `required = false` stays: it is what lets the omission produce a catalogued
+#    `BAD_REQUEST` instead of Spring's own unmapped error.
+paths./v1/payments.post.parameters.header:Idempotency-Key
+paths./v1/payments/{id}/authorize.post.parameters.header:Idempotency-Key
+paths./v1/payments/{id}/capture.post.parameters.header:Idempotency-Key
+paths./v1/payments/{id}/refund.post.parameters.header:Idempotency-Key
+paths./v1/payments/{id}/void.post.parameters.header:Idempotency-Key
+
+# 6. `ApiError` and `ApiFieldError` gained their own `type: object`. They reach the document
+#    by two routes — springdoc's resolver where an operation names them, swagger's converter
+#    where nothing does — and the converter omitted it, so four services published a schema
+#    the other two did not and the merge refused to combine them. Both routes now agree.
+components.schemas.ApiError.type
+components.schemas.ApiFieldError.type

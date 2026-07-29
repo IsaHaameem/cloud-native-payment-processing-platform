@@ -58,3 +58,12 @@ include("load-tests")
 // docs/openapi.yaml. Build tooling, like load-tests: run by the build, never
 // deployed and never on a service's runtime classpath.
 include("openapi-tools")
+
+// ── Shared test scaffold (M21.7) ────────────────────────────────────────
+// The base classes the six public-API services' contract tests extend. A module
+// of its own rather than a testFixtures source set on common-lib, because
+// common-lib's web dependencies are deliberately compileOnly (D11) so the
+// reactive gateway is never handed a servlet stack — and a servlet-test
+// scaffold is the last thing that module should start exporting. Test scope
+// only; nothing links it into a running service.
+include("test-support")

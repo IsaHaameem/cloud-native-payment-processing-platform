@@ -1,7 +1,9 @@
 package com.paymentflow.transaction.web;
 
+import com.paymentflow.common.dto.error.ApiError;
 import com.paymentflow.common.dto.page.CursorPage;
 import com.paymentflow.common.exception.UnauthorizedException;
+import com.paymentflow.common.openapi.PublicApiParameters;
 import com.paymentflow.common.query.CursorCodec;
 import com.paymentflow.common.query.ListQuery;
 import com.paymentflow.common.security.MerchantContext;
@@ -10,6 +12,11 @@ import com.paymentflow.transaction.dto.BalanceResponse;
 import com.paymentflow.transaction.dto.BalanceTransactionResponse;
 import com.paymentflow.transaction.service.BalanceQueryService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -53,19 +60,51 @@ public class BalanceController {
     }
 
     @GetMapping("/v1/balance")
-    @Operation(tags = BALANCE_TAG)
+    @Operation(tags = BALANCE_TAG, operationId = "getBalance",
+            summary = "Retrieve your balance",
+            description = """
+                    Returns what you hold, per currency, in the mode of the key you called \
+                    with.
+
+                    Two figures per currency, and the difference matters: `pendingMinor` is \
+                    money authorized but not yet captured — it can still be voided or expire, \
+                    so it is not yours — while `availableMinor` is money captured and owed to \
+                    you, net of refunds. Both are projections of the double-entry ledger \
+                    rather than counters kept alongside it, so they cannot drift from the \
+                    entries at `/v1/balance_transactions`.""")
+    @ApiResponse(responseCode = "200", description = "Your balance in every currency you hold.")
     public BalanceResponse balance() {
         MerchantContext context = requireContext();
         return balanceQueryService.balance(context.merchantId(), context.mode());
     }
 
     @GetMapping("/v1/balance_transactions")
-    @Operation(tags = BALANCE_TRANSACTIONS_TAG)
+    @Operation(tags = BALANCE_TRANSACTIONS_TAG, operationId = "listBalanceTransactions",
+            summary = "List balance transactions",
+            description = """
+                    Returns the individual ledger entries behind your balance, most recent \
+                    first, cursor-paginated. Every entry names the payment and the lifecycle \
+                    event that produced it, so a balance can always be reconciled back to the \
+                    payments that made it.
+
+                    Only your own side of each entry is returned. Every posting is balanced \
+                    against the platform's clearing account, which is not a merchant's \
+                    business to see — this is a projection of the ledger, not a dump of it.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "A page of ledger entries, most "
+                    + "recent first."),
+            @ApiResponse(responseCode = "400", description = PublicApiParameters.INVALID_LIST_QUERY,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(ref = ApiError.SCHEMA_REF)))})
     public CursorPage<BalanceTransactionResponse> balanceTransactions(
+            @Parameter(description = PublicApiParameters.LIMIT)
             @RequestParam(name = "limit", required = false) Integer limit,
+            @Parameter(description = PublicApiParameters.STARTING_AFTER)
             @RequestParam(name = "starting_after", required = false) String startingAfter,
+            @Parameter(description = PublicApiParameters.CREATED_AFTER)
             @RequestParam(name = "created_after", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdAfter,
+            @Parameter(description = PublicApiParameters.CREATED_BEFORE)
             @RequestParam(name = "created_before", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdBefore) {
 

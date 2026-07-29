@@ -68,8 +68,26 @@
 > debt: `verifyOpenApiBaseline` now runs in CI, a cached-green build can no longer be mistaken
 > for a real one (`--no-build-cache` plus a test-execution proof step), and `sandbox-service`
 > was found missing from the image matrix and added.
+> **M21.7 complete** (2026-07-29), and with it **M21 as a whole**: live responses are validated
+> against `docs/openapi.yaml` by six contract tests; the annotation prose D154 deferred is written
+> and *enforced* (31 operation summaries and descriptions, stable unique operation ids, every
+> parameter and all 250 schema fields described, per-operation 400/404/409 responses); the six
+> duplicated document-test scaffolds collapse into `:test-support` (D159). Four real contract
+> defects were found by writing the tests — an event payload described by reflecting Jackson's
+> `JsonNode` class, nullability that rendered as nothing in a 3.1 document, three `200` responses
+> springdoc invented for operations returning `201`/`204`, an `ApiError` schema that reached the
+> document by two disagreeing routes (caught by M21.3's merge refusing to combine them), and
+> **`Idempotency-Key` published as optional on payment mutations that have always rejected a
+> request without it** — a caller trusting the document would have written the one call the API
+> refuses. Two more followed: the test-card catalogue serializes nulls the document declared
+> non-null, no cursor list documented the `400` a tampered cursor returns, and
+> `GET /v1/test/simulations/active` returned a **bodiless 404** — the only response in the
+> public tier that opted out of the error envelope entirely, and the one defect where the code
+> was wrong rather than the document. The description-only corrections read as 53 breaking
+> changes to the gate and are none to the wire, which is resolved by a reviewed acceptance file
+> rather than a fake revision (**D160**).
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D158**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D160**.
 
 ---
 
@@ -944,7 +962,7 @@ the single place to see where V2 stands; the full entry for every completed mile
 | **M18** — Webhooks as a product | A | ✅ complete | 2026-07-25 |
 | **M19** — Public read APIs & query surface | B | ✅ complete | 2026-07-25 – 07-26 |
 | **M20** — Request logging, metering, per-key limits | B | ✅ complete | 2026-07-26 |
-| **M21** — OpenAPI 3.1, versioning & the error contract | B | 🚧 **in progress** — M21.1–M21.6 ✅, M21.7 remaining (§17/M21) | from 2026-07-27 |
+| **M21** — OpenAPI 3.1, versioning & the error contract | B | ✅ complete | 2026-07-27 – 07-29 |
 | **M22** — Node & Python SDKs | C | ⬜ not started | — |
 | **M23** — Developer portal, part 1 | C | ⬜ not started | — |
 | **M24** — Developer portal, part 2 | C | ⬜ not started | — |
@@ -2727,6 +2745,8 @@ decisions are appended as milestones are implemented.
 | D155 | (M21.5) The merchant's pinned revision is a **`pinned_api_version` column on `merchants`**, carried on the API-key verify response — not the `merchant_settings` table §5/M21 task 4 names. And it is written on the merchant's **first authenticated call**, not at signup or key issuance | (a) Build `merchant_settings` as §4.6 and §5/M21 both describe; (b) pin at signup, when the merchant row is created; (c) pin at key issuance | (a) is what the plan literally says and was already answered by **D145**: §4.6 assumed a settings table that was never built, and M20.5 put three rate-limit overrides on `merchants` instead, because the value has to ride out on the verify response the gateway already resolves and caches on every request. Building the table now for a fourth column would mean a join on the hottest internal path to reach data that fits beside what is already there — and would leave M20.5's three columns behind, so the platform would have settings in two places. If a fifth unrelated setting appears, that is the moment to reconsider; a fourth is not. On the timing: (b) and (c) both pin a merchant to a revision they may never have seen. A merchant can sign up, generate a key, and integrate three months later — pinning at signup gives them the contract that was current on a day they wrote no code against. Pinning at first *call* pins them to the contract they actually observed, which is the only version of the promise worth making. The cost is that a verification endpoint performs a write, which is genuinely odd and is why the write happens at most once per merchant ever, in its own `REQUIRES_NEW` transaction, and can never fail the request it rides on |
 | D156 | (M21.5) The `2026-08-01` revision's one breaking change is **lowercase `snake_case` payment and refund `status` values**; the transformation is **structural** (uppercase whatever it finds) rather than a lookup table of known statuses | (a) A larger, more valuable revision — e.g. retiring the offset `PageResponse` on `/v1/webhook_deliveries` and `/v1/test/decisions` that D139 left behind; (b) a lookup table mapping each known status to its old spelling; (c) no real revision at all — prove the machinery with a synthetic one that no endpoint uses | *Confirmed with the user before implementation.* The revision has two jobs: prove the versioning machinery end to end, and be worth doing on its own. `SCREAMING_SNAKE` statuses were the Java enum constant leaking through Jackson's default serialization, never a considered wire form — and M21.4 had *just* established that enum values are lowercase `snake_case` on this platform's wire (`ErrorType`). The payment resources were the only place that was not true, and M21.3 had frozen them into a published baseline, so leaving it would have made the inconsistency permanent. It also exercises both directions, because `status` is a response field on three resources *and* a query filter on two lists. (a) is a better change in isolation but a worse first revision: the old envelope's `totalElements`/`totalPages` are genuinely not derivable from a cursor page, so the transformation would have to re-query for a count or approximate — a real design problem to meet while the machinery it runs on is one commit old. (c) fails the "worth doing" half and would leave the transformation layer's only exercise in a test. On (b): a lookup table needs an edit every time a status is added, and the edit would be silently optional — a new status simply would not be translated, and only a caller pinned to the old revision would ever see it |
 | D154 | (M21.4→M21.7) The **annotation prose** — per-operation `summary`/`description`, schema field descriptions, and per-operation error responses — moves from M21.4 to **M21.7**. *Confirmed with the user before M21.5 began; recorded as an approved decision rather than a deviation* | (a) Write it in M21.4 as §14 originally assigned, since M21.4 is where the `ApiError` shape it was waiting for became final; (b) give it a sub-milestone of its own, M21.8; (c) leave it unassigned until M25's documentation site needs it | The reason M21.1 deferred it was that prose should be written once against the *final* contract. M21.4 made the error contract final but is not automatically the right place to spend it: the work is 31 operation summaries, ~30 schemas' worth of field descriptions, and per-operation 404s and 409s that each require reading a controller to get right. Folding that into the same commit as the error contract produces precisely the outcome §14's entry exists to warn about — output that is correctly typed and hastily documented, which is worse than obviously absent because it looks finished. (a) also mis-sequences the verification: **M21.7's contract tests read this same document**, so writing the prose there means the summaries and the assertions that keep them honest land together, and a description that contradicts the endpoint's real behaviour is caught by the tests written beside it rather than surviving to M25. (b) is the same work with an extra boundary and no extra review value, since nothing between M21.4 and M21.7 depends on the prose. (c) is how documentation debt becomes permanent — §14 rule 7 requires an owner, and "the docs site will need it" is not one |
+| D159 | (M21.7) The shared contract-test scaffold is a **new `:test-support` module**, not a `testFixtures` source set on `common-lib` | (a) `java-test-fixtures` on `common-lib`, which §14 named as the obvious remedy; (b) put the base classes in `openapi-tools`, which the six services already depend on in test scope; (c) leave the duplication and copy it a seventh time | (a) is the standard answer and collides with **D11**, the reason `common-lib`'s web dependencies are `compileOnly`: nothing that depends on `common-lib` is ever forced onto the servlet stack, which is what lets the reactive gateway use it at all. A test-fixtures variant carrying `spring-boot-webmvc-test` and MockMvc would make the module whose entire design is "no servlet stack unless you asked for one" start exporting exactly that. The variant is consumed only by the six servlet services today, but the constraint is a design property rather than a fact about today's consumers, and weakening it to avoid one `include(...)` is a poor trade. (b) is worse in a quieter way: `openapi-tools` is deliberately build tooling on the Jackson 2 line with no Spring anywhere, and adding a Spring test scaffold to it would put Spring on the classpath of the module the *published document* is generated by. (c) is what M21.2 did, and §14 recorded the cost: six copies that can drift, and a seventh service inheriting whichever was pasted. M21.7 adds a second round of per-service assertions to that same scaffold, which is the moment the deferral stops being cheap. The module follows the shape the repository already uses for code that serves the build rather than being deployed, and is wired to exactly the right six services by the `openapi-fragment` convention plugin — the set is already defined by whoever applies it |
+| D160 | (M21.7) A breaking change that corrects the *description* of unchanged behaviour is recorded in a committed **acceptance file** the gate reads, rather than by cutting a dated revision | (a) Cut revision `2026-12-01` so the gate's existing declaration mechanism (D157) covers it; (b) leave CI red on the commit that lands the correction and merge it by hand; (c) weaken the classifier so operation-id renames, nullability corrections and response-code fixes are not breaking; (d) never correct the document, and keep publishing what it already said | The gate compares two *documents* and genuinely cannot tell "the API changed" from "the description was wrong" — and M21.7 is 39 instances of the second: operation ids that were springdoc's Java method names (and *colliding* across services), three `200` responses invented for operations that return `201`/`204`, fields declared non-null that have always been able to be null, and a payload schema built by reflecting Jackson's `JsonNode` class. Not one byte of any request or response moved. (a) is the worst option precisely because it looks the most correct: a dated revision is a promise to merchants that their integration changed, and it would require registering a transformation under D156 that transforms nothing — the versioning machinery would carry a permanent lie. (b) is defensible once and corrosive as a habit; a gate that is routinely merged past stops being a gate. (c) destroys the classifier's value for the cases it exists for — an operation-id rename genuinely does rename every SDK method, and that has to keep failing. (d) is how a document becomes fiction, which §9.5 and R10 exist to prevent. The acceptance file keeps the classifier strict and moves the judgement to a reviewer, with three properties that stop it becoming a rubber stamp: it is committed and appears in the same diff as the change it excuses, every accepted entry is **printed in full on every run** rather than silently swallowed, and entries matching nothing are reported as no longer applicable. Adding a line to it is an explicit claim that the wire contract did not move; if that claim is false, the change needs a revision instead |
 | D157 | (M21.6) A breaking change is acceptable to the CI gate **only when `info.version` has advanced** — the declaration, not the change, is what the gate judges. A revision that moved backwards does not count | (a) Fail on every breaking change, with no escape at all; (b) allow an override via a commit-message trailer or a magic file (`ALLOW_BREAKING`); (c) allow any change to `info.version`, in either direction, as the declaration | The gate has to be compatible with a roadmap that will genuinely break `/v1` again — M22's SDKs and M25's docs both assume the contract can move. (a) makes that impossible and therefore guarantees the gate gets disabled the first time it is inconvenient, which is the failure mode a gate has that a review does not. (b) is the usual answer and is worse than it looks: it puts the declaration somewhere no consumer can see, so a merchant reading the published document learns nothing, and it decouples "we said this is breaking" from "we did anything about it". Tying acceptance to `info.version` means the declaration *is* the mechanism — advancing it is what cuts the dated revision, which is what D156's transformation layer keys off, so a passing gate implies the pinned-merchant path exists rather than merely asserting someone thought about it. On direction: (c) would let anyone satisfy the gate by editing one string to any other string, including an earlier date, which reduces it to a formality. Dated revisions only ever move forward (D108), so requiring the same of the declaration costs nothing legitimate |
 | D158 | (M21.6) Any difference the classifier has **no rule for is reported as breaking**, not ignored; the only exemption is a closed list of prose and illustration keywords (`description`, `summary`, `example`, …) | (a) Ignore unrecognized keys, on the grounds that a rule was not written because the key does not matter; (b) report them as additive; (c) fail the build outright on an unrecognized key, rather than classifying it | §5/M21's risk table names the exact hazard: *"the breaking-change classifier has false negatives"*. The realistic way this gate fails is not a wrong rule but a missing one — springdoc emits a keyword nobody anticipated, no walker looks at it, and the gate reports "no breaking changes" about a document that lost a field. (a) and (b) both produce that outcome silently, and silence from a gate is read as proof rather than as absence of evidence. The asymmetry decides it: a false positive costs one conversation and one new rule, a false negative ships a broken contract to every SDK generated from the document and is discovered by an integrator. (c) is the same instinct taken too far — an unrecognized key is not necessarily a problem, and a gate that cannot be reasoned about is one that gets bypassed; classifying it as breaking keeps it inside the same "declare it or fix it" workflow as everything else. The prose exemption is what keeps this liveable, and it is deliberately a list of things that cannot constrain a payload: M21.7 adds several hundred descriptions, and without the exemption the documentation milestone would read as several hundred breaking changes |
 | D151 | (M21.3) The merge is a **new `:openapi-tools` module** whose fragments are produced by each service's existing `OpenApiDocumentIntegrationTest`, not by `springdoc-openapi-gradle-plugin` and not by Gradle-script logic in `build-logic` | (a) `org.springdoc.openapi-gradle-plugin`, the tool built for exactly this job — it `bootRun`s the service and fetches `/v3/api-docs`; (b) merge logic written directly in the root build file or as a `build-logic` task class; (c) commit six per-service documents and skip the merge until M25 needs one | (a) is the obvious choice and fails on this platform's shape: it starts each service for real, so producing the document would require Postgres, Redis **and** Kafka reachable at build time for six services. The pre-M21.3 audit had just finished demonstrating what that dependency costs — 18 spurious test failures from Docker exhaustion, and a compose stack whose stale images answered `/v3/api-docs` with 401 (§14). Worse, it would be a *second* path to the published contract, one that asserts nothing: the fragment it produced could differ from the one the document tests approved and no test would notice. Reusing the integration test makes the fragment a by-product of an assertion — the path set, the tier exclusion and the shared contract are all checked before the bytes are written. (b) keeps the wiring together but makes the interesting part — deduplicating shared components, refusing to merge fragments that disagree — reachable only through a Gradle invocation, when it is ordinary logic with ordinary failure modes; §10's standing position is that logic like that gets unit tests, and `OpenApiMergerTest`'s hand-written *disagreeing* fragments could not be written at all against the real six, which agree. (c) defers the one artefact everything downstream consumes and leaves nothing to diff, which is precisely the "documentation drifts into fiction" failure §9.5 and R10 exist to prevent. The module also has to exist for M21.6, which diffs this same document for breaking changes |
@@ -2800,14 +2820,18 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **`idx_ledger_entries_account_id` is now redundant for lookups but is deliberately retained** (M19.8, Defect 3). `idx_ledger_entries_account_created (account_id, created_at desc, id desc)` supersedes it for every query the balance API issues, and M19.2 dropped `idx_payments_merchant_mode` in exactly this situation. It is kept here because it also backs the `account_id` foreign key, and dropping the only index on an FK column makes every delete on `accounts` scan `ledger_entries`. The cost is one redundant index's write maintenance; the alternative is a table scan on a path nothing exercises today but a future account lifecycle would. Flagged so the asymmetry with M19.2 is not read as an inconsistency.
 - **notification-service's Kafka producer sets no `max.block.ms`, so a broker outage becomes a database outage.** Found during the M20 CI investigation, with evidence rather than by inspection. `WebhookRetryRelay.relay()` is `@Scheduled(fixedDelay=1s)` **and** `@Transactional`, and it calls `kafkaTemplate.send`. With no reachable broker each `send` blocks for the 60-second default while the relay holds a JDBC connection, and the observed result is `HikariPool-7 - Connection is not available, request timed out` — a Kafka outage escalating into connection-pool exhaustion in a service that would otherwise be merely degraded. The same default makes `POST /v1/webhook_deliveries/{id}/replay` hang a servlet thread for 60 seconds before returning 500, which under a broker outage exhausts the servlet pool. The gateway's M20.2 producer sets `max.block.ms=1000` for exactly this reason. **Not fixed here deliberately**: failing fast changes delivery semantics, and whether an undispatched `PENDING` delivery is recoverable by the retry relay or silently lost must be established first — that analysis does not belong inside a CI fix. No milestone owns it yet; it is a genuine production robustness defect, not a test artefact.
 - **Integration tests can depend on the developer's docker-compose stack without declaring it, and the failure mode is invisible locally.** `WebhookDeliveryLogAndReplayIntegrationTest` passed for two milestones only because `application.yaml`'s default `localhost:59092` happened to reach a running compose broker; in CI it failed. Fixed for that class (M20's CI investigation), but the underlying hazard is structural: every service's `application.yaml` carries a working localhost default for Kafka, Redis and Postgres, so *any* test that omits a container silently borrows the developer's stack. The cost is not only red CI — the same gap made `WebhookEndpointApiIntegrationTest` take **1063.9s** instead of **10.7s**, ~18 minutes of CI time attributable to blocked producer calls that were swallowed rather than failed. A structural guard (a test-profile Kafka/Redis/datasource pointing at an unroutable address, so an undeclared dependency fails loudly and immediately instead of blocking for 60 seconds) would prevent the next one. Not owned by any milestone; M27 or a dedicated stability pass is the natural home.
-- **The six `OpenApiDocumentIntegrationTest` classes duplicate their scaffold, and this breaks §5.0 standing rule 4** ("no duplicated code — if a pattern appears a third time, it moves into `common-lib`"). Found by the pre-M21.3 audit, not during M21.2. Each of the six files independently re-implements the cached `document()` fetch, the `tagsOf`/`usedTags` helpers, and five assertions that are identical in intent and near-identical in text: the document is 3.1, the path set matches in both directions, the internal tiers are absent, the fragment carries the shared contract, and the YAML sibling is served. Roughly 70 lines × 6. It was written this way because the monorepo has **no shared test-fixtures artifact** — there is no module the six could inherit from, and D149's `PublicApiDocument` is main-source, not test-source. The cost is not the line count but the drift: a seventh service, or M21.7's contract tests, would either copy it a seventh time or fix it under pressure. **Not fixed during the audit** because the remedy is a cross-module change (a `testFixtures` source set on `common-lib`, or a small `test-support` module, consumed by six services) and that is implementation rather than a documentation correction. The natural moment is immediately before **M21.7**, which adds a second round of per-service document assertions on exactly this scaffold — or before M21.3 if the merge task's verification wants to reuse it.
+- ~~**The six `OpenApiDocumentIntegrationTest` classes duplicate their scaffold, and this breaks §5.0 standing rule 4**~~ — **closed by M21.7** (2026-07-29). The scaffold now lives once in `:test-support`'s `PublicApiDocumentContract`, which the six document tests extend; each subclass supplies its module name, its path set and its tag list and inherits fourteen assertions, keeping only what is genuinely its own. The entry's own prediction is what forced the fix: *"M21.7's contract tests would either copy it a seventh time or fix it under pressure"* — M21.7 adds six new assertions to that scaffold and a second base class for live-response validation, so a seventh copy would have been fourteen. A separate module rather than `testFixtures` on `common-lib`, for D11's reason, recorded as **D159**. Kept struck through rather than deleted because the reason it was deferred — the monorepo had nowhere to put shared test code — is exactly what the fix had to create.
+- **The six `OpenApiDocumentIntegrationTest` classes duplicated their scaffold** *(historical detail, retained)* ("no duplicated code — if a pattern appears a third time, it moves into `common-lib`"). Found by the pre-M21.3 audit, not during M21.2. Each of the six files independently re-implements the cached `document()` fetch, the `tagsOf`/`usedTags` helpers, and five assertions that are identical in intent and near-identical in text: the document is 3.1, the path set matches in both directions, the internal tiers are absent, the fragment carries the shared contract, and the YAML sibling is served. Roughly 70 lines × 6. It was written this way because the monorepo has **no shared test-fixtures artifact** — there is no module the six could inherit from, and D149's `PublicApiDocument` is main-source, not test-source. The cost is not the line count but the drift: a seventh service, or M21.7's contract tests, would either copy it a seventh time or fix it under pressure. **Not fixed during the audit** because the remedy is a cross-module change (a `testFixtures` source set on `common-lib`, or a small `test-support` module, consumed by six services) and that is implementation rather than a documentation correction. The natural moment is immediately before **M21.7**, which adds a second round of per-service document assertions on exactly this scaffold — or before M21.3 if the merge task's verification wants to reuse it.
 - ~~**The two webhook resources carry no `object` discriminator, unlike every other public object**~~ — **closed by M21.3** (2026-07-28, D150). Found in M21.2 by generating notification-service's document and reading its schemas: `PaymentResponse`, `RefundResponse`, `EventResponse`, `BalanceTransactionResponse`, `RequestLogResponse` and `AnalyticsSummaryResponse` all published a constant `object` field (`"payment"`, `"event"`, `"balance_transaction"`, …) — it is how a caller identifies a bare object out of context, and §7.1's SDK contract leans on it — while `WebhookEndpointResponse` and `WebhookDeliveryResponse` did not have the field at all. The inconsistency dated from M18 and was invisible until the schemas were written down side by side, which is a fair argument for the document having been worth generating. Deliberately not fixed in M21.2, because adding a field to a shipped public response is an API change and M21.2's remit was to describe the API rather than alter it; fixed as M21.3's first step instead, since M21.3 is the sub-milestone that freezes the `openapi.yaml` baseline and a gap left open past that point becomes a documented promise. Kept as a struck-through entry rather than deleted, because it is the clearest example V2 has of a contract defect that only became visible once the contract was written down.
 - ~~**`NotificationIntegrationTest.anEventIsFannedOutOnlyToEndpointsSubscribedToItsType` raced the delivery-status write**~~ — **fixed in M21.4** (2026-07-28). The test awaited the *sink's* hit counter and then asserted immediately that both delivery rows read `DELIVERED`, but the row is marked delivered after the HTTP call returns, so the two are not the same event. It passed almost always and failed under load — observed once during M21.4's full build with one delivery still `PENDING`. Fixed by awaiting the status rather than asserting it. Recorded rather than silently fixed because the shape recurs: this suite has several "await the observable side effect, then assert the database" pairs, and each one is the same race waiting for a slow enough machine. It is also the third distinct way this milestone's builds went red for reasons that were not defects, after the Docker-exhaustion failures and the corrupted `test-results` directory — the pattern is worth seeing as a whole when M27 or a stability pass looks at test reliability.
 - ~~**`verifyOpenApiBaseline` exists but nothing runs it automatically**~~ (M21.3) — **closed by M21.6** (2026-07-29). The task merges the six fragments and fails if `docs/openapi.yaml` no longer matches — and it had been observed doing so on a real change — but it was deliberately not wired into `check`, because that would put six Spring contexts and six Testcontainers Postgres instances on every `./gradlew build`. That reasoning still holds and is why the fix is a **CI job** rather than a `check` dependency: `ci.yml`'s `openapi-contract` job runs it alongside `verifyOpenApiCompatibility`, so the baseline is verified on every push and pull request without making every local build pay for it. Kept as a struck-through entry because the distinction it drew — "the gate is written" and "the gate runs" are different claims — is the reason the fix took the shape it did.
 - ~~**`ci.yml` built eight of the nine service images**~~ — **found and closed by M21.6** (2026-07-29). `sandbox-service` has been a first-class service since M17 and is built by `docker-compose.yml`, but was never added to `ci.yml`'s `docker-build` matrix, so its Dockerfile path — build args, non-root user, exposed port, healthcheck — was the one of nine that nothing in CI verified. Found while editing the workflow for the contract gate rather than by an audit, which is the honest account: a matrix that lists services by hand has no mechanism to notice a missing one, and nothing but reading it would have caught this. Recorded rather than silently fixed because the shape recurs — `docker-compose.yml`, `ci.yml` and `settings.gradle.kts` each maintain their own list of services, and only the last one is enforced by anything.
 - **Three of this milestone's red builds were not defects, and telling that apart cost real time.** Recorded together because the pattern matters more than any one of them (2026-07-28, during M21.3/M21.4). **(1) Docker exhaustion.** `test --rerun-tasks` failed 18 suites across six services with `ContainerFetchException: Can't get Docker image: postgres:17-alpine` — for an image that was present locally. The cause was 19 running compose containers plus Testcontainers across parallel Gradle workers; stopping the `paymentflow-*` stack made all 719 tests pass. This is the *hardware* face of the compose-stack entry above: that one is about tests silently borrowing the developer's stack, this one is about the same stack starving the tests that declared their own containers. **(2) A killed build corrupts `test-results`.** Interrupting `:notification-service:test` (via a background-task stop) left `build/test-results/test/binary/in-progress-results-generic.bin` missing, and the *next* build failed with `NoSuchFileException` on that path — a failure with no relationship to any code, and one that reads like a test framework bug. `rm -rf notification-service/build/test-results` clears it. **(3) A genuine test race**, recorded separately above. **The practical rule this produces:** before any full verification run, stop the `paymentflow-*` compose containers, and never run two Gradle builds concurrently against this repository — the second competes for the same Docker daemon and the same build directories. Both were violated at least once here, and each time the symptom pointed somewhere other than the cause.
 - ~~**A cached-green `./gradlew build` can hide a red test suite, and did.**~~ — **closed for CI by M21.6** (2026-07-29); still true locally, deliberately. Found by the pre-M21.3 audit (2026-07-28). `clean build` reported **BUILD SUCCESSFUL** with 33 of 96 tasks served `FROM-CACHE`; forcing real execution with `test --rerun-tasks` produced **18 failures** across six services. The failures were environmental rather than defects — `ContainerFetchException: Can't get Docker image: postgres:17-alpine` for an image that was present locally, i.e. the Docker daemon buckling under 19 running compose containers plus Testcontainers on parallel Gradle workers — and all 719 tests passed once the compose stack was stopped. The cache was not wrong: content-addressed hits mean the inputs were byte-identical to a previously green run. The hazard is what a *reader* concludes, because "BUILD SUCCESSFUL" is identical in both cases and nothing in the output distinguishes "the tests passed" from "the tests were not run." This is the same family as the compose-stack entry above and compounds it: an environment flaky enough to fail 18 suites is also an environment where a cached success looks like proof. **M21.6 closed it where it matters**: CI runs `clean build --no-build-cache`, so "BUILD SUCCESSFUL" there cannot mean "restored from a previous run", and a following step reads the JUnit XML to publish the executed count per module and fail if any module with `src/test/java` produced no results or if anything was skipped. That second half is the more valuable one — a suite that silently stops contributing tests is invisible in a summary line. **Local builds keep the cache on purpose**, because the hazard is about what a *reader* concludes from a shared signal, and paying full build cost on every local iteration to defend against that would be the wrong trade; the standing rule for a claim that matters locally is still `test --rerun-tasks` with the compose stack stopped.
-- **The generated OpenAPI document is still prose-empty, though no longer error-empty** (M21.1, half-closed by M21.4). Originally: every operation, schema field, and error response carried a *name* and a *type* but no human-readable description — no `summary`, no `description`, no documented non-200 responses, no examples. **M21.4 closed the error half**: all 31 operations now document 401/403/429/500 against the `ApiError` schema with a real example body each, and `docs/ERRORS.md` explains every code. What remains absent is the per-operation prose — no `summary` or `description` on any operation, no field descriptions on any schema, and no *per-operation* error responses (the 404 on `GET /v1/payments/{id}`, the 409 on a double capture), which the universal customizer deliberately does not cover because only the service knows them. The accepted risk is unchanged in kind: a document that renders and validates looks finished, and an SDK generated from it today is correctly typed and undocumented. **Re-owned by M21.7 (D154, approved by the user)**, which already reads this document for its contract tests — writing 31 operation summaries is a different kind of work from building the error contract, and folding it into M21.4 would have produced exactly the hurried prose this entry exists to warn about. Landing it in M21.7 also means each summary and the assertion that keeps it honest are written together.
+- ~~**The generated OpenAPI document is still prose-empty**~~ — **closed by M21.7** (2026-07-29). Every one of the 31 operations now carries a `summary`, a `description` and a stable `operationId`; every documented parameter is described; every 2xx response says what it means rather than "OK"; and all 250 published schema fields are described. Enforced rather than asserted once: `PublicApiDocumentContract` fails when any operation lacks prose, any parameter is undescribed, any success response still carries a springdoc default, or any schema field has no description — so the document cannot regress into this state, which is what the entry below warned it would look like if it did. Writing it beside the contract tests (D154) paid off immediately: the prose pass is what surfaced the `JsonNode` schema, the missing nullability, and three invented `200` responses. Kept struck through because the accepted risk it names — *"a document that renders and validates looks finished"* — is the reason the fix is a test rather than a one-time edit. **Originally** (M21.1, half-closed by M21.4): every operation, schema field, and error response carried a *name* and a *type* but no human-readable description — no `summary`, no `description`, no documented non-200 responses, no examples. **M21.4 closed the error half**: all 31 operations now document 401/403/429/500 against the `ApiError` schema with a real example body each, and `docs/ERRORS.md` explains every code. What remains absent is the per-operation prose — no `summary` or `description` on any operation, no field descriptions on any schema, and no *per-operation* error responses (the 404 on `GET /v1/payments/{id}`, the 409 on a double capture), which the universal customizer deliberately does not cover because only the service knows them. The accepted risk is unchanged in kind: a document that renders and validates looks finished, and an SDK generated from it today is correctly typed and undocumented. **Re-owned by M21.7 (D154, approved by the user)**, which already reads this document for its contract tests — writing 31 operation summaries is a different kind of work from building the error contract, and folding it into M21.4 would have produced exactly the hurried prose this entry exists to warn about. Landing it in M21.7 also means each summary and the assertion that keeps it honest are written together.
+- **`docs/openapi-accepted-breaking.txt` can rot into a blanket suppression, and nothing forces it not to** (M21.7, D160). The mechanism is deliberately weaker than a hard rule: entries are printed in full on every gate run and ones that match nothing are named as no longer applicable, but the gate does **not** fail on a stale entry — it cannot, because the commit that lands a correction needs its acceptances and the very next comparison is against the corrected baseline, where every one of them is trivially unmatched. So the file's 39 M21.7 entries will be dead from the next commit onward and will sit there until someone deletes them. The honest description is that this trades a guarantee for a workflow: the file is committed, appears in review, and shouts on every run, which is enough as long as it is read. It stops being enough if it grows a second and third generation of entries and nobody prunes. A stronger design would scope each entry to the baseline digest it applies to, so it expires by construction; that was not built because it is machinery in service of a case that has arisen once. No milestone owns it; the cheap discipline is to empty the file in the commit after a correction lands.
+- **`SchemaValidator` implements a subset of JSON Schema, and fails safe rather than silently** (M21.7). It covers the keywords this platform's generated document actually uses and reports anything else as a violation (D158's reasoning applied to validation) — so the failure mode is a contract test blocked by a keyword nobody has written a rule for, not a response that was never really checked. That is the right direction, but it does mean a legitimate springdoc upgrade emitting a new keyword breaks six suites at once until a rule is added. Recorded so the next person to meet that message knows it is a gap in this class rather than a defect in their change.
+- **M21.7 widened the `docs/` build-context gap from one test to seven.** `ErrorCatalogueDocumentationConsistencyTest` already read `../docs/ERRORS.md`, and the six new `PublicApiContractIntegrationTest`s now read `../docs/openapi.yaml`. `docs/` is in `.dockerignore`, so none of them can run inside an image build — which stays latent only because image builds run `-x test`. The exposure is unchanged in kind and larger in extent; if a future milestone ever runs tests during an image build, it will now fail in seven places rather than one.
 - **`payment-service` relaxes Tomcat's query-string parser for `[` and `]`** (D142). Scoped to two characters and one service, but it *is* a widening of what the HTTP layer accepts, made to serve a documented filter syntax. Recorded as an accepted risk rather than a neutral configuration line: any future audit of input handling should know the parser is non-default here and why, and M21's error-contract work should confirm the relaxed characters still route malformed input to the JSON error handler rather than Tomcat's HTML page — which is the failure D142 exists to have fixed.
 
 ---
@@ -6316,7 +6340,7 @@ docker-compose broker.
 
 ---
 
-### M21 — OpenAPI 3.1, Versioning & the Error Contract 🚧 (in progress, from 2026-07-27)
+### M21 — OpenAPI 3.1, Versioning & the Error Contract ✅ (complete, 2026-07-27 – 2026-07-29)
 
 **Objectives.** Per §5/M21: generate a real OpenAPI 3.1 description of the public API from
 code, merge the per-service fragments into one published spec, implement date-based
@@ -6349,7 +6373,7 @@ only one whose work repeats per service.
 | **M21.4** | 3 | `ApiError` extended with `type`, `doc_url`, `request_id` (additive); the error-code catalogue as one source of truth | ✅ 2026-07-28 |
 | **M21.5** | 4 | `PaymentFlow-Version` header; per-merchant pinning; the generic, registry-driven transformation layer and its one narrowly scoped revision | ✅ 2026-07-28 |
 | **M21.6** | 5 | CI spec-diff gate: additive vs breaking classification, observed failing on a real breaking change | ✅ 2026-07-29 |
-| **M21.7** | 6 | Contract tests validating live responses against the published schema **+ the annotation prose** (operation summaries, field descriptions, per-operation error responses) moved here from M21.4 by **D154**, approved by the user before M21.5 | ⬜ |
+| **M21.7** | 6 | ✅ 2026-07-29 — Contract tests validating live responses against the published schema **+ the annotation prose** (operation summaries, field descriptions, per-operation error responses) moved here from M21.4 by **D154**, approved by the user before M21.5 | ⬜ |
 
 **The public `/v1` surface M21 must cover.** Six services, established by inspection rather
 than assumed — the tier is defined by the path prefix, not by which service happens to own it:
@@ -7302,7 +7326,186 @@ to pass by failing to make the change it claims to make.
 
 ---
 
-## 18. Performance Benchmarks (V2)
+#### M21.7 — Contract validation and the annotation prose ✅ (2026-07-29)
+
+**Objective.** §5/M21 task 6 — assert that live responses actually validate against the
+published schema, so the spec cannot silently drift from the implementation — plus the
+annotation prose **D154** moved here from M21.4, plus the duplicated document-test scaffold
+§14 had been carrying since M21.2.
+
+**What was built.**
+
+- **`:test-support`** — a new module holding the two base classes the six public-API
+  services' contract tests extend (**D159**). Wired to exactly those six by the
+  `openapi-fragment` convention plugin, which already defines that set.
+- **`PublicApiDocumentContract`** — the fourteen assertions true of every fragment. Replaces
+  ~70 lines × 6 of copied scaffold and adds six new rules.
+- **`PublicApiResponseContract`** — makes real calls and validates the responses against
+  `docs/openapi.yaml`.
+- **`OpenApiContract`** + **`SchemaValidator`** in `openapi-tools` — path-template
+  resolution and a JSON-Schema-subset validator, with 16 unit tests.
+- **`PublicApiParameters`** and **`PublicApiSchemas`** in `common-lib` — the prose for the
+  parameters and schemas that mean the same thing in every service.
+- **Prose everywhere**: 31 operation summaries, descriptions and stable operation ids; every
+  parameter described; per-operation 400/404/409 responses; 250 schema field descriptions.
+
+**The validator is stricter than JSON Schema, deliberately.** An object schema with
+`properties` and no `additionalProperties` accepts extra fields under the specification; this
+one reports them. That is the point of the exercise — §5/M21 task 6 asks for validation *"so
+the spec cannot silently drift"*, and every drift of that kind begins as a field the code
+returns and the document does not mention. Under permissive rules a response could gain five
+undocumented fields and validate perfectly. A keyword the validator does not implement is
+likewise a violation rather than a silent pass, on M21.6's D158 reasoning.
+
+**Eight real contract defects, every one found by writing the tests rather than by review.**
+Seven were the document being wrong about the code; **one was the code being wrong**, and it
+is the only change in this sub-milestone that alters a response on the wire.
+
+1. **The event payload was a description of a Java class.** `EventResponse.data` is a Jackson
+   `JsonNode`, and springdoc reflected it: the document published `isArray`, `isBigDecimal`,
+   `getNodeType` and eighteen more bean getters as the shape of a webhook body, behind a
+   generated `JsonNode` component. No response has ever had that shape. Fixing it took three
+   annotation attributes, and each was needed for a separate reason — `types` because
+   `type = "object"` alone rendered as `type: string`, `additionalProperties` to keep the
+   object open, and `implementation = Object.class` because without it swagger still emitted
+   a `$ref` to the reflected component *alongside* the declared type.
+2. **`nullable` renders nothing in a 3.1 document.** `successRate` is explicitly null when
+   nothing was attempted and the duration percentiles are null for a day with no traffic —
+   D143 made this platform publish those nulls precisely so a client could tell "no answer"
+   from "no such field" — and the document declared all of them non-null. swagger's
+   `nullable = true` is 3.0's spelling and is silently dropped; `types = {"number", "null"}`
+   is the 3.1 one. An SDK generated from the old document would have failed on exactly the
+   quiet-period responses.
+3. **Three operations documented a `200` they never return.** springdoc assumes one when
+   nothing says otherwise; `POST /v1/test/simulations` returns `201`, and the two `DELETE`s
+   return `204`.
+4. **`ApiError` reached the document by two routes that disagreed.** springdoc resolves it
+   wherever an operation names the class; `PublicApiErrorResponses` registers it through
+   swagger's converter where nothing does. The two agree on every property and differ on one
+   detail — the converter omits the object's own `type` — so the four services with
+   per-operation error responses published a schema the other two did not. **M21.3's merge
+   caught this**, refusing to combine them; it is the clearest evidence so far that the merge
+   step earns its strictness. Fixed by having every operation reference the schema by name
+   (`ApiError.SCHEMA_REF`) so there is one route.
+5. **`Idempotency-Key` was published as optional and has never been.** Every mutation on
+   payment-service calls `requireIdempotencyKey` and answers `400 BAD_REQUEST` without one, so
+   the document described a call the service has never accepted. Found the only way it could
+   be — the contract test made the call, got a `400` where the document promised a `201`, and
+   said so. The Spring-level `@RequestHeader(required = false)` stays, because it is what lets
+   the omission produce a catalogued error instead of Spring's own unmapped one; only the
+   published parameter changed. This is the single most valuable thing the milestone found: a
+   caller trusting the document would have written the one call the API refuses.
+6. **The test-card catalogue serializes nulls the document declared non-null.**
+   `TestCardResponse` carries no `@JsonInclude(NON_NULL)`, so an approving card really does
+   return `"declineCode": null`, `"errorCode": null` and `"deferredDelayMs": null`. The same
+   correction as (2) from the other direction, and on the resource an integrator reads
+   *first*. Declaring the truth is additive; suppressing the nulls would have changed the
+   wire, which is why the document moved rather than the code.
+7. **No cursor-paginated list documented the `400` it can return.** A tampered
+   `starting_after`, a non-positive `limit`, or a filter value outside the endpoint's
+   vocabulary are all rejected — deliberately, because a rejected filter returning an empty
+   page is something the caller then has to explain to themselves — and none of the five
+   lists said so. Found by sending a tampered cursor and being told the response was one the
+   document does not describe.
+8. **`GET /v1/test/simulations/active` returned a bodiless `404`** — and this one is a defect
+   in the *code*, not the document. It was the only response in the public tier that carried
+   no body at all, on a platform whose error contract (M21.4) is that every non-2xx carries a
+   catalogued code, a message, a `requestId` and a `docUrl`, assembled in one place so the
+   servlet services and the reactive gateway cannot drift. `ResponseEntity.notFound().build()`
+   quietly opted out of all of it. The document already described that 404 as an `ApiError`
+   like every other; the fix was to make the code true rather than to weaken the document, so
+   the handler now throws `ResourceNotFoundException`. **This is the one wire change in
+   M21.7** — a 404 that used to be empty now carries the standard envelope, which is additive
+   for any client that checks the status and a strict improvement for one that reads the body.
+
+**The gate met a case it could not model, and the case was real.** Run against the pre-M21.7
+baseline, M21.6's classifier reported **53 breaking changes** — and it was right on every
+one, by its own definition: operation ids renamed, a component deleted, response codes
+changed, types widened, a parameter made required. It was also, in the sense that matters,
+wrong about all of them: **not one byte of any request or response moved.** Every entry corrects what the document
+*said* about behaviour that did not change. Cutting a dated revision would have been the
+worst available option — it would tell every pinned merchant their integration changed when
+it did not, and require a D156 transformation that transforms nothing. Resolved by
+**D160**: a committed acceptance file, `docs/openapi-accepted-breaking.txt`, one location per
+line under a comment saying why. The classifier stays strict; the judgement moves to a
+reviewer. Three properties keep it from becoming a rubber stamp — it is committed and
+appears in the same diff as the change it excuses, every accepted entry is printed in full on
+every run, and entries matching nothing are reported as no longer applicable.
+
+**The prose is enforced, not merely written.** `PublicApiDocumentContract` fails when any
+operation lacks a summary or description, any parameter is undescribed, any 2xx response
+still carries a springdoc default ("OK", "Created", …), any published schema field has no
+description, or two operations in a service share an operation id. `OpenApiMerger` gained the
+cross-service half of that last check — each service can only see its own ids, and the old
+derived ones genuinely collided (`get`, `list` and `create` each appeared in more than one
+fragment). This is what stops the document from sliding back into the state §14 recorded.
+
+**Files created**
+
+| File | Purpose |
+|---|---|
+| `test-support/build.gradle.kts` + `…/openapi/PublicApiDocumentContract.java` | The shared document assertions, 14 of them |
+| `test-support/…/openapi/PublicApiResponseContract.java` | Live-response validation, the signed-context helper, coverage |
+| `openapi-tools/…/OpenApiContract.java` | The published document, and path-template resolution |
+| `openapi-tools/…/SchemaValidator.java` | The JSON-Schema-subset validator |
+| `openapi-tools/…/SchemaValidatorTest.java` | 16 tests, including the two non-standard rules |
+| `common-lib/…/openapi/PublicApiParameters.java` | Shared parameter prose |
+| `common-lib/…/openapi/PublicApiSchemas.java` | Shared schema prose; the `ApiError` type normalisation |
+| `{6 services}/…/PublicApiContractIntegrationTest.java` | Real calls, validated against the baseline |
+| **`docs/openapi-accepted-breaking.txt`** | The reviewed acceptances (D160) |
+
+**Files modified**
+
+| File | Change |
+|---|---|
+| `{6 services}/…/OpenApiDocumentIntegrationTest.java` | Rebased onto the shared scaffold; service-specific assertions only |
+| `{6 services}/…/config/OpenApiConfig.java` | `errorSchemaCustomizer` → `sharedSchemaCustomizer` |
+| `{12 controllers}` | Summaries, descriptions, operation ids, parameter prose, per-operation errors |
+| `{18 DTOs}` | `@Schema` descriptions on every published field |
+| `common-dto/…/error/ApiError.java` | `SCHEMA_REF` — one route to the schema |
+| `openapi-tools/…/OpenApiMerger.java` | Operation-id uniqueness across the merged document |
+| `openapi-tools/…/OpenApiDiffCli.java`, `build.gradle.kts` | `--accepted`; the acceptance report |
+| `settings.gradle.kts`, `.dockerignore`, `build-logic/…/openapi-fragment.gradle.kts` | `:test-support` |
+| `docs/openapi.yaml` | Regenerated — 4,400 lines, 26 path items, 31 operations, **32 schemas** (was 33; `JsonNode` is gone) |
+
+**Windows PowerShell commands**
+
+```powershell
+.\gradlew :openapi-tools:test
+.\gradlew mergeOpenApi --max-workers=2
+.\gradlew :openapi-tools:verifyOpenApiCompatibility "-PopenApiPreviousBaseline=<file>"
+.\gradlew build --max-workers=2
+```
+
+**Edge cases considered.** An empty window (a merchant with no traffic gets
+`successRate: null`, which is the response an SDK typing it non-null would fail on — so it is
+one of the validated calls); an empty balance and an empty ledger page, which is the first
+call any new merchant makes; the unauthenticated `GET /v1/test/cards`, called with **no
+headers at all**, so `security: []` is proven against the running system rather than
+asserted; a malformed `evt_` id (400) against a well-formed one nobody owns (404), which are
+genuinely different failures an SDK must not conflate; another merchant's payment (404, never
+403); and a request body that fails validation, so the error envelope is checked as well as
+the happy path.
+
+**Testing performed.** 78 new tests (854 → **932**). The six `PublicApiContractIntegrationTest`s
+make **41 real calls** between them and validate every response against the committed document;
+`SchemaValidatorTest` adds 16 unit tests over hand-written schemas, including the two rules that
+make this validator different from a library — a closed object and an unimplemented keyword are
+both violations. The shared scaffold means the six document tests gained six assertions each
+without six edits.
+
+**Regression.** `./gradlew build` — **BUILD SUCCESSFUL in 6m 14s**, **932 tests, 0 failures,
+0 errors, 0 skipped** (854 before). `verifyOpenApiBaseline` reports the baseline up to date;
+`verifyOpenApiCompatibility` against the pre-M21.7 document reports **0 breaking, 53 accepted,
+48 additive — PASS**.
+
+**Coverage is stated, not implied.** `PublicApiResponseContract` fails when a documented
+operation is neither exercised nor named in `uncoveredOperations()` with a reason. Six
+operations are excused: payment-service's four state transitions (they call sandbox-service
+through the `AuthorizationAdvisor` port, which this suite does not stand up) and
+notification-service's two delivery-id operations (a delivery is produced by the fan-out
+consuming `payment.events`, so there is no id to retrieve or replay). Both exclusions are
+visible in the source rather than inferable from what is absent.
 
 *(Populated by M28. V1's benchmarks remain in `PROJECT_CONTEXT.md` §14 and are the
 regression baseline for the original payment hot path.)*

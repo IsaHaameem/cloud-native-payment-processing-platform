@@ -41,9 +41,13 @@ public class OpenApiConfig {
         return PublicApiDocument.errorResponseCustomizer();
     }
 
-    /** Puts the {@code ApiError} schema those responses reference into the document. */
+    /**
+     * Puts the {@code ApiError} schema those responses reference into the document, and
+     * describes the components every fragment shares (M21.7). One customizer because M21.3's
+     * merge refuses to combine a component two services define differently.
+     */
     @Bean
-    public OpenApiCustomizer publicApiErrorSchema() {
-        return PublicApiDocument.errorSchemaCustomizer();
+    public OpenApiCustomizer publicApiSharedSchemas() {
+        return PublicApiDocument.sharedSchemaCustomizer();
     }
 }

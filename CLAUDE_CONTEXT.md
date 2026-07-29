@@ -24,13 +24,13 @@
 | **Project** | PaymentFlow — Distributed Payment Orchestration Platform |
 | **Purpose** | A payment processor's orchestration layer — payment lifecycle FSM, double-entry ledger, and asynchronous state propagation — built across independently deployable microservices. A portfolio/engineering project, not a production payment system. |
 | **Repository version** | V2 in progress (V1 complete and frozen) |
-| **Development phase** | Phase B — *Product surface* (see §3) |
-| **Current milestone** | **M21** — OpenAPI 3.1, Versioning & the Error Contract (M21.1–M21.5 complete, M21.6–M21.7 remaining) |
+| **Development phase** | Phase B complete — *Product surface*; Phase C next (see §3) |
+| **Current milestone** | **M21 complete.** Next: **M22** — Node & Python SDKs |
 | **Branch** | `main` |
-| **Latest commit** | `880bf52` — *docs(m21): synchronize PROJECT_CONTEXT_2.md with the repository through M21.5* |
+| **Latest commit** | `M21.7` — *feat(m21.7): contract validation and the annotation prose* |
 | **Repository health** | Healthy |
-| **Build status** | `./gradlew build` — **BUILD SUCCESSFUL** |
-| **Test status** | **826 tests, 0 failures, 0 errors, 0 skipped** |
+| **Build status** | `./gradlew build` — **BUILD SUCCESSFUL in 6m 14s** |
+| **Test status** | **932 tests, 0 failures, 0 errors, 0 skipped** |
 | **Working tree** | Clean |
 | **Public API revision** | `2026-08-01` current; `2026-07-27` superseded (sunset 2027-08-01) |
 
@@ -41,7 +41,7 @@
 ## 2. Executive Repository Summary
 
 **What this is.** A Gradle multi-module JVM monorepo containing nine Spring Boot microservices,
-five shared/tooling modules, a Terraform estate, a Docker Compose stack, and an observability
+six shared/tooling modules, a Terraform estate, a Docker Compose stack, and an observability
 stack. It implements the orchestration layer of a card-payment platform: creating a payment,
 authorizing it, capturing funds, refunding or voiding, and propagating every state change to the
 services that need to know.
@@ -71,12 +71,13 @@ floating-point currency.
   auto-disable, an SSRF egress guard, a full delivery log, and manual replay.
 - **Public read APIs** — cursor-paginated lists for payments, refunds, balance, ledger entries,
   events, analytics, request logs and usage.
-- **API contract** — a generated, merged, committed OpenAPI 3.1 document; a catalogued error
+- **API contract** — a generated, merged, committed OpenAPI 3.1 document, fully described and
+  gated three ways (fresh, compatible, and satisfied by real responses); a catalogued error
   contract; and date-based versioning with per-merchant pinning and an edge transformation layer.
 - **Observability** — Micrometer → Prometheus → Grafana, Loki logs, OpenTelemetry → Tempo traces.
 
 **Current maturity.** V1 (M0–M14) is complete, was deployed to real AWS infrastructure, and is
-frozen. V2 (M15–M30) is in progress: M15–M20 complete, M21 five-sevenths complete. There is **no
+frozen. V2 (M15–M30) is in progress: **M15–M21 complete**, M22 next. There is **no
 frontend** — the developer portal is M23/M24. The SDKs are M22/M26. Nothing in V2 has been
 deployed to AWS; V2 is deliberately local-first, with a single deployment milestone (M29) at the
 end.
@@ -86,7 +87,7 @@ end.
 1. **Verify, never assume.** Every completion claim is backed by something actually executed.
    Tests run against real Postgres/Redis/Kafka via Testcontainers, not mocks, wherever the thing
    under test is an interaction with infrastructure.
-2. **Record the trade-off, not just the choice.** 156 numbered decisions (D1–D156) each carry the
+2. **Record the trade-off, not just the choice.** 160 numbered decisions (D1–D160) each carry the
    alternatives that were rejected and why.
 3. **Make invalid states unrepresentable** in preference to remembering not to create them —
    database constraints, entity-level guards, and compiler-enforced interfaces over conventions.
@@ -94,7 +95,10 @@ end.
    and frozen. `/api/v1` and `/internal/v1` are deliberately undocumented and freely changeable.
 5. **Documentation that can be tested, is.** `docs/READ_APIS.md`, `docs/ERRORS.md`,
    `notification-service/docs/WEBHOOKS.md` and `docs/openapi.yaml` each have a test that fails
-   when the code and the document disagree.
+   when the code and the document disagree. For the OpenAPI document that goes further than
+   consistency: real responses are validated against it, and the prose itself is enforced — an
+   operation without a summary, a parameter without a description, or a field without one fails
+   the build.
 
 ---
 
@@ -108,7 +112,7 @@ end.
 | **V2 Phase A** | M15 API keys · M16 test/live mode · M17 sandbox · M18 webhooks | ✅ Complete |
 | **V2 Phase B** | M19 read APIs · M20 metering & per-key limits | ✅ Complete |
 
-### In progress
+### Most recently completed
 
 **M21 — OpenAPI 3.1, Versioning & the Error Contract.** See §17 for full detail.
 
@@ -119,8 +123,11 @@ end.
 | M21.3 | Merge task; `docs/openapi.yaml` committed as the baseline | ✅ |
 | M21.4 | `ApiError` extended; the error catalogue as one source of truth | ✅ |
 | M21.5 | `PaymentFlow-Version`, per-merchant pinning, transformation layer | ✅ |
-| **M21.6** | **CI spec-diff gate — additive vs breaking, observed failing** | ⬜ **next** |
-| **M21.7** | **Contract tests + the annotation prose (moved here by D154)** | ⬜ |
+| M21.6 | CI spec-diff gate — additive vs breaking, observed failing | ✅ |
+| M21.7 | Contract tests + the annotation prose (moved here by D154) | ✅ |
+
+**M21 is complete.** The next milestone is **M22 — Node & Python SDKs**, which is the first
+thing to consume `docs/openapi.yaml` as an input rather than produce it.
 
 ### Remaining roadmap
 
@@ -156,7 +163,8 @@ still owes.
 ├── platform-bom/               Dependency alignment (java-platform)
 ├── common-dto/                 Framework-free data contracts
 ├── common-lib/                 Spring Boot auto-configuration starter
-├── openapi-tools/              OpenAPI merge tooling (M21.3)
+├── openapi-tools/              OpenAPI merge, diff and validation tooling (M21)
+├── test-support/               Shared contract-test scaffold (M21.7)
 ├── load-tests/                 Gatling suite (M14)
 ├── gateway-service/            :8080  reactive edge
 ├── identity-service/           :8081
@@ -268,7 +276,7 @@ schema, `common-lib` auto-configuration, Micrometer metrics, and `/actuator/heal
 | **Database** | schema `audit` — V1–V3. `audit_log`. |
 | **Inbound events** | `payment.events` |
 | **Public endpoints** | `/v1/events`, `/v1/events/{id}` |
-| **Notes** | Stores payloads **verbatim** as an opaque tree (D44) — it has no business knowing what a payment looks like. Renders the canonical `evt_` shape using `CanonicalEventType` from `common-dto`, shared with notification-service so the two cannot drift (D140). |
+| **Notes** | Stores payloads **verbatim** as an opaque tree (D44) — it has no business knowing what a payment looks like. Renders the canonical `evt_` shape using `CanonicalEventType` from `common-dto`, shared with notification-service so the two cannot drift (D140). `EventResponse.data` is published as a free-form object and must stay that way: annotated with anything less than `implementation = Object.class` + `types` + `additionalProperties`, springdoc reflects Jackson's `JsonNode` class and documents its bean getters as the payload shape. |
 
 ### notification-service `:8092`
 
@@ -356,11 +364,26 @@ A `java-platform` importing the Spring Boot, Spring Cloud and Resilience4j BOMs.
 pinned by a constraint, not by importing its BOM** (D147) — importing it would re-export Boot
 4.0.5's management and silently move every module in the monorepo.
 
-### `openapi-tools` — OpenAPI merge tooling *(build tooling, never deployed)*
+### `test-support` — the shared contract-test scaffold *(test scope only, never deployed)*
 
-Merges the six per-service fragments into `docs/openapi.yaml`. Owns the `mergeOpenApi` and
-`verifyOpenApiBaseline` Gradle tasks. The merge deduplicates identical components and **refuses**
-to merge fragments that disagree, reporting every conflict rather than the first. Uses Jackson 2
+Two base classes the six public-API services' contract tests extend:
+`PublicApiDocumentContract` (fourteen assertions true of every fragment — 3.1, tier exclusion,
+the shared contract, the universal errors, and the prose rules) and `PublicApiResponseContract`
+(real calls validated against `docs/openapi.yaml`, plus the signed-internal-context helper and a
+coverage check). Wired to exactly those six by the `paymentflow.openapi-fragment` convention
+plugin, which already defines that set.
+
+**A module rather than `testFixtures` on `common-lib` (D159)**, because `common-lib`'s web
+dependencies are `compileOnly` on purpose (D11) so nothing that depends on it is forced onto the
+servlet stack — and a MockMvc scaffold is precisely what that rule exists to keep out.
+
+### `openapi-tools` — OpenAPI merge, diff and validation tooling *(build tooling, never deployed)*
+
+Merges the six per-service fragments into `docs/openapi.yaml`, diffs two revisions of it, and
+validates responses against it. Owns `mergeOpenApi`, `verifyOpenApiBaseline` and
+`verifyOpenApiCompatibility`. The merge deduplicates identical components and **refuses** to
+merge fragments that disagree — including two operations sharing an `operationId`, which each
+service is individually blind to — reporting every conflict rather than the first. Uses Jackson 2
 (the services use Jackson 3); the two never meet because no service depends on this at runtime.
 The one exception is `OpenApiFragments`, a `testImplementation` dependency of the six public-API
 services.
@@ -519,7 +542,7 @@ stack deployed (D84) · Service Connect for discovery (D70).
 
 | Workflow | Trigger | Does |
 |---|---|---|
-| `ci.yml` | push, PR, dispatch | `./gradlew clean build`; then a matrix building **8** service images (`push: false`), verifying non-root user, exposed port and healthcheck |
+| `ci.yml` | push, PR, dispatch | Three jobs. **build-and-test** — `clean build --no-build-cache` (so a green run cannot mean "restored from cache"), then a step that reads the JUnit XML and fails if any module with test sources produced no results or if anything was skipped. **openapi-contract** — the breaking-change gate against the base branch's baseline, then baseline freshness, then the spec uploaded as an artefact. **docker-build** — a matrix building all **9** service images (`push: false`), verifying non-root user, exposed port and healthcheck |
 | `cd.yml` | `workflow_dispatch` only | ECR push + ECS rollover. **Has never been run** — it cannot work until M29 applies the Terraform |
 
 ---
@@ -554,8 +577,23 @@ lowercase `snake_case` in `2026-08-01`, `SCREAMING_SNAKE` in `2026-07-27`.
 
 Each of the six public-API services generates its own OpenAPI 3.1 document at `/v3/api-docs`
 (+`.yaml`), unauthenticated and not routed by the gateway (D148). `./gradlew mergeOpenApi` merges
-them into **`docs/openapi.yaml`**: **26 path items, 31 operations, 33 schemas, 13 tags**.
-`./gradlew verifyOpenApiBaseline` fails if the committed file no longer matches.
+them into **`docs/openapi.yaml`**: **26 path items, 31 operations, 32 schemas, 13 tags**, 4,400
+lines. Every operation carries a summary, a description and a stable unique `operationId`; every
+parameter and every schema field is described; nullability is declared where it is real.
+
+**Three gates guard it**, and they ask different questions:
+
+| Task | Question | Cost |
+|---|---|---|
+| `verifyOpenApiBaseline` | Does the committed file still describe the code? | Six Spring contexts + Postgres |
+| `verifyOpenApiCompatibility` | Is it still compatible with the previous published copy? | A file comparison |
+| The six `PublicApiContractIntegrationTest`s | Do real responses satisfy it? | Runs in `check` |
+
+The compatibility gate fails on a breaking change unless a new dated revision declares it (D157);
+anything its classifier has no rule for counts as breaking (D158). A breaking change that only
+corrects the *description* of unchanged behaviour is recorded in
+**`docs/openapi-accepted-breaking.txt`** and reviewed there (D160) — never by cutting a revision,
+which would tell pinned merchants their contract moved when it did not.
 
 `/api/v1` and `/internal/v1` are **deliberately excluded** — documenting them would imply a
 promise the platform does not make.
@@ -758,7 +796,9 @@ See §18 for what that means for trusting a green build.
 | **Authorization** | Scopes enforced at the gateway for the key path; RBAC re-checked downstream for the JWT path. Publishable keys read-only by construction. | D23, §16 |
 | **Versioning** | Date-based revisions, `/v1` permanent, header → pin → current, pinned on first call, transformation at the edge, one superseded revision at a time. | D108, D155, D156 |
 | **Transformation** | Generic and registry-driven — a revision is one bean, no per-endpoint special cases. Requests oldest-first, responses newest-first. Structural rewrites, not lookup tables. | D156 |
-| **OpenAPI** | Generated per service from code; document-level contract shared via `common-lib`; merged into a committed `docs/openapi.yaml`; internal tiers excluded. | D147, D148, D149, D151 |
+| **OpenAPI** | Generated per service from code; document-level contract and shared prose via `common-lib`; merged into a committed `docs/openapi.yaml`; internal tiers excluded. Three gates: baseline freshness, compatibility, and live-response validation. | D147–D151, D157–D160 |
+| **Contract gating** | A breaking change needs a new dated revision to declare it; an unclassified difference counts as breaking; a change that only corrects the description of unchanged behaviour is recorded in a reviewed acceptance file rather than versioned. | D157, D158, D160 |
+| **Shared test code** | A `:test-support` module, not `testFixtures` on `common-lib` — D11 keeps `common-lib` from exporting a servlet stack to anyone who depends on it. | D159 |
 | **Error handling** | One envelope, one assembly point (`ApiErrorFactory`), closed `type` vocabulary plus an open `code` set, catalogue asserted against docs in both directions. Universal error responses applied by one customizer. | D152, D153 |
 | **Webhooks** | Signed with a timestamped HMAC; secrets encrypted (not hashed) because they are keys; explicit retry schedule, DLQ, auto-disable; SSRF egress guard; delivery log and replay. | D131, D137 |
 | **Caching** | Redis three ways: merchant profile cache-aside, idempotency lock, rate-limit buckets. Key-verify results cached at the gateway. No endpoint-list cache (deferred to M28 for measurement). | D24, D145 |
@@ -811,6 +851,13 @@ See §18 for what that means for trusting a green build.
 - A gate that has never been observed failing is not known to work: prove it fails.
 - Tests that assert on documentation must run in **both directions** (undocumented thing fails;
   documented-but-absent thing also fails).
+- **A test must not be able to pass by failing to do the thing it claims to do.** M21.6's first
+  classifier suite built its fixtures by string-replacing document text, and eight tests passed
+  against a document that had not changed — a `replace` matching nothing is indistinguishable
+  from "no findings". Mutate structurally, through a helper that throws when the target is absent.
+- Prose in the published document is **enforced, not reviewed**: a missing operation summary,
+  parameter description, schema field description, or a 2xx response still carrying springdoc's
+  default fails the build.
 
 ### Documentation rules
 
@@ -838,26 +885,23 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 | 1 | **notification-service's Kafka producer sets no `max.block.ms`** — a broker outage blocks a `@Transactional @Scheduled` relay holding a JDBC connection, escalating into connection-pool exhaustion. Observed, not theorised. | **High** — a Kafka outage becomes a database outage | Unowned | **High** |
 | 2 | **Webhook secret-encryption key has no rotation path.** Rotating it would make every stored signing secret undecryptable, breaking every merchant's verification at once. | High if ever rotated | M29 | **High** |
 | 3 | **Integration tests can silently borrow the developer's compose stack.** Every `application.yaml` carries a working localhost default, so a test omitting a container still passes locally and fails in CI. | Medium — red CI, and very slow suites | M27 / stability pass | **High** |
-| 4 | **A cached-green `./gradlew build` can hide a red suite.** "BUILD SUCCESSFUL" reads identically whether tests ran or were restored from cache. | Medium — false confidence | M21.6 | **High** |
-| 5 | **`verifyOpenApiBaseline` is not wired into `check`.** Nothing runs it automatically, so the baseline can drift. | Medium | **M21.6** | **High** |
-| 6 | **CI builds 8 of 9 service images** — `sandbox-service` is absent from `ci.yml`'s `docker-build` matrix though `docker-compose.yml` builds it. *Not previously recorded in `PROJECT_CONTEXT_2.md`.* | Medium — one image's Dockerfile path unverified in CI | Unowned | Medium |
-| 7 | **OpenAPI document is prose-empty.** No operation summaries, field descriptions, or per-operation error responses. Renders and validates, so it looks finished. | Medium — SDKs/docs generated today would be undocumented | **M21.7** (D154) | Medium |
-| 8 | **The six `OpenApiDocumentIntegrationTest` classes duplicate ~70 lines of scaffold each**, breaking the no-duplication rule. No shared test-fixtures artifact exists. | Low–Medium — drift risk | M21.7 | Medium |
-| 9 | **Scope enforcement is gateway-only** for the API-key path; not re-checked downstream as D23 does for JWT. | Medium if the gateway is ever bypassed | M27 | Medium |
-| 10 | **Internal-context HMAC secret is `.env`-only**, with an insecure committed local default. | High in production; none locally | M29 | Medium |
-| 11 | **`webhook_delivery_attempts` has no retention policy.** Highest write volume in M18, stores full request and response bodies. | Medium, growing | Unowned | Medium |
-| 12 | **`modules/ecs-service` sets an explicit `launch_type`**, defeating the cluster's `FARGATE_SPOT` default. V1's entire deployment billed on-demand. | Cost — ~60–70% on compute | **M29 pre-apply** | Medium |
-| 13 | **`modules/ecr` has no `force_delete`** — `terraform destroy` cannot complete while images exist. | Low — incomplete teardown | M29 | Low |
-| 14 | **Refunds and the hourly analytics series both start at M19.** No history behind either, and nothing marks where the data begins. | Low — silently short charts/lists across the boundary | Unowned | Low |
-| 15 | **`payment.events.retry`/`.dlq` and V1's webhook delivery path are dormant**, retained only to drain pre-M18.6 rows. | Low — dead code with tests | Unowned | Low |
-| 16 | **`failed_count` exists only on hourly buckets**, not the running totals, so lifetime success rate cannot be computed. | Low | Unowned | Low |
-| 17 | **Not every seeded test card is driven through a real authorize call.** 17 seeded, 9 metadata-checked, 4 exercised end-to-end. | Low — a bad seed row would go unnoticed | Unowned | Low |
-| 18 | **`docs/` is in `.dockerignore`** while `ErrorCatalogueDocumentationConsistencyTest` reads `../docs/ERRORS.md`. Latent only — image builds run `-x test`. | Very low | Unowned | Low |
-| 19 | **`README.md`'s "At a glance" is stale**: claims 8 services, 230+ tests, 96 decisions. Actual: **9 services, 826 tests, 156 decisions**. | Low — reader-facing only | **M30** (README rewrite) | Low |
+| 4 | **`docs/openapi-accepted-breaking.txt` can rot into a blanket suppression.** Every entry is printed on each gate run and stale ones are named, but nothing *forces* their removal — a correction's acceptances stay valid-looking forever unless someone deletes them. | Low now, Medium if it grows | Unowned | Medium |
+| 5 | **`SchemaValidator` implements a subset of JSON Schema.** It covers what this document uses and reports anything else as a violation, so it fails safe — but a legitimate new keyword blocks the contract tests until a rule is written. | Low — noisy, never silent | Unowned | Low |
+| 6 | **Scope enforcement is gateway-only** for the API-key path; not re-checked downstream as D23 does for JWT. | Medium if the gateway is ever bypassed | M27 | Medium |
+| 7 | **Internal-context HMAC secret is `.env`-only**, with an insecure committed local default. | High in production; none locally | M29 | Medium |
+| 8 | **`webhook_delivery_attempts` has no retention policy.** Highest write volume in M18, stores full request and response bodies. | Medium, growing | Unowned | Medium |
+| 9 | **`modules/ecs-service` sets an explicit `launch_type`**, defeating the cluster's `FARGATE_SPOT` default. V1's entire deployment billed on-demand. | Cost — ~60–70% on compute | **M29 pre-apply** | Medium |
+| 10 | **`modules/ecr` has no `force_delete`** — `terraform destroy` cannot complete while images exist. | Low — incomplete teardown | M29 | Low |
+| 11 | **Refunds and the hourly analytics series both start at M19.** No history behind either, and nothing marks where the data begins. | Low — silently short charts/lists across the boundary | Unowned | Low |
+| 12 | **`payment.events.retry`/`.dlq` and V1's webhook delivery path are dormant**, retained only to drain pre-M18.6 rows. | Low — dead code with tests | Unowned | Low |
+| 13 | **`failed_count` exists only on hourly buckets**, not the running totals, so lifetime success rate cannot be computed. | Low | Unowned | Low |
+| 14 | **Not every seeded test card is driven through a real authorize call.** 17 seeded, 9 metadata-checked, 4 exercised end-to-end. | Low — a bad seed row would go unnoticed | Unowned | Low |
+| 15 | **`docs/` is in `.dockerignore`** while `ErrorCatalogueDocumentationConsistencyTest` and M21.7's six contract tests read `../docs/`. Latent only — image builds run `-x test` — but M21.7 widened it from one test to seven. | Very low | Unowned | Low |
+| 16 | **`README.md`'s "At a glance" is stale**: claims 8 services, 230+ tests, 96 decisions. Actual: **9 services, 826 tests, 156 decisions**. | Low — reader-facing only | **M30** (README rewrite) | Low |
 
 ---
 
-## 17. Current Milestone — M21
+## 17. Most Recent Milestone — M21 (complete)
 
 **Objective.** Generate a real OpenAPI 3.1 description of the public API from code, merge the
 per-service fragments into one published spec, implement date-based versioning with a deprecation
@@ -873,29 +917,23 @@ policy, formalise the error-code catalogue, and make CI fail on an undeclared br
 | **M21.4** | `ApiError` + `type`/`param`/`requestId`/`docUrl`; `ErrorType`; `ErrorCatalogue` + `docs/ERRORS.md`; `ApiErrorFactory`; universal error responses on all 31 operations (D152, D153) |
 | **M21.5** | `PaymentFlow-Version`; pin on first call (D155); registry-driven transformation layer; the `2026-08-01` revision (D156); `docs/VERSIONING.md` |
 
-### Remaining
+| **M21.6** | The CI spec-diff gate: `OpenApiDiff` classifies every change additive or breaking, CI fails on an undeclared breaking one (D157), unclassified keys default to breaking (D158). Observed failing end to end on a real wire rename and passing once a revision declared it. Closes the cached-green-build and unwired-gate debt, and adds the ninth service to the image matrix |
+| **M21.7** | Live-response contract validation against `docs/openapi.yaml`; the full annotation prose (D154); the shared `:test-support` scaffold (D159); the reviewed-acceptance file (D160). Four real contract defects found and fixed |
 
-**M21.6 — CI spec-diff gate.** Generate the spec, diff against the committed baseline, classify
-additive vs breaking, fail on an undeclared breaking change, publish the spec as a build artefact.
-Should also wire `verifyOpenApiBaseline` (debt #5) and address the cached-green-build hazard
-(debt #4).
+### Exit criteria (from §5/M21) — all met
 
-**M21.7 — Contract tests + annotation prose.** Assert live responses validate against the
-published schema, and write the operation summaries, field descriptions and per-operation error
-responses moved here by **D154**. Landing them together means each description and the assertion
-that keeps it honest are written side by side.
+- [x] A single merged OpenAPI 3.1 spec covers every public endpoint *(M21.3)*
+- [x] Live responses validate against the spec — verified, not assumed *(M21.7)*
+- [x] Version pinning works; a superseded revision still returns its original shape *(M21.5)*
+- [x] The CI breaking-change gate has been observed failing on a real breaking change *(M21.6)*
+- [x] Every error response carries a catalogued code and a `request_id` *(M21.4)*
 
-### Exit criteria (from §5/M21)
+### What M21 leaves for M22
 
-- [x] A single merged OpenAPI 3.1 spec covers every public endpoint
-- [ ] Live responses validate against the spec — verified, not assumed *(M21.7)*
-- [x] Version pinning works; a superseded revision still returns its original shape
-- [ ] The CI breaking-change gate has been observed failing on a real breaking change *(M21.6)*
-- [x] Every error response carries a catalogued code and a `request_id`
-
-### Known blockers
-
-**None.** M21.6 and M21.7 are independent of each other and of anything outside the repository.
+`docs/openapi.yaml` is now an artefact fit to generate from: every operation has a stable,
+unique `operationId`, a summary and a description; every parameter and every schema field is
+described; nullability is declared where it is real; and a test fails if any of that regresses.
+M22's generators consume it — they are the first thing to read the document rather than write it.
 
 ---
 
@@ -903,11 +941,13 @@ that keeps it honest are written side by side.
 
 | Signal | Status | Detail |
 |---|---|---|
-| **Build** | ✅ | `./gradlew build` — BUILD SUCCESSFUL |
-| **Tests** | ✅ | **826 / 826**, 0 failures, 0 errors, 0 skipped |
-| **Working tree** | ✅ | Clean at `880bf52` |
+| **Build** | ✅ | `./gradlew build` — BUILD SUCCESSFUL in 6m 14s |
+| **Tests** | ✅ | **932 / 932**, 0 failures, 0 errors, 0 skipped |
+| **Working tree** | ✅ | Clean |
 | **OpenAPI baseline** | ✅ | `verifyOpenApiBaseline` — in sync |
-| **CI** | ⚠️ | Green, but builds 8 of 9 images (debt #6) and cannot distinguish a cached pass from a real one (debt #4) |
+| **OpenAPI compatibility** | ✅ | 0 breaking, 53 accepted (M21.7's corrections), 48 additive |
+| **Live-response contract** | ✅ | 41 real calls across six services validated against `docs/openapi.yaml` |
+| **CI** | ✅ | All nine images; cache disabled and test execution proved |
 | **CD** | ⚠️ | Exists, never run — blocked on M29 |
 | **Docker images** | ✅ | All nine rebuilt from current code |
 | **TODOs / FIXMEs** | ✅ | **Zero** across `.java`, `.kts`, `.yaml` |
@@ -916,12 +956,13 @@ that keeps it honest are written side by side.
 
 | Module | Tests | Module | Tests |
 |---|---|---|---|
-| notification-service | 164 | analytics-service | 64 |
-| payment-service | 143 | transaction-service | 38 |
-| common-lib | 102 | common-dto | 35 |
-| gateway-service | 98 | merchant-service | 30 |
-| sandbox-service | 92 | audit-service | 27 |
-| openapi-tools | 21 | identity-service | 12 |
+| notification-service | 175 | analytics-service | 75 |
+| payment-service | 151 | openapi-tools | 65 |
+| sandbox-service | 103 | transaction-service | 48 |
+| common-lib | 102 | audit-service | 38 |
+| gateway-service | 98 | common-dto | 35 |
+| | | merchant-service | 30 |
+| | | identity-service | 12 |
 
 ### Warnings a new session must know
 
@@ -932,7 +973,15 @@ that keeps it honest are written side by side.
    Docker daemon and the same build directories.
 3. **Killing a build mid-test corrupts `build/test-results`**, and the *next* build fails with a
    `NoSuchFileException` unrelated to any code. Fix: `rm -rf <module>/build/test-results`.
-4. **An editor holding this repository's markdown open can overwrite it from a stale buffer.**
+4. **springdoc silently drops 3.0-era `@Schema` attributes in a 3.1 document.** `nullable = true`
+   renders nothing and `type = "object"` came out as `type: string`; the 3.1 spellings —
+   `types = {"number", "null"}` and `types = {"object"}` — work. A wrong attribute here produces a
+   confident, valid-looking description of a shape no response has. **Read the generated fragment
+   after annotating**, never the annotation.
+5. **Never edit `docs/openapi.yaml` with PowerShell's `Set-Content`.** It rewrites the file CRLF,
+   and the contract diff then correctly reports every multi-line description as changed. Use
+   `[IO.File]::WriteAllText` with a BOM-less UTF8 encoding, or regenerate with `mergeOpenApi`.
+6. **An editor holding this repository's markdown open can overwrite it from a stale buffer.**
    `PROJECT_CONTEXT_2.md` was found reverted by 773 lines in the working tree while the committed
    copy was intact. Always check `git status` before concluding that work is missing.
 
@@ -958,9 +1007,14 @@ that keeps it honest are written side by side.
 git status --short                       # expect empty
 git log -1 --oneline
 docker ps --format '{{.Names}}' | Select-String paymentflow   # expect none before testing
-.\gradlew build                          # expect BUILD SUCCESSFUL
-.\gradlew :openapi-tools:verifyOpenApiBaseline   # expect "is up to date"
+.\gradlew build --max-workers=2          # expect BUILD SUCCESSFUL
+.\gradlew :openapi-tools:verifyOpenApiBaseline --max-workers=2   # expect "is up to date"
 ```
+
+**`--max-workers=2` on anything that starts Testcontainers.** Six parallel Gradle workers each
+starting Postgres is enough to make the Docker daemon fail an image pull for an image that is
+present locally (`ContainerFetchException`), and it does so intermittently — it cost two wasted
+runs during M21.6 alone.
 
 **If the tree is dirty, diff it before assuming it is work in progress** — see warning 4 in §18.
 

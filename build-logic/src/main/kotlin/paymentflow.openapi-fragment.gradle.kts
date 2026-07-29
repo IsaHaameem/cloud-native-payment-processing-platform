@@ -29,6 +29,12 @@ dependencies {
     // OpenApiFragments — the writer the document test calls. Test scope only: nothing links
     // openapi-tools into a running service.
     "testImplementation"(project(":openapi-tools"))
+    // M21.7: the shared contract-test scaffold. Wired here rather than in six build files
+    // for the same reason this plugin exists at all — the six services that publish a `/v1`
+    // tier are exactly the six that need it, and that set is already defined by whoever
+    // applies this plugin. A seventh service gets it by applying the plugin, which it must
+    // do anyway to contribute a fragment.
+    "testImplementation"(project(":test-support"))
 }
 
 // Resolved here rather than inside the task's configuration block: inside it, `the<...>()`
