@@ -112,10 +112,21 @@ jobs:
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import glob, os, sys, xml.etree.ElementTree as ET
 
+          # The two globs below are cross-checked against each other, so both must
+          # reduce to the *same* string for the same module — the module's
+          # repo-relative directory. Truncating at the marker rather than walking
+          # parents is what guarantees that: `os.path.dirname` on
+          # `<module>/src/test/java` yields `<module>/src/test`, which can never
+          # match a key derived from a report path, so every module reads as
+          # missing however many tests it actually ran. Separators are normalised
+          # because glob yields the host's, and the marker is spelled one way.
+          def module_of(path, marker):
+              return path.replace(os.sep, "/").split(marker)[0]
+
           totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
           per_module = {}
           for report in glob.glob("**/build/test-results/test/TEST-*.xml", recursive=True):
-              module = report.split("/build/test-results/")[0].lstrip("./")
+              module = module_of(report, "/build/test-results/")
               suite = ET.parse(report).getroot()
               counts = per_module.setdefault(module, 0)
               per_module[module] = counts + int(suite.get("tests", 0))
@@ -126,9 +137,12 @@ jobs:
           # expectation from the source tree rather than from a hardcoded list means a
           # module added later is covered without anyone remembering to add it here.
           missing = [
-              os.path.dirname(path)
-              for path in glob.glob("*/src/test/java")
-              if per_module.get(os.path.dirname(path), 0) == 0
+              module
+              for module in (
+                  module_of(path, "/src/test/java")
+                  for path in glob.glob("*/src/test/java")
+              )
+              if per_module.get(module, 0) == 0
           ]
 
           print("### Test execution")

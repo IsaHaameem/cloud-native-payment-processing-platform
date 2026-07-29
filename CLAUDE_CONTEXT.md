@@ -27,7 +27,7 @@
 | **Development phase** | Phase B complete — *Product surface*; Phase C next (see §3) |
 | **Current milestone** | **M21 complete.** Next: **M22** — Node & Python SDKs |
 | **Branch** | `main` |
-| **Latest commit** | `M21.7` — *feat(m21.7): contract validation and the annotation prose* |
+| **Latest commit** | *fix(ci): the proof step compared two sets of paths that could never match* |
 | **Repository health** | Healthy |
 | **Build status** | `./gradlew build` — **BUILD SUCCESSFUL in 6m 14s** |
 | **Test status** | **932 tests, 0 failures, 0 errors, 0 skipped** |
@@ -848,7 +848,9 @@ See §18 for what that means for trusting a green build.
 - **Verify, never assume.** A completion claim needs something actually executed.
 - Integration tests use Testcontainers against **real** Postgres/Redis/Kafka.
 - Every test must declare its own containers — never rely on a running compose stack.
-- A gate that has never been observed failing is not known to work: prove it fails.
+- A gate that has never been observed failing is not known to work: prove it fails. A gate never
+  observed **passing** on a good input is not known to work either — prove both directions, by
+  execution. This applies to CI-only code with particular force, since no local build runs it.
 - Tests that assert on documentation must run in **both directions** (undocumented thing fails;
   documented-but-absent thing also fails).
 - **A test must not be able to pass by failing to do the thing it claims to do.** M21.6's first
@@ -947,7 +949,7 @@ M22's generators consume it — they are the first thing to read the document ra
 | **OpenAPI baseline** | ✅ | `verifyOpenApiBaseline` — in sync |
 | **OpenAPI compatibility** | ✅ | 0 breaking, 53 accepted (M21.7's corrections), 48 additive |
 | **Live-response contract** | ✅ | 41 real calls across six services validated against `docs/openapi.yaml` |
-| **CI** | ✅ | All nine images; cache disabled and test execution proved |
+| **CI** | ✅ | All nine images; cache disabled; the test-execution proof step verified by running the shipped script in both directions |
 | **CD** | ⚠️ | Exists, never run — blocked on M29 |
 | **Docker images** | ✅ | All nine rebuilt from current code |
 | **TODOs / FIXMEs** | ✅ | **Zero** across `.java`, `.kts`, `.yaml` |

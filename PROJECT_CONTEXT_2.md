@@ -7507,6 +7507,66 @@ notification-service's two delivery-id operations (a delivery is produced by the
 consuming `payment.events`, so there is no id to retrieve or replay). Both exclusions are
 visible in the source rather than inferable from what is absent.
 
+---
+
+#### CI defect — the proof step compared two sets of paths that could never match (2026-07-29)
+
+**Symptom.** GitHub Actions was red on the M21 push, and red on exactly one step. The build
+succeeded, all 932 tests executed, the JUnit XML was written and the report artefact uploaded —
+and then `Prove the tests actually ran` reported *"modules with test sources that produced no
+results"* for **every** module in the repository.
+
+**Root cause.** One expression. The step cross-checks two sets of module directories: those that
+produced `build/test-results/test/TEST-*.xml`, and those that have a `src/test/java`. The first
+was derived by truncating the report path at `/build/test-results/`, giving `payment-service`.
+The second was derived with `os.path.dirname` over `glob.glob("*/src/test/java")`, which returns
+the path's *parent* — `payment-service/src/test`, not the module. The two sets were disjoint by
+construction, so `per_module.get("payment-service/src/test", 0)` was `0` for every module
+however many tests it had actually run. The counts were right; the key they were looked up under
+could not exist.
+
+**Why it survived M21.6.** The step's other three assertions — that tests ran at all, that
+nothing was skipped, and the per-module table it publishes to the job summary — are all correct
+and were all visible in the summary, so the step read as working. Its one cross-check was the
+part nothing exercised. M21.6 proved `OpenApiDiff` end to end on real documents, per the
+milestone's own criterion, and shipped this step beside it without ever executing it: it lives
+only inside `ci.yml`, so no local build runs it. The rule "a gate that has never been observed
+failing is not known to work" has a second half this is the case for — **a gate never observed
+*passing* on a good input is not known to work either**. This one had only ever been read.
+
+**The fix.** Both keys are now produced by the same helper, `module_of(path, marker)`, which
+truncates at the marker separating the module from the rest of the path — `/build/test-results/`
+on one side, `/src/test/java` on the other — so the two derivations cannot drift apart again.
+Separators are normalised to `/` first, because `glob` yields the host's and the markers are
+spelled one way. Nothing was relaxed to make it pass: all three failure conditions are unchanged,
+and the expectation is still derived from the source tree rather than from a hardcoded module
+list, so a module added later is still covered without anyone remembering to add it.
+
+**Verified by execution, not by reading** — the mistake that produced the defect. The script was
+extracted verbatim from `ci.yml` and run against real and synthetic trees:
+
+| Input | Expected | Result |
+|---|---|---|
+| The pre-fix script, real `build/test-results` | reproduce CI | all 12 modules reported missing — the CI failure exactly |
+| The fixed script, same tree | pass | **932 tests across 12 modules, exit 0** |
+| Same, `audit-service/build/test-results/test` moved aside | fail, naming it | `…produced no results: audit-service`, exit 1 |
+| A synthetic module whose suite reports `skipped="1"` | fail | `1 test(s) were skipped`, exit 1 |
+| A module with `src/test/java` and no reports at all | fail twice | `no tests were executed at all` **and** the missing-module error, exit 1 |
+
+The diagnosis was therefore confirmed against the observed symptom before the fix was written,
+and each safety check was individually observed still firing after it.
+
+**Files modified**
+
+| File | Change |
+|---|---|
+| `.github/workflows/ci.yml` | `module_of` — one derivation for both sides of the proof step's cross-check |
+
+**Regression.** `./gradlew clean build` — **BUILD SUCCESSFUL in 40s**, 932 tests, 0 failures,
+0 errors, 0 skipped. Fast because the local build cache restored most of it, which is precisely
+why CI pays `--no-build-cache` and why the step this entry is about exists. The change is
+confined to a workflow file and is not a Gradle input; no module, task or test was touched.
+
 *(Populated by M28. V1's benchmarks remain in `PROJECT_CONTEXT.md` §14 and are the
 regression baseline for the original payment hot path.)*
 
