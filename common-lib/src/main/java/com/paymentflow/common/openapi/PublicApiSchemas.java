@@ -1,8 +1,10 @@
 package com.paymentflow.common.openapi;
 
+import com.paymentflow.common.dto.error.ErrorType;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.media.Schema;
 
+import java.util.Arrays;
 import java.util.Map;
 
 /**
@@ -107,10 +109,42 @@ public final class PublicApiSchemas {
                 describe(schema, PAGE_RESPONSE);
             } else if ("ApiError".equals(name)) {
                 describe(schema, API_ERROR);
+                enumerateErrorTypes(schema);
             } else if ("ApiFieldError".equals(name)) {
                 describe(schema, API_FIELD_ERROR);
             }
         });
+    }
+
+    /**
+     * Publishes {@link ErrorType}'s vocabulary as a real {@code enum} on {@code ApiError.type}
+     * (M22.0).
+     *
+     * <p>The prose above has always named the six values; nothing machine-readable did.
+     * {@code ApiError.type} is a {@code String} on the record — deliberately, so that a
+     * platform which learns a seventh classification cannot fail to deserialize its own
+     * error — and springdoc can only describe what the field's Java type says, which is
+     * {@code type: string}. That is exactly the field §7.1's SDKs map onto their exception
+     * hierarchy, so every SDK would hand-maintain a copy of a list that already exists in
+     * {@code common-dto}, checked against nothing.
+     *
+     * <p>Generated from {@code ErrorType.values()} rather than written out, so the document
+     * and the enum cannot disagree: adding a classification updates the contract in the same
+     * commit, and the SDKs' parity fixtures regenerate from it. Additive under §15 —
+     * §9 requires clients to tolerate enum values they do not know, which is precisely what
+     * makes publishing a closed vocabulary safe rather than a promise never to extend it.
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static void enumerateErrorTypes(Schema<?> apiError) {
+        Map<String, Schema> properties = apiError.getProperties();
+        if (properties == null) {
+            return;
+        }
+        Schema type = properties.get("type");
+        if (type == null) {
+            return;
+        }
+        type.setEnum(Arrays.stream(ErrorType.values()).map(ErrorType::wireName).toList());
     }
 
     /**

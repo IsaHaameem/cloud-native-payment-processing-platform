@@ -42,6 +42,20 @@ paths:
         schema:
           type: string
           format: date-time
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -49,6 +63,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/AnalyticsSummaryResponse"
           description: "Totals for the window, and the hourly series behind them."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -65,6 +96,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -81,6 +115,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -97,6 +134,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -113,6 +161,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Summarize payment activity
       tags:
       - Analytics
@@ -123,6 +188,21 @@ paths:
 
         Two figures per currency, and the difference matters: `pendingMinor` is money authorized but not yet captured — it can still be voided or expire, so it is not yours — while `availableMinor` is money captured and owed to you, net of refunds. Both are projections of the double-entry ledger rather than counters kept alongside it, so they cannot drift from the entries at `/v1/balance_transactions`.
       operationId: getBalance
+      parameters:
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -130,6 +210,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/BalanceResponse"
           description: Your balance in every currency you hold.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -146,6 +243,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -162,6 +262,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -178,6 +281,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -194,6 +308,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Retrieve your balance
       tags:
       - Balance
@@ -232,6 +363,20 @@ paths:
         schema:
           type: string
           format: date-time
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -239,12 +384,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/CursorPageBalanceTransactionResponse"
           description: "A page of ledger entries, most recent first."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "The query could not be understood: a tampered or malformed `starting_after` cursor, a `limit` that is not positive, or a filter value outside the vocabulary this endpoint accepts. A rejected filter is deliberately an error rather than an empty page — an empty page is something you would then have to explain to yourself."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -261,6 +440,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -277,6 +459,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -293,6 +478,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -309,6 +505,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: List balance transactions
       tags:
       - Balance transactions
@@ -356,6 +569,20 @@ paths:
         schema:
           type: string
           format: date-time
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -363,12 +590,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/CursorPageEventResponse"
           description: "A page of events, most recent first."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "The query could not be understood: a tampered or malformed `starting_after` cursor, a `limit` that is not positive, or a filter value outside the vocabulary this endpoint accepts. A rejected filter is deliberately an error rather than an empty page — an empty page is something you would then have to explain to yourself."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -385,6 +646,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -401,6 +665,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -417,6 +684,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -433,6 +711,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: List events
       tags:
       - Events
@@ -448,6 +743,20 @@ paths:
         required: true
         schema:
           type: string
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -455,12 +764,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/EventResponse"
           description: The event.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: The id is not a well-formed `evt_` identifier.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -477,6 +820,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -493,12 +839,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "No such event. Also returned for an event that exists but belongs to another merchant, to the other mode, or is internal to the platform and not part of your feed — never `403`, which would confirm it exists."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -515,6 +881,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -531,6 +908,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Retrieve an event
       tags:
       - Events
@@ -616,6 +1010,20 @@ paths:
           type: object
           additionalProperties: true
         style: deepObject
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -623,12 +1031,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/CursorPagePaymentResponse"
           description: "A page of payments, most recent first."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "The query could not be understood: a tampered or malformed `starting_after` cursor, a `limit` that is not positive, or a filter value outside the vocabulary this endpoint accepts. A rejected filter is deliberately an error rather than an empty page — an empty page is something you would then have to explain to yourself."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -645,6 +1087,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -661,6 +1106,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -677,6 +1125,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -693,6 +1152,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: List payments
       tags:
       - Payments
@@ -709,6 +1185,20 @@ paths:
         required: true
         schema:
           type: string
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       requestBody:
         content:
           application/json:
@@ -722,12 +1212,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
           description: The payment was created.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: The request body failed validation. `errors` names every field that failed; the rejected values are deliberately not echoed back.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -744,6 +1268,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -760,12 +1287,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Another request with the same `Idempotency-Key` is still in flight. Distinct from `CONFLICT` precisely because it is retryable — wait and send it again.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -782,6 +1329,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -798,6 +1356,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Create a payment
       tags:
       - Payments
@@ -820,6 +1395,20 @@ paths:
         required: false
         schema:
           type: string
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -827,6 +1416,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
           description: The payment.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -843,6 +1449,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -859,12 +1468,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "No such payment. Also returned when the payment exists but belongs to another merchant, or to the other mode — never `403`, because a `403` would confirm that it exists."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -881,6 +1510,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -897,6 +1537,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Retrieve a payment
       tags:
       - Payments
@@ -921,6 +1578,20 @@ paths:
         required: true
         schema:
           type: string
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -928,6 +1599,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
           description: "The payment was authorized, or the acquirer declined it and the payment is now `failed`."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -944,6 +1632,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -960,18 +1651,55 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "No such payment. Also returned when the payment exists but belongs to another merchant, or to the other mode — never `403`, because a `403` would confirm that it exists."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "The payment is not in a state where this operation is legal — capturing one that was never authorized, voiding one already captured, refunding more than remains. The `code` says which."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -988,6 +1716,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -1004,6 +1743,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Authorize a payment
       tags:
       - Payments
@@ -1028,6 +1784,20 @@ paths:
         required: true
         schema:
           type: string
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -1035,6 +1805,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
           description: The payment was captured.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -1051,6 +1838,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -1067,18 +1857,55 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "No such payment. Also returned when the payment exists but belongs to another merchant, or to the other mode — never `403`, because a `403` would confirm that it exists."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "The payment is not in a state where this operation is legal — capturing one that was never authorized, voiding one already captured, refunding more than remains. The `code` says which."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -1095,6 +1922,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -1111,6 +1949,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Capture an authorized payment
       tags:
       - Payments
@@ -1135,6 +1990,20 @@ paths:
         required: true
         schema:
           type: string
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       requestBody:
         content:
           application/json:
@@ -1147,12 +2016,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
           description: The refund was issued; the payment is returned with its updated `refundedAmountMinor`.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: The request body failed validation. `errors` names every field that failed; the rejected values are deliberately not echoed back.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -1169,6 +2072,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -1185,18 +2091,55 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "No such payment. Also returned when the payment exists but belongs to another merchant, or to the other mode — never `403`, because a `403` would confirm that it exists."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "The payment is not in a state where this operation is legal — capturing one that was never authorized, voiding one already captured, refunding more than remains. The `code` says which."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -1213,6 +2156,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -1229,6 +2183,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Refund a captured payment
       tags:
       - Payments
@@ -1250,6 +2221,20 @@ paths:
         required: true
         schema:
           type: string
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -1257,6 +2242,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
           description: The authorization was released.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -1273,6 +2275,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -1289,18 +2294,55 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "No such payment. Also returned when the payment exists but belongs to another merchant, or to the other mode — never `403`, because a `403` would confirm that it exists."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "The payment is not in a state where this operation is legal — capturing one that was never authorized, voiding one already captured, refunding more than remains. The `code` says which."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -1317,6 +2359,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -1333,6 +2386,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Void a payment
       tags:
       - Payments
@@ -1393,6 +2463,20 @@ paths:
           type: object
           additionalProperties: true
         style: deepObject
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -1400,12 +2484,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/CursorPageRefundResponse"
           description: "A page of refunds, most recent first."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "The query could not be understood: a tampered or malformed `starting_after` cursor, a `limit` that is not positive, or a filter value outside the vocabulary this endpoint accepts. A rejected filter is deliberately an error rather than an empty page — an empty page is something you would then have to explain to yourself."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -1422,6 +2540,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -1438,6 +2559,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -1454,6 +2578,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -1470,6 +2605,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: List refunds
       tags:
       - Refunds
@@ -1485,6 +2637,20 @@ paths:
         schema:
           type: string
           format: uuid
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -1492,6 +2658,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/RefundResponse"
           description: The refund.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -1508,6 +2691,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -1524,12 +2710,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "No such refund. Also returned when the refund exists but belongs to another merchant, or to the other mode."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -1546,6 +2752,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -1562,6 +2779,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Retrieve a refund
       tags:
       - Refunds
@@ -1617,6 +2851,20 @@ paths:
         required: false
         schema:
           type: string
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -1624,12 +2872,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/CursorPageRequestLogResponse"
           description: "A page of request log entries, most recent first."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "The query could not be understood: a tampered or malformed `starting_after` cursor, a `limit` that is not positive, or a filter value outside the vocabulary this endpoint accepts. A rejected filter is deliberately an error rather than an empty page — an empty page is something you would then have to explain to yourself."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -1646,6 +2928,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -1662,6 +2947,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -1678,6 +2966,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -1694,6 +2993,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: List API request logs
       tags:
       - Request logs
@@ -1706,6 +3022,21 @@ paths:
 
         The catalogue is the single source the documentation renders from, so what you read here and what a real call does cannot drift.
       operationId: listTestCards
+      parameters:
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -1715,6 +3046,23 @@ paths:
                 items:
                   $ref: "#/components/schemas/TestCardResponse"
           description: Every test card the sandbox recognises.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -1731,6 +3079,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -1747,6 +3106,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       security: []
       summary: List the test cards
       tags:
@@ -1785,6 +3161,20 @@ paths:
           type: array
           items:
             type: string
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -1792,6 +3182,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageResponseDecisionLogEntryResponse"
           description: "A page of decisions, most recent first."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -1808,6 +3215,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -1824,6 +3234,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -1840,6 +3253,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -1856,6 +3280,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: List sandbox decisions
       tags:
       - Decisions
@@ -1874,6 +3315,20 @@ paths:
         schema:
           type: string
           format: uuid
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -1883,6 +3338,23 @@ paths:
                 items:
                   $ref: "#/components/schemas/DecisionLogEntryResponse"
           description: "The decisions for this payment, oldest first. Empty when none were made."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -1899,6 +3371,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -1915,6 +3390,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -1931,6 +3409,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -1947,6 +3436,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: List the decisions for one payment
       tags:
       - Decisions
@@ -1959,6 +3465,21 @@ paths:
 
         One override is active per merchant and mode at a time; creating another replaces it.
       operationId: createSimulationOverride
+      parameters:
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       requestBody:
         content:
           application/json:
@@ -1972,12 +3493,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/SimulationOverrideResponse"
           description: The override is active.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "The override is not internally consistent — a `FORCE_DECLINE` with no `declineCode`, or neither `remainingCount` nor `durationSeconds` to end it."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -1994,6 +3549,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -2010,6 +3568,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -2026,6 +3587,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -2042,6 +3614,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Force a sandbox behaviour
       tags:
       - Simulations
@@ -2049,9 +3638,41 @@ paths:
     delete:
       description: "Removes the override in force for your merchant and mode, returning the sandbox to its normal behaviour. Succeeds whether or not one was active — the point is the resulting state, so this is safe to call unconditionally at the start of a test."
       operationId: revokeActiveSimulationOverride
+      parameters:
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "204":
           description: No override is in force. Returned whether or not one was.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -2068,6 +3689,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -2084,6 +3708,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -2100,6 +3727,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -2116,12 +3754,44 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Revoke the active override
       tags:
       - Simulations
     get:
       description: "Returns the override currently in force for your merchant and mode, including how much of it is left. The first thing to check when the sandbox is behaving in a way you did not ask for — an override with `remainingCount` left over from an earlier test is the usual cause."
       operationId: getActiveSimulationOverride
+      parameters:
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -2129,6 +3799,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/SimulationOverrideResponse"
           description: The active override.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -2145,6 +3832,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -2161,12 +3851,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: No override is active — the sandbox is behaving normally.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -2183,6 +3893,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -2199,6 +3920,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Retrieve the active override
       tags:
       - Simulations
@@ -2228,6 +3966,20 @@ paths:
         schema:
           type: string
           format: date
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -2235,6 +3987,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/UsageSummaryResponse"
           description: "Usage totals for the range, and the per-day, per-key, per-route breakdown."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -2251,6 +4020,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -2267,6 +4039,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -2283,6 +4058,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -2299,6 +4085,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Summarize API usage
       tags:
       - Usage
@@ -2336,6 +4139,20 @@ paths:
           type: array
           items:
             type: string
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -2343,6 +4160,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageResponseWebhookDeliveryResponse"
           description: "A page of deliveries, most recent first, each with its attempts."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -2359,6 +4193,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -2375,6 +4212,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -2391,6 +4231,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -2407,6 +4258,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: List webhook deliveries
       tags:
       - Webhook deliveries
@@ -2422,6 +4290,20 @@ paths:
         schema:
           type: string
           format: uuid
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -2429,6 +4311,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookDeliveryResponse"
           description: The delivery and its attempts.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -2445,6 +4344,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -2461,12 +4363,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "No such delivery. Also returned when it exists but belongs to another merchant, or to the other mode — never `403`, which would confirm it exists."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -2483,6 +4405,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -2499,6 +4432,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Retrieve a webhook delivery
       tags:
       - Webhook deliveries
@@ -2517,6 +4467,20 @@ paths:
         schema:
           type: string
           format: uuid
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "201":
           content:
@@ -2524,6 +4488,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookDeliveryResponse"
           description: A new delivery has been dispatched. It has no attempts yet.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -2540,6 +4521,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -2556,18 +4540,55 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "No such delivery. Also returned when it exists but belongs to another merchant, or to the other mode — never `403`, which would confirm it exists."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "The delivery cannot be replayed — its endpoint has since been deleted, so there is nowhere to send it."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -2584,6 +4605,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -2600,6 +4632,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Replay a webhook delivery
       tags:
       - Webhook deliveries
@@ -2607,6 +4656,21 @@ paths:
     get:
       description: "Returns every endpoint registered for your merchant in the mode of the key you called with, including any the platform has auto-disabled. Not paginated: the number of endpoints per merchant and mode is capped, so this is always one short list."
       operationId: listWebhookEndpoints
+      parameters:
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -2616,6 +4680,23 @@ paths:
                 items:
                   $ref: "#/components/schemas/WebhookEndpointResponse"
           description: Your webhook endpoints.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -2632,6 +4713,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -2648,6 +4732,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -2664,6 +4751,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -2680,6 +4778,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: List your webhook endpoints
       tags:
       - Webhook endpoints
@@ -2691,6 +4806,21 @@ paths:
 
         The URL must be reachable over HTTPS from the public internet. Private, link-local and cloud-metadata addresses are refused at registration and re-checked at delivery time, so a hostname cannot be repointed at one later.
       operationId: createWebhookEndpoint
+      parameters:
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       requestBody:
         content:
           application/json:
@@ -2704,12 +4834,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookEndpointCreatedResponse"
           description: The endpoint is registered. This response carries the signing secret; it is not shown again.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "The endpoint was refused: a URL that is not HTTPS, resolves to a private or metadata address, or an empty `enabledEvents`."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -2726,6 +4890,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -2742,12 +4909,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: You already have an endpoint registered at this URL in this mode.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -2764,6 +4951,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -2780,6 +4978,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Register a webhook endpoint
       tags:
       - Webhook endpoints
@@ -2795,9 +5010,40 @@ paths:
         schema:
           type: string
           format: uuid
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "204":
           description: The endpoint is gone.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -2814,6 +5060,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -2830,12 +5079,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "No such endpoint. Also returned when it exists but belongs to another merchant, or to the other mode — never `403`, which would confirm it exists."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -2852,6 +5121,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -2868,6 +5148,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Delete a webhook endpoint
       tags:
       - Webhook endpoints
@@ -2882,6 +5179,20 @@ paths:
         schema:
           type: string
           format: uuid
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -2889,6 +5200,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookEndpointResponse"
           description: The endpoint.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -2905,6 +5233,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -2921,12 +5252,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "No such endpoint. Also returned when it exists but belongs to another merchant, or to the other mode — never `403`, which would confirm it exists."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -2943,6 +5294,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -2959,6 +5321,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Retrieve a webhook endpoint
       tags:
       - Webhook endpoints
@@ -2976,6 +5355,20 @@ paths:
         schema:
           type: string
           format: uuid
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       requestBody:
         content:
           application/json:
@@ -2989,12 +5382,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookEndpointResponse"
           description: The updated endpoint.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "The update failed validation — an `enabledEvents` naming an unknown event type, for instance."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -3011,6 +5438,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -3027,12 +5457,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "No such endpoint. Also returned when it exists but belongs to another merchant, or to the other mode — never `403`, which would confirm it exists."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -3049,6 +5499,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -3065,6 +5526,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Update a webhook endpoint
       tags:
       - Webhook endpoints
@@ -3085,6 +5563,20 @@ paths:
         schema:
           type: string
           format: uuid
+      - description: "Pin this one request to a dated API revision. Overrides the revision your account is pinned to; omit it to use that pin, or the current revision if you have none. An unrecognised value is rejected with `400 UNSUPPORTED_API_VERSION` rather than silently ignored."
+        in: header
+        name: PaymentFlow-Version
+        required: false
+        schema:
+          type: string
+          example: 2026-08-01
+      - description: "Your own identifier for this operation, echoed back on the response and recorded on every log line it produces. Send one to join your logs to PaymentFlow's; omit it and one is generated for you."
+        in: header
+        name: X-Correlation-Id
+        required: false
+        schema:
+          type: string
+          format: uuid
       responses:
         "200":
           content:
@@ -3092,6 +5584,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookEndpointCreatedResponse"
           description: "The endpoint, with its new signing secret. Not shown again."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "401":
           content:
             application/json:
@@ -3108,6 +5617,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Authentication is required or has failed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "403":
           content:
             application/json:
@@ -3124,12 +5636,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: This API key does not have the required scope for this endpoint.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "404":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: "No such endpoint. Also returned when it exists but belongs to another merchant, or to the other mode — never `403`, which would confirm it exists."
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "429":
           content:
             application/json:
@@ -3146,6 +5678,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: Too many requests. Slow down and retry after the interval in the Retry-After header.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Retry-After:
+              $ref: "#/components/headers/Retry-After"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
         "500":
           content:
             application/json:
@@ -3162,6 +5705,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
           description: An unexpected error occurred.
+          headers:
+            Deprecation:
+              $ref: "#/components/headers/Deprecation"
+            Link:
+              $ref: "#/components/headers/Link"
+            PaymentFlow-Version:
+              $ref: "#/components/headers/PaymentFlow-Version"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimit-Limit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimit-Remaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimit-Reset"
+            Sunset:
+              $ref: "#/components/headers/Sunset"
+            X-Correlation-Id:
+              $ref: "#/components/headers/X-Correlation-Id"
       summary: Rotate an endpoint's signing secret
       tags:
       - Webhook endpoints
@@ -3193,6 +5753,61 @@ tags:
 - description: Why the sandbox decided each authorization the way it did.
   name: Decisions
 components:
+  headers:
+    Deprecation:
+      description: "`true` when the revision that answered has been superseded. Sent per RFC 8594 as the flag form rather than a date, because the moment a revision became deprecated for you is not something this platform records per merchant. Absent on the current revision."
+      required: false
+      schema:
+        type: string
+        example: "true"
+    Link:
+      description: "An RFC 8288 link to the versioning documentation, with `rel=\"deprecation\"`. What makes `Deprecation` actionable rather than merely alarming; absent on the current revision."
+      required: false
+      schema:
+        type: string
+        example: <https://docs.paymentflow.dev/versioning>; rel="deprecation"
+    PaymentFlow-Version:
+      description: "The dated API revision that answered this request, resolved as request header, then your pinned revision, then the current one. Always present on a response that reached the API rather than being refused at the edge."
+      required: false
+      schema:
+        type: string
+        example: 2026-08-01
+    RateLimit-Limit:
+      description: "Your daily request quota for this mode. Present on responses to API-key traffic once the request has been measured against its allowance; absent on a response refused before that point, and on unauthenticated traffic, which is limited by address instead."
+      required: false
+      schema:
+        type: integer
+        format: int64
+    RateLimit-Remaining:
+      description: "How many requests remain in the current quota window. Present on responses to API-key traffic once the request has been measured against its allowance; absent on a response refused before that point, and on unauthenticated traffic, which is limited by address instead."
+      required: false
+      schema:
+        type: integer
+        format: int64
+    RateLimit-Reset:
+      description: "Seconds until the quota window resets, at 00:00 UTC. Describes the daily quota rather than the per-second burst bucket: the bucket's reset is always under a second away and would be worthless to plan against. Present on responses to API-key traffic once the request has been measured against its allowance; absent on a response refused before that point, and on unauthenticated traffic, which is limited by address instead."
+      required: false
+      schema:
+        type: integer
+        format: int64
+    Retry-After:
+      description: "Seconds to wait before retrying. **Prefer this over any backoff you compute** — it is the interval the platform will actually accept the request again, and for an exhausted daily quota it is the time remaining until 00:00 UTC rather than a few seconds. Branch on the error `code` to tell the two causes apart: `RATE_LIMIT_EXCEEDED` clears in seconds, `DAILY_QUOTA_EXCEEDED` at the end of the day."
+      required: false
+      schema:
+        type: integer
+        format: int64
+    Sunset:
+      description: The RFC 9110 date after which the superseded revision stops being served. Accompanies `Deprecation`; absent on the current revision.
+      required: false
+      schema:
+        type: string
+        example: "Sun, 01 Aug 2027 00:00:00 GMT"
+    X-Correlation-Id:
+      description: "Identifies the whole distributed trace this call belongs to. Echoed from your request when you send one and generated when you do not, so a client can correlate its own logs with PaymentFlow's. This is the value to quote in a support request when the response carried no body to read `requestId` from."
+      required: false
+      schema:
+        type: string
+        format: uuid
   schemas:
     AnalyticsBucketResponse:
       type: object
@@ -3359,6 +5974,13 @@ components:
         type:
           type: string
           description: "The error's classification, and **the field to branch on**. This is a small closed set an SDK maps to exception classes: `authentication_error`, `permission_error`, `invalid_request_error`, `idempotency_error`, `rate_limit_error`, `api_error`."
+          enum:
+          - authentication_error
+          - permission_error
+          - invalid_request_error
+          - idempotency_error
+          - rate_limit_error
+          - api_error
     ApiFieldError:
       type: object
       properties:

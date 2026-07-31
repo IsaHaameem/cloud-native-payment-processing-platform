@@ -165,6 +165,10 @@ public final class PublicApiDocument {
         return document -> {
             PublicApiErrorResponses.registerSchemas(document);
             PublicApiSchemas.describeSharedSchemas(document);
+            // M22.0. Last, and at the document level, because it annotates responses that
+            // an OperationCustomizer added — see PublicApiTransport's header comment for why
+            // that ordering is a property of springdoc rather than of these three lines.
+            PublicApiTransport.apply(document);
         };
     }
 

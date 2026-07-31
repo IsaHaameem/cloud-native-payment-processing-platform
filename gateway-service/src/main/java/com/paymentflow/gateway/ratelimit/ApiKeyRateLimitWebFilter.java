@@ -1,5 +1,6 @@
 package com.paymentflow.gateway.ratelimit;
 
+import com.paymentflow.common.dto.http.PublicApiHeaders;
 import com.paymentflow.common.error.CommonErrorCode;
 import com.paymentflow.gateway.config.RateLimitProperties;
 import com.paymentflow.gateway.security.GatewayErrorResponseWriter;
@@ -56,9 +57,13 @@ import java.util.List;
 public class ApiKeyRateLimitWebFilter implements WebFilter, Ordered {
 
 
-    static final String HEADER_LIMIT = "RateLimit-Limit";
-    static final String HEADER_REMAINING = "RateLimit-Remaining";
-    static final String HEADER_RESET = "RateLimit-Reset";
+    // Named in common-dto (M22.0) rather than here: the published OpenAPI document now
+    // describes these headers and the SDKs read them, so the spelling has to have exactly
+    // one declaration. A literal here and another in the document is a drift nothing catches
+    // — the document would promise a header the gateway never sends.
+    static final String HEADER_LIMIT = PublicApiHeaders.RATE_LIMIT_LIMIT;
+    static final String HEADER_REMAINING = PublicApiHeaders.RATE_LIMIT_REMAINING;
+    static final String HEADER_RESET = PublicApiHeaders.RATE_LIMIT_RESET;
 
     private static final Logger log = LoggerFactory.getLogger(ApiKeyRateLimitWebFilter.class);
     private static final String BUCKET_KEY_PREFIX = "ratelimit:key:";
@@ -184,7 +189,7 @@ public class ApiKeyRateLimitWebFilter implements WebFilter, Ordered {
                 .increment();
 
         applyQuotaHeaders(exchange, limits, decision, now);
-        exchange.getResponse().getHeaders().set(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfter));
+        exchange.getResponse().getHeaders().set(PublicApiHeaders.RETRY_AFTER, String.valueOf(retryAfter));
 
         // Both codes are catalogued (M21.4); their default messages are the ones that used
         // to be written out here, so the response body is unchanged.

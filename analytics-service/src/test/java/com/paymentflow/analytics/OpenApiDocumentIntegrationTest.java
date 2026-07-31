@@ -125,11 +125,19 @@ class OpenApiDocumentIntegrationTest extends PublicApiDocumentContract {
         // The aggregate is per UTC day, so accepting an instant would imply a precision the
         // stored data does not have. A generator reading `date-time` would offer callers a
         // precision the platform silently discards.
-        JsonNode parameters = document().path("paths").path("/v1/usage").path("get")
-                .path("parameters");
+        // Query parameters only. This operation also carries the transport request headers
+        // every operation takes (M22.0), and they are not dates — narrowing here keeps the
+        // assertion about what it was always about: the window this endpoint accepts.
+        List<JsonNode> query = new ArrayList<>();
+        document().path("paths").path("/v1/usage").path("get").path("parameters")
+                .forEach(parameter -> {
+                    if ("query".equals(parameter.path("in").asText())) {
+                        query.add(parameter);
+                    }
+                });
 
-        assertThat(parameters.size()).isEqualTo(2);
-        parameters.forEach(parameter ->
+        assertThat(query).hasSize(2);
+        query.forEach(parameter ->
                 assertThat(parameter.path("schema").path("format").asText())
                         .describedAs("%s is a date", parameter.path("name").asText())
                         .isEqualTo("date"));

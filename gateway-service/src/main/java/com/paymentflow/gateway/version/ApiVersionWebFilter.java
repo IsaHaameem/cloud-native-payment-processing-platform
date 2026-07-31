@@ -1,5 +1,6 @@
 package com.paymentflow.gateway.version;
 
+import com.paymentflow.common.dto.http.PublicApiHeaders;
 import com.paymentflow.common.dto.version.ApiVersion;
 import com.paymentflow.common.dto.version.ApiVersions;
 import com.paymentflow.common.error.CommonErrorCode;
@@ -39,8 +40,14 @@ import java.util.Locale;
 @Component
 public class ApiVersionWebFilter implements WebFilter, Ordered {
 
-    /** The request header a caller sends to override their pin for one call. */
-    public static final String VERSION_HEADER = "PaymentFlow-Version";
+    /**
+     * The request header a caller sends to override their pin for one call.
+     *
+     * <p>Declared in {@code common-dto} since M22.0, because the published OpenAPI document
+     * describes this header and every SDK sends it — one spelling, or the document and the
+     * gateway can disagree about the name of the header that selects the contract.
+     */
+    public static final String VERSION_HEADER = PublicApiHeaders.VERSION;
 
     /**
      * The resolved revision, for the response-body filter and anything else downstream.
@@ -140,10 +147,10 @@ public class ApiVersionWebFilter implements WebFilter, Ordered {
         }
         // `Deprecation: true` is the RFC 8594 companion form; a date would imply the
         // revision became deprecated at a moment we do not record per merchant.
-        headers.set("Deprecation", "true");
+        headers.set(PublicApiHeaders.DEPRECATION, "true");
         ApiVersions.sunsetOf(resolved).ifPresent(sunset ->
-                headers.set("Sunset", HTTP_DATE.format(sunset.atStartOfDay(ZoneOffset.UTC))));
-        headers.add("Link", "<https://docs.paymentflow.dev/versioning>; rel=\"deprecation\"");
+                headers.set(PublicApiHeaders.SUNSET, HTTP_DATE.format(sunset.atStartOfDay(ZoneOffset.UTC))));
+        headers.add(PublicApiHeaders.LINK, "<https://docs.paymentflow.dev/versioning>; rel=\"deprecation\"");
     }
 
     /** The merchant's pinned revision, or null for an unauthenticated or unpinned caller. */

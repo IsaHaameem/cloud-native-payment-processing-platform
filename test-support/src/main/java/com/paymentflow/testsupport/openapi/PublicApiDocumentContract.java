@@ -1,6 +1,9 @@
 package com.paymentflow.testsupport.openapi;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.paymentflow.common.correlation.CorrelationConstants;
+import com.paymentflow.common.dto.error.ErrorType;
+import com.paymentflow.common.dto.http.PublicApiHeaders;
 import com.paymentflow.common.openapi.PublicApiDocument;
 import com.paymentflow.openapi.OpenApiFragments;
 import com.paymentflow.openapi.OpenApiYaml;
@@ -13,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -40,7 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * being described, per-service where a *service* is.
  *
  * <p>A subclass supplies its containers, its {@code @SpringBootTest} configuration, and the
- * three facts below. It inherits fourteen tests.
+ * three facts below. It inherits eighteen tests.
  */
 @AutoConfigureMockMvc
 public abstract class PublicApiDocumentContract {
@@ -297,6 +301,130 @@ public abstract class PublicApiDocumentContract {
         assertThat(new TreeSet<>(ids))
                 .describedAs("operation ids are unique within the service")
                 .hasSize(ids.size());
+    }
+
+    // ── The transport contract (M22.0) ──────────────────────────────────────────────────
+
+    @Test
+    void everyOperationAcceptsTheSharedTransportRequestHeaders() throws Exception {
+        forEachOperation((path, verb, operation) -> {
+            Set<String> headers = new LinkedHashSet<>();
+            operation.path("parameters").forEach(parameter -> {
+                if ("header".equals(parameter.path("in").asText())) {
+                    headers.add(parameter.path("name").asText());
+                }
+            });
+            // Both are accepted on every call and neither is operation-specific, so an
+            // operation missing one means an SDK that pins a revision per request would be
+            // sending a header the contract does not describe.
+            assertThat(headers).describedAs("%s %s accepts the transport request headers", verb, path)
+                    .contains(PublicApiHeaders.VERSION, CorrelationConstants.CORRELATION_ID_HEADER);
+        });
+    }
+
+    @Test
+    void everyResponseDocumentsExactlyTheTransportHeadersItsStatusCanCarry() throws Exception {
+        forEachOperation((path, verb, operation) ->
+                operation.path("responses").properties().forEach(response -> {
+                    String status = response.getKey();
+                    Set<String> headers = names(response.getValue().path("headers"));
+                    String where = "%s %s (%s)".formatted(verb, path, status);
+
+                    // Positive direction. X-Correlation-Id has no exceptions — its filter runs
+                    // before anything can refuse a request.
+                    assertThat(headers).describedAs("%s carries the correlation id", where)
+                            .contains(CorrelationConstants.CORRELATION_ID_HEADER);
+
+                    // Negative direction, and the half worth having. The gateway's filter
+                    // order decides what a refusal can carry: a 401/403 is written at +20 and
+                    // a 429 at +30, so neither has been through the version filter at +40.
+                    // Documenting a revision on them would send an SDK looking for a header
+                    // the platform never writes.
+                    if (Set.of("401", "403", "429").contains(status)) {
+                        assertThat(headers)
+                                .describedAs("%s is refused at the edge, before the revision "
+                                        + "is resolved", where)
+                                .doesNotContain(PublicApiHeaders.VERSION, PublicApiHeaders.DEPRECATION,
+                                        PublicApiHeaders.SUNSET, PublicApiHeaders.LINK);
+                    } else {
+                        assertThat(headers).describedAs("%s reports the revision that answered", where)
+                                .contains(PublicApiHeaders.VERSION);
+                    }
+                    if (Set.of("401", "403").contains(status)) {
+                        assertThat(headers)
+                                .describedAs("%s is refused before any quota is measured", where)
+                                .doesNotContain(PublicApiHeaders.RATE_LIMIT_LIMIT,
+                                        PublicApiHeaders.RATE_LIMIT_REMAINING,
+                                        PublicApiHeaders.RATE_LIMIT_RESET);
+                    } else {
+                        assertThat(headers).describedAs("%s reports the quota window", where)
+                                .contains(PublicApiHeaders.RATE_LIMIT_LIMIT,
+                                        PublicApiHeaders.RATE_LIMIT_REMAINING,
+                                        PublicApiHeaders.RATE_LIMIT_RESET);
+                    }
+
+                    // Retry-After answers "when may I try again", which only a refusal asks.
+                    assertThat(headers.contains(PublicApiHeaders.RETRY_AFTER))
+                            .describedAs("%s documents Retry-After only if it is a 429", where)
+                            .isEqualTo("429".equals(status));
+                }));
+    }
+
+    @Test
+    void everyTransportHeaderIsDefinedOnceAndEveryDefinitionIsUsed() throws Exception {
+        JsonNode defined = document().path("components").path("headers");
+        assertThat(names(defined))
+                .describedAs("the transport headers are declared as components rather than "
+                        + "inlined on each of the document's responses")
+                .isNotEmpty();
+
+        defined.properties().forEach(header -> {
+            assertThat(header.getValue().path("description").asText())
+                    .describedAs("the `%s` header explains itself", header.getKey())
+                    .isNotEmpty();
+            // Read off the *served* document, not the builder. swagger's 3.1 serializer reads
+            // the `types` set, so a header schema built with `setType` alone renders with its
+            // `format` and no type at all — valid-looking, and it tells a generator nothing
+            // about what kind of value the header carries. §18 warning 4 is the standing
+            // instruction to check the output rather than the annotation; this is that check.
+            assertThat(header.getValue().path("schema").path("type").asText())
+                    .describedAs("the `%s` header declares the type of its value", header.getKey())
+                    .isNotEmpty();
+        });
+
+        Set<String> referenced = new LinkedHashSet<>();
+        forEachOperation((path, verb, operation) ->
+                operation.path("responses").properties().forEach(response ->
+                        response.getValue().path("headers").properties().forEach(header -> {
+                            // Every one must be a reference; an inlined definition would be a
+                            // second copy that M21.3's merge cannot deduplicate and that
+                            // OpenApiDiff cannot judge as one shared change.
+                            assertThat(header.getValue().path("$ref").asText())
+                                    .describedAs("%s %s (%s) references the `%s` component",
+                                            verb, path, response.getKey(), header.getKey())
+                                    .isEqualTo("#/components/headers/" + header.getKey());
+                            referenced.add(header.getKey());
+                        })));
+
+        // The other direction: a header defined and referenced by nothing is a promise in the
+        // published contract that no response in this document actually keeps.
+        assertThat(names(defined))
+                .describedAs("every declared header component is referenced by some response")
+                .isEqualTo(referenced);
+    }
+
+    @Test
+    void theErrorClassificationIsPublishedAsAnEnumRatherThanProse() throws Exception {
+        JsonNode type = document().path("components").path("schemas").path("ApiError")
+                .path("properties").path("type");
+        List<String> values = new ArrayList<>();
+        type.path("enum").forEach(value -> values.add(value.asText()));
+
+        // `type` is the field §7.1's SDKs map onto their exception hierarchy. Generated from
+        // ErrorType so the document cannot fall behind the enum, and asserted against the
+        // enum here so the generation cannot silently stop happening.
+        assertThat(values).containsExactlyElementsOf(
+                Arrays.stream(ErrorType.values()).map(ErrorType::wireName).toList());
     }
 
     // ── The by-product ──────────────────────────────────────────────────────────────────
