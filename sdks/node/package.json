@@ -22,13 +22,21 @@
   "files": [
     "dist"
   ],
+  "//sideEffects": [
+    "Nothing in this package runs at import time - every module only declares. Saying so lets a",
+    "bundler drop whatever an application does not reference, which matters because a webhook",
+    "receiver importing only `constructEvent` has no reason to carry the transport, the eleven",
+    "resource namespaces, or the generated model types."
+  ],
+  "sideEffects": false,
   "scripts": {
     "clean": "node scripts/clean.mjs",
     "build": "npm run clean && tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json && node scripts/finalize-dual-build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:examples": "tsc -p tsconfig.examples.json --noEmit",
     "pretest": "npm run build",
     "test": "node --test \"test/**/*.test.mjs\"",
-    "verify": "npm run typecheck && npm test"
+    "verify": "npm run typecheck && npm test && npm run typecheck:examples"
   },
   "dependencies": {},
   "devDependencies": {

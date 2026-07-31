@@ -13,7 +13,23 @@ import { API_VERSION, DEFAULT_BASE_URL } from './generated/contract.js';
 /** The `fetch` shape this SDK depends on. Deliberately the platform's own, not a wrapper. */
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
-/** Options accepted by the {@link PaymentFlow} constructor. */
+/**
+ * Options accepted by the {@link PaymentFlow} constructor.
+ *
+ * Every property is `T | undefined` and not merely optional. Under
+ * `exactOptionalPropertyTypes` those are different types, and the difference decides whether
+ * the most natural line an integrator will ever write compiles:
+ *
+ * ```ts
+ * new PaymentFlow({ apiKey: process.env.PAYMENTFLOW_API_KEY })
+ * ```
+ *
+ * `process.env.X` is `string | undefined`, so with a bare `apiKey?: string` that is a type
+ * error — and the fix a user would reach for is a non-null assertion on a credential, which is
+ * exactly the wrong habit to teach. The strictness is worth keeping on *response* types, where
+ * an absent field and an explicitly null one genuinely differ (D143); on *input* options it
+ * only rejects callers for passing the value they have (D173).
+ */
 export interface PaymentFlowOptions {
   /**
    * Your secret API key, sent as `Authorization: Bearer <key>`.
@@ -22,10 +38,10 @@ export interface PaymentFlowOptions {
    * which mode you see it in — an `sk_test_` key reads and writes test data only. Nothing else
    * in this SDK can change that, deliberately.
    */
-  readonly apiKey?: string;
+  readonly apiKey?: string | undefined;
 
   /** The host to call. Override for a local stack; defaults to the published host. */
-  readonly baseUrl?: string;
+  readonly baseUrl?: string | undefined;
 
   /**
    * The dated API revision to send as `PaymentFlow-Version`.
@@ -34,16 +50,16 @@ export interface PaymentFlowOptions {
    * types are known to describe. Overriding it is supported and is how you stay on a
    * superseded revision deliberately rather than by accident.
    */
-  readonly apiVersion?: string;
+  readonly apiVersion?: string | undefined;
 
   /** How long one HTTP attempt may take, in milliseconds. Default 30s. */
-  readonly timeout?: number;
+  readonly timeout?: number | undefined;
 
   /**
    * How many times a retryable failure is retried. Default 3, so a call makes at most four
    * attempts. Zero disables retrying without disabling anything else.
    */
-  readonly maxRetries?: number;
+  readonly maxRetries?: number | undefined;
 
   /**
    * The `fetch` implementation to use. Defaults to the global one.
@@ -52,7 +68,7 @@ export interface PaymentFlowOptions {
    * also what lets this package keep zero runtime dependencies while remaining testable
    * without a live server.
    */
-  readonly fetch?: FetchLike;
+  readonly fetch?: FetchLike | undefined;
 }
 
 /** The resolved, validated configuration a client holds. */
