@@ -29,13 +29,19 @@
     "resource namespaces, or the generated model types."
   ],
   "sideEffects": false,
+  "//test": [
+    "Neither `node --test test/` nor `node --test \"test/**/*.test.mjs\"` runs this suite on every",
+    "version the package supports - the directory form fails on Node 22+, the glob form fails on",
+    "Node 20, which is what CI pins. scripts/run-tests.mjs enumerates the files and passes them",
+    "explicitly, which is the one form all of them accept. Its header has the detail."
+  ],
   "scripts": {
     "clean": "node scripts/clean.mjs",
     "build": "npm run clean && tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json && node scripts/finalize-dual-build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:examples": "tsc -p tsconfig.examples.json --noEmit",
     "pretest": "npm run build",
-    "test": "node --test \"test/**/*.test.mjs\"",
+    "test": "node scripts/run-tests.mjs",
     "verify": "npm run typecheck && npm test && npm run typecheck:examples"
   },
   "dependencies": {},

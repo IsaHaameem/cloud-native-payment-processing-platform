@@ -27,7 +27,7 @@
 | **Development phase** | Phase B complete — *Product surface*; Phase C in progress: M22 done, M23 next (see §3) |
 | **Current milestone** | **M22 complete** — Node & Python SDKs, both feature-complete and neither published. Next: **M23** — developer portal, part 1 |
 | **Branch** | `main` |
-| **Latest commit** | *docs(m22): synchronize PROJECT_CONTEXT_2.md and CLAUDE_CONTEXT.md through M22.7* |
+| **Latest commit** | *fix(ci): run the Node suite by file list, so it runs on the Node CI pins* |
 | **Repository health** | Healthy |
 | **Build status** | `./gradlew build --max-workers=2` — **BUILD SUCCESSFUL** |
 | **Test status** | **1002 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18), plus 108 Node and 193 Python |
@@ -1024,6 +1024,7 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 | 17 | **The Python SDK's 3.9 floor is verified by grammar, not by a 3.9 interpreter.** Current mypy refuses `python_version = "3.9"`, so `tests/test_python_floor.py` parses every shipped module with `ast.parse(feature_version=(3, 9))` and forbids PEP 585/604 outside annotations. That covers syntax and the realistic runtime-API mistake; it does not cover a stdlib behaviour that differs on 3.9. | Low — a genuine 3.9 regression could still ship | M22.3 (add a 3.9 CI leg once the suite is worth running twice) | Medium |
 | 20 | **The Python SDK has no async client.** §7.2's plan is "sync client first with an async variant"; M22.5 delivered the first half. `async` colours every function it touches, so the variant needs its own transport, retry loop and copy of all eleven namespaces. Named in the package's README so no integrator discovers it by looking for it. | Low — the sync client is complete and most Python integrators are synchronous | Unowned; a natural M26 companion | Low |
 | 19 | **`CreatePaymentRequest.amountMinor` is required in practice and optional in the document.** The Java field is a primitive `long` with `@Positive`, so a body omitting it is rejected with a 400 every time — but `required` lists only `currency`. The SDK's hand-written type states the truth (D170); the published document still understates it, so a caller generating from the spec can write the one request the API always refuses. Not fixed in M22 because adding to a `required` list is classified **breaking**, and the milestone was additive-only. | Medium — the same class as M21.7's `Idempotency-Key` defect | Unowned (needs a dated revision or a reviewed acceptance entry, plus a sweep for the same pattern) | **High** |
+| 21 | **The Node SDK declares `engines.node >= 18` and nothing runs it on 18.** CI pins 20; development is on 24. The advertised floor is exercised by neither. Same shape as item 17, and the cause of the 2026-07-31 CI defect — a Node-version disagreement invisible for all of M22 because only one environment ever ran the suite. A CI matrix over 18/20/latest is the cheap answer. | Medium — a floor-only regression can ship | Unowned (pairs with item 17's 3.9 leg) | Medium |
 | 18 | **Neither SDK runs a style linter.** TypeScript's `strict` family and `mypy --strict` cover correctness; formatting and idiom conventions are unenforced, so the first contributor to either package has nothing to conform to. | Low now, Medium once the packages have real code | M22.2 | Low |
 
 ---
@@ -1141,7 +1142,7 @@ Nothing from the SDKs. M23 is the developer portal, and the contract it consumes
 | **OpenAPI compatibility** | ✅ | 0 breaking, 0 accepted, **0 additive** — M22.5–M22.7 touched no platform contract at all |
 | **SDK codegen freshness** | ✅ | `verifySdkSources` — the committed Node, Python and fixture trees match what `docs/openapi.yaml` generates; proven to fail on an edited, a deleted and an orphaned file |
 | **Live-response contract** | ✅ | 41 real calls across six services validated against `docs/openapi.yaml` |
-| **CI** | ✅ | Four jobs; all nine images; cache disabled; the test-execution proof step verified by running the shipped script in both directions, including the recursive-glob fix that covers the first nested module |
+| **CI** | ✅ | Four jobs; all nine images; cache disabled; the test-execution proof step verified by running the shipped script in both directions, including the recursive-glob fix that covers the first nested module. The `sdks (node)` leg genuinely executes its 108 tests on the pinned Node 20 — until 2026-07-31 it executed none of them and failed on the invocation (§17 of the journal, and warning 7 below) |
 | **CD** | ⚠️ | Exists, never run — blocked on M29 |
 | **Docker images** | ✅ | All nine built from current code and asserted non-root, port-exposed, healthchecked |
 | **TODOs / FIXMEs** | ✅ | **Zero** across `.java`, `.kts`, `.yaml`, `.ts`, `.py` |
@@ -1196,7 +1197,15 @@ D164). They are counted separately:
    `Dockerfile`, `.dockerignore`, `settings.gradle.kts` and `docs/ERRORS.md` explicitly for this
    reason, and `:sdks:shared`'s declares `docs/openapi.yaml`. Any new consistency test that reads
    a repository file must do the same.
-7. **An editor holding this repository's markdown open can overwrite it from a stale buffer.**
+7. **The Node SDK's test invocation is version-sensitive, and CI does not run the Node you do.**
+   `ci.yml` pins Node 20 on purpose; contributors are typically on 22+. `node --test test/` works
+   on 20 and fails on 22+ (a directory argument is resolved as a module); `node --test
+   "test/**/*.test.mjs"` is the exact reverse (glob expansion is a v21 feature). An explicit file
+   list is the only form both accept, which is why `npm test` goes through
+   `scripts/run-tests.mjs` rather than naming a pattern. **Do not "simplify" it back to a glob** —
+   that is the defect that made the Node job red for the whole of M22, and a green local run does
+   not disprove it.
+8. **An editor holding this repository's markdown open can overwrite it from a stale buffer.**
    `PROJECT_CONTEXT_2.md` was found reverted by 773 lines in the working tree while the committed
    copy was intact. Always check `git status` before concluding that work is missing.
 

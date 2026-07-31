@@ -2939,6 +2939,7 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **Neither SDK runs a style linter.** TypeScript's `strict` family and `mypy --strict` cover correctness; formatting and idiom conventions are unenforced, so the first outside contributor to either package has nothing to conform to. Low while the packages are small, and worth doing before they are not. Unowned.
 - **Two bullets in §5/M22's feature list and one line in §7.1 describe SDK behaviour that was not built, and should not have been.** "`RateLimit-Reset`-aware backoff rather than blind sleeping" and "Request/response hooks for logging" both predate M20 and M22.0, which settled what the transport headers actually mean and what the shared design contract actually specifies. `RateLimit-Reset` is the *daily* quota window and appears on successful responses, so backing off against it would idle a healthy client until midnight UTC (D167); hooks appear in §5's wish-list but not in §7.1's agreed cross-language contract, so building them would have added public API to one of four SDKs on no authority. Left in place deliberately rather than edited, following the same convention as §4.9/D137: §5 and §7 are the *plan*, and the decision log is where a plan is corrected by implementation. Flagged here so nobody reads either section in isolation and reintroduces them.
 - **The Python SDK has no async client.** §7.2's plan is "sync client first with an async variant", and M22.5 delivered the first half. `async`/`await` colours every function it touches, so the variant needs its own transport, its own retry loop and its own copy of all eleven resource namespaces — a coroutine cannot be called from a synchronous method or the reverse. Delivering it inside M22.5 would have produced two clients of which one was well tested. Named in `sdks/python/README.md` so no integrator discovers it by looking for it. Unowned; a natural M26 companion when the Java and Go SDKs are written.
+- **The Node SDK declares `engines.node >= 18`, and nothing executes it on 18.** CI runs the suite on Node 20 (pinned deliberately, `ci.yml`); development happens on whatever the contributor has, currently 24. Node 18 — the floor the package advertises to integrators — is exercised by neither. This is the same shape as the Python-3.9 item above, and it is not hypothetical: the CI defect recorded in §17 (2026-07-31) was exactly a Node-version disagreement, invisible for the whole of M22 because only one of the two environments ever ran the suite. The cheap partial answer is a CI matrix over 18/20/latest, which costs one `strategy.matrix` entry and would have caught that defect on the commit that introduced it. Unowned; the natural companion to the Python 3.9 leg, and worth doing together.
 
 ---
 
@@ -7768,6 +7769,62 @@ across languages; generated code never part of the public SDK API; native `fetch
 `httpx` as Python's only runtime dependency; cross-language parity testing against shared
 golden fixtures; `docs/openapi.yaml` as the one contract source; and M22.0 kept strictly
 additive.
+
+#### CI defect — the Node suite could not be invoked on the version CI pins (2026-07-31)
+
+**Symptom.** GitHub Actions was red on exactly one job. `Build & test (Gradle)`, the OpenAPI
+contract gate, the Python SDK leg and all nine Docker builds passed; `SDKs (node)` failed at step
+5, `Verify (Node)`, with nothing but *"Process completed with exit code 1."* `npm ci` (step 4) had
+succeeded, so it was neither the lockfile nor the install.
+
+**Root cause.** One argument. `package.json`'s test script was
+`node --test "test/**/*.test.mjs"`. Node's test runner gained glob expansion in **v21**; CI pins
+**Node 20**, deliberately and with its reasoning written into `ci.yml` — *"20, not the newest. The
+package's own floor is 18 (native `fetch`), and building on a runtime far ahead of what
+integrators run is how a newer API slips into a package that claims to support an older one."*
+On Node 20 the runner has no glob support, and no shell expands the pattern either because it is
+quoted inside the script, so it arrives verbatim and is looked up as a literal path:
+`Could not find 'test/**/*.test.mjs'`, exit 1. **Not one test executed.**
+
+**Why it passed locally.** The development machine runs Node 24, where the runner expands the
+pattern itself and the same command reports 108 passing tests. The two environments disagreed
+about what that one string means, and the CI pin — a correct decision, made for a good reason — is
+what put them on opposite sides of the v21 boundary.
+
+**Why it survived M22.** It did not survive it so much as never meet it. The `sdks` job was
+introduced in M22.1 and the whole M22 series was pushed as a single batch, so the first CI run
+ever to execute this job is the one that failed. The last green run (#22) predates M22 entirely.
+This was never a regression introduced by the final commits; it was a defect present from the
+moment the job existed, and the push is simply when CI first got to run it.
+
+**The fix, and why it is a script.** Both obvious spellings fail somewhere, in opposite
+directions — measured on both runtimes rather than reasoned about:
+
+| Invocation | Node 20 | Node 24 |
+|---|---|---|
+| `node --test test` / `test/` | 108 pass | **exit 1** — a directory argument is resolved as a module, `MODULE_NOT_FOUND` |
+| `node --test "test/*.test.mjs"` / `"test/**/*.test.mjs"` | **exit 1** — literal path | 108 pass |
+| `node --test <explicit files>` | 108 pass | 108 pass |
+
+An explicit file list is the only form every supported version accepts, so `scripts/run-tests.mjs`
+enumerates `test/*.test.mjs` and passes the files through. Enumerated rather than hardcoded into
+`package.json`, because a hardcoded list is a suite that silently stops covering a file the day
+someone adds one — the failure mode §10's testing rules exist to forbid. For the same reason
+**finding no files is a failure, not an empty green run**, and that guard was proven in both
+directions on both runtimes: empty directory → exit 1, directory holding only a non-test file →
+exit 1, one real test file → exit 0, one failing test file → exit 1.
+
+**Nothing was relaxed.** No check was disabled, no test weakened, no version pin moved. The same
+108 tests run, and they now run on Node 20 as well as Node 24 — where previously they ran on
+neither, because CI never reached them.
+
+**What it cost to find.** The job log is not readable without authentication, and the only
+machine-readable artefact GitHub exposes for a failed step is the annotation *"Process completed
+with exit code 1."* The root cause came from downloading Node 20 and running the CI command
+against the working tree, which reproduced the failure exactly on the first attempt. **The general
+lesson is the narrower one:** `ci.yml` pins Node 20 for a reason that is about the *package*, but
+nothing local runs on Node 20, so the pin silently became a second, untested environment. That is
+the same shape as §14's Python-floor item — a declared support floor that no execution covers.
 
 #### M22.7 - cross-language completion ✅ (2026-07-31)
 
