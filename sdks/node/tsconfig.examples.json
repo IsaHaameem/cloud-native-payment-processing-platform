@@ -1,0 +1,25 @@
+{
+  "// why": [
+    "The examples are type-checked as an integrator's code would be: they import from",
+    "'paymentflow', not from '../src', and they resolve to the *built declarations* rather than",
+    "to the sources. That is what makes them a real check on the published API — a type that is",
+    "correct in src/ and missing from dist/index.d.ts would pass a source-relative check and",
+    "fail for everyone who installed the package.",
+    "",
+    "`npm run typecheck:examples` therefore requires `npm run build` to have run. `npm run",
+    "verify` orders them accordingly.",
+    "",
+    "noUnusedLocals is off here and only here: an example that names a variable to show its",
+    "type is doing its job, and failing the build for it would make the examples less useful."
+  ],
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "paths": {
+      "paymentflow": ["./dist/esm/index.d.ts"]
+    },
+    "noUnusedLocals": false
+  },
+  "include": ["examples/**/*.ts"]
+}

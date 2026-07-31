@@ -52,7 +52,7 @@ monorepo — a contributor with no Node and no Python can still run `./gradlew b
 the constraint D136 established and this milestone keeps.
 
 ```bash
-cd sdks/node   && npm ci && npm run verify     # type-check, dual ESM/CJS build, tests
+cd sdks/node   && npm ci && npm run verify     # type-check, dual build, tests, examples, README snippets
 cd sdks/python && pip install -e ".[dev]" && mypy && pytest
 ```
 
@@ -63,18 +63,20 @@ CI runs both in jobs of their own (`.github/workflows/ci.yml`).
 **M22.1 — the foundation.** The generator, the pipeline, the freshness gate, both package
 skeletons, and the cross-language parity harness.
 
-**M22.2 / M22.3 — the Node client.** Configuration, native-`fetch` transport, authentication,
-automatic idempotency keys reused across retries, the retry engine with full-jitter backoff
-and `Retry-After` handling, timeouts, request-id and correlation-id propagation, the typed
-error hierarchy mapped from `ApiError.type`, transparent pagination in both of the platform's
-page shapes, and all eleven resource namespaces covering every one of the 31 published
-operations. See [`node/README.md`](node/README.md).
+**M22.2 / M22.3 / M22.4 — the Node SDK, finished.** Configuration, native-`fetch` transport,
+authentication, automatic idempotency keys reused across retries, the retry engine with
+full-jitter backoff and `Retry-After` handling, timeouts, request-id and correlation-id
+propagation, the typed error hierarchy mapped from `ApiError.type`, transparent pagination in
+both of the platform's page shapes, all eleven resource namespaces covering every one of the 31
+published operations, and `webhooks.constructEvent` verified against M18.4's shared signature
+vectors. Packaged, documented and exemplified — the README's snippets and the six examples are
+compiled against the built declarations on every run. See [`node/README.md`](node/README.md).
 
-**Python is untouched by M22.2 and M22.3**, deliberately: the approved sequence is that Node
-is finished before Python begins. `sdks/python` is still the M22.1 skeleton, and its public
+**Python is untouched by M22.2, M22.3 and M22.4**, deliberately: the approved sequence is that
+Node is finished before Python begins, and it now is. `sdks/python` is still the M22.1 skeleton, and its public
 surface is still its identity — `VERSION`, `API_VERSION`, `DEFAULT_BASE_URL`, `USER_AGENT`.
 
-Webhook signature verification (`webhooks.constructEvent`) is M22.4. Neither package is published:
+The Python client is M22.5. Neither package is published:
 `sdks/node/package.json` is marked `private` and `sdks/python/pyproject.toml` carries
 `Private :: Do Not Upload`. Publishing to a public registry is irreversible and effectively
 claims a public name, so it needs explicit approval and does not happen by accident.
