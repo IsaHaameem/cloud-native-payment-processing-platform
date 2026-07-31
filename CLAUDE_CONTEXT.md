@@ -24,13 +24,13 @@
 | **Project** | PaymentFlow — Distributed Payment Orchestration Platform |
 | **Purpose** | A payment processor's orchestration layer — payment lifecycle FSM, double-entry ledger, and asynchronous state propagation — built across independently deployable microservices. A portfolio/engineering project, not a production payment system. |
 | **Repository version** | V2 in progress (V1 complete and frozen) |
-| **Development phase** | Phase B complete — *Product surface*; Phase C in progress (see §3) |
-| **Current milestone** | **M22 in progress** — Node & Python SDKs. M22.0–M22.4 complete (**the Node SDK is finished**); M22.5 next |
+| **Development phase** | Phase B complete — *Product surface*; Phase C in progress: M22 done, M23 next (see §3) |
+| **Current milestone** | **M22 complete** — Node & Python SDKs, both feature-complete and neither published. Next: **M23** — developer portal, part 1 |
 | **Branch** | `main` |
-| **Latest commit** | *docs(m22): synchronize PROJECT_CONTEXT_2.md and CLAUDE_CONTEXT.md through M22.4* |
+| **Latest commit** | *docs(m22): synchronize PROJECT_CONTEXT_2.md and CLAUDE_CONTEXT.md through M22.7* |
 | **Repository health** | Healthy |
 | **Build status** | `./gradlew build --max-workers=2` — **BUILD SUCCESSFUL** |
-| **Test status** | **993 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18), plus 108 Node and 32 Python |
+| **Test status** | **1002 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18), plus 108 Node and 193 Python |
 | **Working tree** | Clean |
 | **Public API revision** | `2026-08-01` current; `2026-07-27` superseded (sunset 2027-08-01) |
 
@@ -117,7 +117,9 @@ end.
 
 ### In progress
 
-**M22 — Node & Python SDKs.** See §17 for full detail. The first milestone to consume
+**M23 — developer portal, part 1.** Not started. M22 finished 2026-07-31.
+
+**M22 — Node & Python SDKs. ✅ Complete.** See §17. The first milestone to consume
 `docs/openapi.yaml` as an input rather than produce it.
 
 | Sub-milestone | Scope | Status |
@@ -127,7 +129,9 @@ end.
 | M22.2 | The Node SDK core — config, transport, idempotency, retries, errors, pagination | ✅ |
 | M22.3 | The Node resources — eleven namespaces over all 31 published operations | ✅ |
 | M22.4 | Node completion — webhooks, packaging, documentation, examples | ✅ |
-| M22.5+ | The Python client, then packaging verification and the dry-run release pipelines | ⬜ next |
+| M22.5 | The Python SDK core — the same client, in Python | ✅ |
+| M22.6 | The Python resources — eleven namespaces, `snake_case`, iterable pages | ✅ |
+| M22.7 | Cross-language parity, packaging verification, dry-run release | ✅ |
 
 ### Remaining roadmap
 
@@ -146,9 +150,10 @@ end.
 
 Every service is bootable and tested; the public API is complete, documented, versioned and
 machine-readable down to its transport headers; the SDK generation pipeline exists and is gated;
-and **the Node SDK is finished** — every published operation is callable, with idempotency,
-retries, pagination, typed errors, webhook verification, packaging checks and documentation whose
-snippets compile. What M22 still owes is the same client in Python.
+and **both SDKs are finished** — every published operation is callable from either language,
+with idempotency, retries, pagination, typed errors, webhook verification, packaging checks and
+documentation whose snippets compile. Neither is published. The one thing M22 planned and did not
+deliver is the async Python client (D181, §16).
 
 ---
 
@@ -443,8 +448,17 @@ installed the package.
 
 ### `sdks/python` — the Python SDK *(PyPI package, not published)*
 
-Still the M22.1 skeleton: generated models, `py.typed`, and the identity constants. The client
-is M22.5+, because the approved sequence finishes Node first.
+The same client as `sdks/node`, in Python (M22.5–M22.6). `_client.py`, `_transport.py`,
+`_config.py`, `_errors.py`, `_pagination.py`, `_webhooks.py` and `resources/` mirror the Node
+files one for one, and `SdkParityTest` fails the build if they stop mirroring.
+
+`httpx` is the only runtime dependency; the client is a context manager that closes the pool it
+created and never one it was given. Methods take `snake_case` keyword arguments and write the
+contract's field names out explicitly (D179), checked in both directions against the published
+models. Pages are iterable directly, so `for payment in client.payments.list(...)` paginates.
+
+Sync only — the async variant §7.2 lists is deferred (D181, §16). 3.9+, `py.typed`, `mypy
+--strict` over the package, its tests and its examples.
 
 ### `load-tests` — Gatling
 
@@ -1006,14 +1020,15 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 | 13 | **`failed_count` exists only on hourly buckets**, not the running totals, so lifetime success rate cannot be computed. | Low | Unowned | Low |
 | 14 | **Not every seeded test card is driven through a real authorize call.** 17 seeded, 9 metadata-checked, 4 exercised end-to-end. | Low — a bad seed row would go unnoticed | Unowned | Low |
 | 15 | **Several tests read repository files that are not in the Docker build context** — `../docs/` (`ErrorCatalogueDocumentationConsistencyTest`, M21.7's six contract tests, and `SdkCodegenTest`) and `../Dockerfile`/`../.dockerignore` (`DockerBuildContextConsistencyTest`). Latent only: image builds run `-x test`, so nothing executes them there. | Very low | Unowned | Low |
-| 16 | **`README.md`'s "At a glance" is stale**: claims 8 services, 230+ tests, 96 decisions. Actual: **9 services, 993 tests, 172 decisions**. | Low — reader-facing only | **M30** (README rewrite) | Low |
+| 16 | **`README.md`'s "At a glance" is stale**: claims 8 services, 230+ tests, 96 decisions. Actual: **9 services, 1002 tests, 181 decisions**. | Low — reader-facing only | **M30** (README rewrite) | Low |
 | 17 | **The Python SDK's 3.9 floor is verified by grammar, not by a 3.9 interpreter.** Current mypy refuses `python_version = "3.9"`, so `tests/test_python_floor.py` parses every shipped module with `ast.parse(feature_version=(3, 9))` and forbids PEP 585/604 outside annotations. That covers syntax and the realistic runtime-API mistake; it does not cover a stdlib behaviour that differs on 3.9. | Low — a genuine 3.9 regression could still ship | M22.3 (add a 3.9 CI leg once the suite is worth running twice) | Medium |
+| 20 | **The Python SDK has no async client.** §7.2's plan is "sync client first with an async variant"; M22.5 delivered the first half. `async` colours every function it touches, so the variant needs its own transport, retry loop and copy of all eleven namespaces. Named in the package's README so no integrator discovers it by looking for it. | Low — the sync client is complete and most Python integrators are synchronous | Unowned; a natural M26 companion | Low |
 | 19 | **`CreatePaymentRequest.amountMinor` is required in practice and optional in the document.** The Java field is a primitive `long` with `@Positive`, so a body omitting it is rejected with a 400 every time — but `required` lists only `currency`. The SDK's hand-written type states the truth (D170); the published document still understates it, so a caller generating from the spec can write the one request the API always refuses. Not fixed in M22 because adding to a `required` list is classified **breaking**, and the milestone was additive-only. | Medium — the same class as M21.7's `Idempotency-Key` defect | Unowned (needs a dated revision or a reviewed acceptance entry, plus a sweep for the same pattern) | **High** |
 | 18 | **Neither SDK runs a style linter.** TypeScript's `strict` family and `mypy --strict` cover correctness; formatting and idiom conventions are unenforced, so the first contributor to either package has nothing to conform to. | Low now, Medium once the packages have real code | M22.2 | Low |
 
 ---
 
-## 17. Current Milestone — M22 (in progress)
+## 17. Last Milestone — M22 (complete)
 
 **Objective.** Two production-quality SDKs — TypeScript/Node and Python — that encapsulate
 authentication, automatic idempotency, safe retries, pagination, typed errors and webhook
@@ -1036,8 +1051,9 @@ contract source.
 | M22.2 | The Node SDK core: the client, native-`fetch` transport, auth, automatic idempotency keys, the retry engine, timeouts, trace-id propagation, the typed error hierarchy | ✅ |
 | M22.3 | The Node resources: eleven namespaces covering **all 31** published operations, with transparent pagination in both page shapes | ✅ |
 | M22.4 | Node completion: `webhooks.constructEvent` against M18's shared vectors, packaging verification, the README and six examples — all compiled | ✅ |
-| M22.5 | The Python client — the same design, in Python | ⬜ next |
-| M22.6+ | Python packaging verification, the cross-language equivalence scenario, dry-run release pipelines | ⬜ |
+| M22.5 | The Python SDK core: the same client, in Python, with the same constants and the same guarantees | ✅ |
+| M22.6 | The Python resources: eleven namespaces, `snake_case`, iterable pages, the field mapping checked both ways | ✅ |
+| M22.7 | Cross-language parity as a Java test; wheel and sdist verification; dry-run only | ✅ |
 
 ### What exists today
 
@@ -1053,12 +1069,25 @@ honours `Retry-After`, times out per attempt, and raises one of seven error clas
 `ApiError.type`. Lists return a page that is also an async iterable, so the ordinary `for await`
 is already the paginating one. 54 tests, all against the built `dist/`.
 
-**Python is deliberately untouched** by M22.2 and M22.3 — the approved sequence finishes Node
-first. Its public surface is still its identity: `VERSION`, `API_VERSION`, `DEFAULT_BASE_URL`,
-`USER_AGENT`.
+**The Python SDK is the same client** (M22.5–M22.6): same options, same defaults, same retry
+rules, same backoff constants, same tolerance window, same error classification, same page
+shapes. 193 tests, `mypy --strict` over the package, its tests and its examples.
+
+**Three names differ**, each forced by Python and each asserted by `SdkParityTest`:
+`PermissionDeniedError` (`PermissionError` is a builtin, and shadowing it would silently stop a
+module catching filesystem errors — D178), `delete()` (`del` is a keyword), and seconds rather
+than milliseconds. `from_` is a fourth, inside one method signature.
+
+**Parity is a Java test** in `sdks/shared` (D180), because that is the only place a comparison
+can run without making Node or Python a prerequisite of `./gradlew build` (D136). It compares
+operation coverage, namespace grouping, error hierarchies, published models, retry constants,
+README topics, and whether either package has quietly lost its do-not-publish marker. Behavioural
+parity is separate and older: both suites assert against the same golden fixtures, and both
+webhook suites against the platform's own five signature vectors.
 
 Neither package is published: `package.json` is `private`, `pyproject.toml` carries
-`Private :: Do Not Upload`.
+`Private :: Do Not Upload`. Both are *packaging-verified* — `npm pack` and a real wheel plus
+sdist, the wheel installed into a clean interpreter and imported.
 
 ### The three rules the SDK does not take from §7.1
 
@@ -1088,21 +1117,28 @@ window (D176), so a `WebhookTimestampError` only ever describes a delivery that 
 from PaymentFlow — which is what makes it actionable as "a replay, or a clock" rather than
 ambiguous with a forgery. Verification takes no client and no API key (D174).
 
-### What M22.5 needs from here
+### What M22 did not deliver
 
-Nothing further from the platform, and nothing further from Node. The Python package already
-has the generated models, the shared fixtures and the vector file; M22.5 is the same design
-transcribed, with §7.1's table and D166–D177 as the specification it implements.
+One thing, deliberately and on the record: **the async Python client** §7.2 lists
+(D181, §16 item 20). `async`/`await` colours every function it touches, so it needs a second
+transport, a second retry loop and a second copy of all eleven namespaces. Delivering it inside
+M22.5 would have produced two clients of which one was well tested. It is named in
+`sdks/python/README.md`, so no integrator discovers it by looking for it.
+
+### What M23 needs from here
+
+Nothing from the SDKs. M23 is the developer portal, and the contract it consumes is the same
+`docs/openapi.yaml` these two are generated from.
 
 ## 18. Repository Health
 
 | Signal | Status | Detail |
 |---|---|---|
 | **Build** | ✅ | `./gradlew build --max-workers=2` — BUILD SUCCESSFUL in 19m 27s |
-| **Tests** | ✅ | **993 / 993**, 0 failures, 0 errors, 0 skipped, across 13 modules |
+| **Tests** | ✅ | **1002 / 1002**, 0 failures, 0 errors, 0 skipped, across 13 modules |
 | **Working tree** | ✅ | Clean |
 | **OpenAPI baseline** | ✅ | `verifyOpenApiBaseline` — in sync |
-| **OpenAPI compatibility** | ✅ | 0 breaking, 0 accepted, **186 additive** — M22.2's `X-Request-Id`, on every response of every operation |
+| **OpenAPI compatibility** | ✅ | 0 breaking, 0 accepted, **0 additive** — M22.5–M22.7 touched no platform contract at all |
 | **SDK codegen freshness** | ✅ | `verifySdkSources` — the committed Node, Python and fixture trees match what `docs/openapi.yaml` generates; proven to fail on an edited, a deleted and an orphaned file |
 | **Live-response contract** | ✅ | 41 real calls across six services validated against `docs/openapi.yaml` |
 | **CI** | ✅ | Four jobs; all nine images; cache disabled; the test-execution proof step verified by running the shipped script in both directions, including the recursive-glob fix that covers the first nested module |
@@ -1123,7 +1159,7 @@ derivation CI's proof step performs, so the two cannot disagree.
 | sandbox-service | 107 | audit-service | 42 |
 | gateway-service | 98 | common-dto | 35 |
 | | | merchant-service | 30 |
-| | | `sdks/shared` | 22 |
+| | | `sdks/shared` | 31 |
 | | | identity-service | 12 |
 
 The SDK packages' own suites are **not** in that total and never will be — they run under
@@ -1134,7 +1170,8 @@ D164). They are counted separately:
 | Package | Suite | Tests |
 |---|---|---|
 | `sdks/node` | `npm run verify` — typecheck, dual build, `node --test` against `dist/`, then the examples | **108** pass, 0 fail, 0 skipped |
-| `sdks/python` | `python -m pytest` | 32 passed |
+| Cross-language | `SdkParityTest`, inside `./gradlew build` | 9 assertions, included in the 1002 above |
+| `sdks/python` | `mypy` (strict) + `python -m pytest` | 34 files clean, **193** passed |
 
 ### Warnings a new session must know
 

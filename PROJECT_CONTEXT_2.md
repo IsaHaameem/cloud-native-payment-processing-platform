@@ -147,8 +147,27 @@
 > undefined" and `process.env` produces the latter. That is the first line every integrator
 > writes, and the fix they would have reached for is a non-null assertion on a credential
 > (D173). **0 breaking, 0 accepted, 0 additive**: M22.4 touched no platform contract at all.
+> **M22.5-M22.7 complete** (2026-07-31), and with them **M22 as a whole**. The Python SDK is
+> the same client as the Node one: same options, same defaults, same retry rules, same backoff
+> constants, same tolerance window, same error classification, same page shapes - spelled the
+> way Python spells things. Every decision M22.2-M22.4 recorded is the specification it
+> implements rather than a choice made twice. Three names differ, each forced by the language
+> and each asserted: `PermissionDeniedError` because `PermissionError` is a builtin whose
+> shadowing would silently stop a module catching filesystem errors (D178), `delete()` because
+> `del` is a keyword, and seconds because that is what `httpx` uses. Methods take `snake_case`
+> keyword arguments with the contract's field names written out at each call site, checked in
+> both directions against the published models (D179). Parity is asserted by a **Java test in
+> `sdks/shared`** (D180) - the only place a comparison can run without making either toolchain a
+> prerequisite of `./gradlew build` - which compares operation coverage, namespace grouping,
+> error hierarchies, published models, retry constants, README topics and the do-not-publish
+> markers on every build. Packaging is verified and nothing is published: a real wheel and sdist
+> are built, inspected, and the wheel installed into a clean interpreter. The **async Python
+> client §7.2 lists is deferred** (D181) rather than delivered: `async` colours every function it
+> touches, so it means a second transport and a second copy of all eleven namespaces, and it is
+> recorded in §14 rather than silently omitted. **0 breaking, 0 accepted, 0 additive**: none of
+> M22.5-M22.7 touched a platform contract.
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D177**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D181**.
 
 ---
 
@@ -2827,6 +2846,10 @@ decisions are appended as milestones are implemented.
 | D175 | (M22.4) `constructEvent` returns a **hand-written `WebhookEvent`**, not the generated `EventResponse` | (a) Return `EventResponse`, which is the same event from `/v1/events`; (b) return `unknown` and let the caller assert; (c) generate a webhook-envelope model from the contract | They are genuinely different shapes. `WebhookEventBody` carries `apiVersion`; `EventResponse` does not, because the read API does not publish it. Returning `EventResponse` would under-declare the object actually handed back, so a caller reading `event.apiVersion` would be told it does not exist while it sits in the JSON. (b) gives up the entire point of a typed helper. (c) is the right instinct and has nowhere to read from: the delivered envelope is not in `docs/openapi.yaml` at all - it is what notification-service POSTs, described in the merchant guide - so the generator has no source for it. The hand-written type also lets `id`, `type` and `data` be declared **required**, which `constructEvent` then checks after verifying, so the promise is enforced rather than hoped for |
 | D176 | (M22.4) The signature is verified **before** the timestamp window | (a) Check the cheap timestamp first and skip the HMAC when it fails; (b) check both and report whichever failed first in header order | Ordering is observable. Checking the window first tells anyone who can reach the endpoint whether a body was correctly signed, by timing which error comes back - and it reports a garbage header as "too old", which sends an integrator to inspect a clock that is fine. (a) is the natural performance instinct and buys one HMAC over a few kilobytes, which is nothing next to the request that carried it. The order chosen means a `WebhookTimestampError` is only ever raised about a delivery that genuinely came from PaymentFlow, which is what makes it actionable: it is a replay or a skewed clock, never a forgery |
 | D177 | (M22.4) The README's TypeScript snippets and the `examples/` directory are **compiled against the built declarations** as part of `npm run verify` | (a) Review documentation by reading it; (b) compile the examples but not the README; (c) compile against `src/` rather than `dist/` | A snippet is the first code a new integrator writes, and when it does not compile they assume the error is theirs. Documentation drifting from the API it documents is the failure R10 exists to name, and a long README drifts silently - a renamed method, a type no longer exported, a parameter that changed shape. (a) is what everyone intends and nobody sustains. (b) leaves the most-read code unchecked. (c) is the subtle one and matters most: a type that is correct in the sources and missing from `dist/index.d.ts` passes a source-relative check and fails for every person who installs the package, so both the examples and the extracted snippets resolve `paymentflow` to the built `.d.ts`. It paid for itself immediately - D173 was found this way, not by review |
+| D178 | (M22.5) Python's permission failure is **`PermissionDeniedError`**, not `PermissionError` as §7.1's table and the Node SDK spell it | (a) Use `PermissionError`, matching the agreed hierarchy exactly; (b) prefix every error class, `PaymentFlowPermissionError` and so on; (c) do not export the errors at the package root, so the name never collides | `PermissionError` is a Python **builtin**. `from paymentflow import PermissionError` rebinds it inside the importing module, so an `except PermissionError` written anywhere below that import silently stops catching filesystem and OS errors and starts catching HTTP 403s instead - a bug with no symptom until the day a file is unreadable. (a) is exactly right on paper and wrong in the language; §7.1 says the hierarchy is identical and *only idiom varies*, and not shadowing a builtin is idiom. (b) is consistent and makes every `except` clause longer for one collision, and it would put the two SDKs further apart than the single rename does. (c) forces `paymentflow.errors.PermissionError`, which is safe and makes the commonest thing an integrator writes - catching one error class - a two-step import. The rename is one name, listed in both READMEs, and asserted by `SdkParityTest`, which fails the build if the two hierarchies stop matching modulo this one entry |
+| D179 | (M22.6) Python resource methods take **`snake_case` keyword arguments**, and each method writes the contract's field names out explicitly when it builds the body | (a) Accept a params mapping with the wire's spelling, exactly mirroring Node; (b) accept `camelCase` keyword arguments, so send and receive agree; (c) convert names at runtime with a `snake_to_camel` helper | Keyword arguments are how a Python API is spelled, and (a) - `create({"amountMinor": 1000})` - would be a TypeScript API transliterated, with no editor completion, no signature to read, and no type checking of the argument names. (b) is consistent and reads as broken Python. (c) is the tempting one and is what D171 warned against in the other direction: a runtime name-mangler is a rule with no visible instances, so nobody reviews it, and the first field it gets wrong is silently dropped by a platform that ignores unknown body fields. Writing the mapping out at each call site makes it local, reviewable and type-checked - and `tests/test_resources.py` asserts that the keys every method *actually sends* are exactly the fields the contract publishes for that model, in both directions, so a typo or a dropped parameter fails there rather than in production. The asymmetry this leaves (send `amount_minor`, read `payment["amountMinor"]`) is real and documented: response models are generated from the contract, and translating them would put a second source of truth under every field in the platform |
+| D180 | (M22.7) Cross-language parity is asserted by a **Java test in `sdks/shared`**, not by either SDK's own suite | (a) A Node test that shells out to Python, or the reverse; (b) a third artefact both SDKs assert against, listing every method; (c) review, since the two files sit next to each other | Each SDK's own suite can only say that it is self-consistent - Node's passes whether or not Python exists - so something has to compare them, and D136 keeps both toolchains out of `./gradlew build`. (a) would make the parity check the one test a contributor without both languages never runs, and CI's two SDK jobs run in parallel and cannot see each other, so it would run nowhere. (b) is a third hand-maintained copy of the API surface: the artefact that goes stale first, and the one nothing regenerates. A Java test reads both source trees as text, which is cruder than importing them and is the point - it costs nothing, runs everywhere `./gradlew build` runs, and the properties worth checking are all visible in the source: which operations each SDK covers, which namespace groups them, which error classes exist, which constants the retry loops use, and whether either package has quietly lost its do-not-publish marker. Behavioural parity is a separate question and already has an answer: both suites assert against the same golden fixtures, and both webhook suites against the same signature vectors |
+| D181 | (M22.7) The Python SDK ships **synchronous only**; the async variant §7.2 lists is deferred rather than delivered | (a) Ship both now; (b) ship async only, since it is the newer idiom; (c) generate the async client from the sync one at build time | §7.2 says "sync client first with an async variant", and this delivers the first half of that sentence. `async`/`await` colours every function it touches: an async client needs its own transport, its own retry loop, and its own copy of all eleven resource namespaces, because a coroutine cannot be called from a synchronous method or vice versa. (a) roughly doubles the Python package inside a sub-milestone that was already the larger half of M22, and the realistic result is two clients of which one is well tested. (b) would exclude every synchronous integrator, which is still most of them, and diverge from the sync-first sequence the roadmap approved. (c) is how some SDKs do it and is a code generator producing the *ergonomic* layer - precisely what the blueprint rejected for these SDKs, and doubly wrong for the layer that owns retries and idempotency. Recorded in §14 and named in the package's own README rather than left as a silent omission |
 | D151 | (M21.3) The merge is a **new `:openapi-tools` module** whose fragments are produced by each service's existing `OpenApiDocumentIntegrationTest`, not by `springdoc-openapi-gradle-plugin` and not by Gradle-script logic in `build-logic` | (a) `org.springdoc.openapi-gradle-plugin`, the tool built for exactly this job — it `bootRun`s the service and fetches `/v3/api-docs`; (b) merge logic written directly in the root build file or as a `build-logic` task class; (c) commit six per-service documents and skip the merge until M25 needs one | (a) is the obvious choice and fails on this platform's shape: it starts each service for real, so producing the document would require Postgres, Redis **and** Kafka reachable at build time for six services. The pre-M21.3 audit had just finished demonstrating what that dependency costs — 18 spurious test failures from Docker exhaustion, and a compose stack whose stale images answered `/v3/api-docs` with 401 (§14). Worse, it would be a *second* path to the published contract, one that asserts nothing: the fragment it produced could differ from the one the document tests approved and no test would notice. Reusing the integration test makes the fragment a by-product of an assertion — the path set, the tier exclusion and the shared contract are all checked before the bytes are written. (b) keeps the wiring together but makes the interesting part — deduplicating shared components, refusing to merge fragments that disagree — reachable only through a Gradle invocation, when it is ordinary logic with ordinary failure modes; §10's standing position is that logic like that gets unit tests, and `OpenApiMergerTest`'s hand-written *disagreeing* fragments could not be written at all against the real six, which agree. (c) defers the one artefact everything downstream consumes and leaves nothing to diff, which is precisely the "documentation drifts into fiction" failure §9.5 and R10 exist to prevent. The module also has to exist for M21.6, which diffs this same document for breaking changes |
 
 ---
@@ -2915,6 +2938,7 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **The Python SDK's 3.9 floor is verified by grammar, not by a 3.9 interpreter.** Current mypy refuses `python_version = "3.9"`, so `tests/test_python_floor.py` parses every shipped module with `ast.parse(feature_version=(3, 9))` and forbids PEP 585/604 spellings outside annotations. That covers syntax and the realistic runtime-API mistake; it does not cover a stdlib behaviour that differs on 3.9. Owned by M22 as "add a 3.9 CI leg once the suite is worth running twice".
 - **Neither SDK runs a style linter.** TypeScript's `strict` family and `mypy --strict` cover correctness; formatting and idiom conventions are unenforced, so the first outside contributor to either package has nothing to conform to. Low while the packages are small, and worth doing before they are not. Unowned.
 - **Two bullets in §5/M22's feature list and one line in §7.1 describe SDK behaviour that was not built, and should not have been.** "`RateLimit-Reset`-aware backoff rather than blind sleeping" and "Request/response hooks for logging" both predate M20 and M22.0, which settled what the transport headers actually mean and what the shared design contract actually specifies. `RateLimit-Reset` is the *daily* quota window and appears on successful responses, so backing off against it would idle a healthy client until midnight UTC (D167); hooks appear in §5's wish-list but not in §7.1's agreed cross-language contract, so building them would have added public API to one of four SDKs on no authority. Left in place deliberately rather than edited, following the same convention as §4.9/D137: §5 and §7 are the *plan*, and the decision log is where a plan is corrected by implementation. Flagged here so nobody reads either section in isolation and reintroduces them.
+- **The Python SDK has no async client.** §7.2's plan is "sync client first with an async variant", and M22.5 delivered the first half. `async`/`await` colours every function it touches, so the variant needs its own transport, its own retry loop and its own copy of all eleven resource namespaces — a coroutine cannot be called from a synchronous method or the reverse. Delivering it inside M22.5 would have produced two clients of which one was well tested. Named in `sdks/python/README.md` so no integrator discovers it by looking for it. Unowned; a natural M26 companion when the Java and Go SDKs are written.
 
 ---
 
@@ -7730,7 +7754,7 @@ carried the same blind spot silently since M21.4 and is covered by the same decl
 
 ---
 
-### M22 — Node & Python SDKs 🟡 (in progress, from 2026-07-30)
+### M22 — Node & Python SDKs ✅ (2026-07-30 – 2026-07-31)
 
 **Objective.** Two production-quality SDKs that encapsulate the correctness properties this
 platform spent five milestones building — idempotency keys that survive a retry, backoff that
@@ -7744,6 +7768,107 @@ across languages; generated code never part of the public SDK API; native `fetch
 `httpx` as Python's only runtime dependency; cross-language parity testing against shared
 golden fixtures; `docs/openapi.yaml` as the one contract source; and M22.0 kept strictly
 additive.
+
+#### M22.7 - cross-language completion ✅ (2026-07-31)
+
+**The problem this sub-milestone exists to solve.** Each SDK's own suite can only say that it
+is self-consistent. Node's tests pass whether or not Python exists; Python's likewise. Something
+has to compare them, and D136 keeps both toolchains out of `./gradlew build`, so a parity check
+written in either language would be the one check a contributor without that language never
+runs - and CI's two SDK jobs run in parallel and cannot see each other.
+
+`SdkParityTest`, a Java test in `sdks/shared`, reads both source trees as text (**D180**) and
+asserts nine things: that both SDKs cover exactly the 31 published operations and neither covers
+one the other does not; that every namespace groups the *same* operations in both languages
+(an operation that migrated between namespaces in one SDK only would satisfy a weaker check and
+still mean the same call is spelled differently in each); that the error hierarchies match modulo
+the one rename Python forces; that both publish the same response models and neither publishes a
+request model; that neither re-exports a generated runtime value; that the retry and webhook
+constants agree; that both webhook suites read the platform's own vector file; that both READMEs
+document the same namespaces and topics; and that neither package has quietly lost its
+do-not-publish marker.
+
+Behavioural parity is a separate question and already had an answer: both suites assert against
+the same golden fixtures, and both webhook suites against the same five signature vectors that
+`WebhookSigner`, `verify.js` and `verify.py` are checked against. Two SDKs that agreed only with
+each other could still both be wrong; agreeing with a third artefact neither produced is the
+stronger statement.
+
+**Packaging, verified and not published.** `tests/test_packaging.py` builds a real wheel and
+sdist through `python -m build`, inspects both, and **installs the wheel into a clean
+interpreter** to confirm it imports and constructs a client - a package that works from `src/`
+because pytest put it on the path can still be broken as an installed artefact. The wheel is
+asserted to carry `py.typed` (without it a consumer's type checker treats the whole SDK as
+`Any`) and the generated tree (the annotations refer to it), and to carry no tests, examples or
+caches. Node's equivalent asserts the same things about `npm pack`. Nothing publishes: both
+packages carry a marker their registry refuses.
+
+#### M22.6 - the Python resources ✅ (2026-07-31)
+
+Eleven namespaces over all 31 operations, spelled the way Python spells things: `snake_case`
+methods, keyword arguments, `client.balance_transactions` rather than `client.balanceTransactions`.
+
+**Keyword arguments, with the field mapping written out (D179).** A params mapping would have
+been an exact mirror of Node and a TypeScript API transliterated - no editor completion, no
+signature to read, no checking of argument names. A runtime `snake_to_camel` converter would
+have been invisible and unreviewed, and the first field it got wrong would be silently dropped
+by a platform that ignores unknown body fields. So each method writes the contract's names out
+explicitly, and `tests/test_resources.py` asserts that the keys every method *actually sends*
+are exactly the fields the contract publishes for that model, **in both directions** - a typo
+fails, and so does a parameter quietly dropped from a signature.
+
+Three names differ from Node, each forced by the language and each listed in `SdkParityTest`:
+`delete()` rather than `del()` (a keyword), `from_` rather than `from` (a keyword, sent as
+`from`), and `type` shadowing a builtin inside one method signature because the wire name is
+worth more than the shadow.
+
+Pagination is iterable directly, so `for payment in client.payments.list(...)` is already the
+paginating form - the same property the Node SDK gets from `for await`, reached by a different
+protocol. `page.data`, `page.has_more` and `page.next_page()` remain for manual control, and
+`len(page)` is this page's size rather than the result set's, because a cursor page cannot know
+the latter.
+
+#### M22.5 - the Python SDK core ✅ (2026-07-31)
+
+The same client as M22.2, in Python: a validated configuration, an `httpx` transport, automatic
+idempotency keys generated once per logical call and reused across every retry of it, the retry
+engine with full-jitter backoff, `Retry-After` handling with the same 60-second surrender bound,
+per-attempt timeouts, trace-id propagation, the seven-class error hierarchy mapped from
+`ApiError.type`, and webhook verification against the shared vectors.
+
+Every decision M22.2 and M22.4 recorded applies unchanged - D166 through D177 are the
+specification this implements, not a set of choices made twice. `SdkParityTest` asserts the
+constants agree.
+
+**One name had to change (D178).** Python has a builtin `PermissionError`, and
+`from paymentflow import PermissionError` rebinds it inside the importing module - so an
+`except PermissionError` written anywhere below that import silently stops catching filesystem
+errors and starts catching HTTP 403s. The class is `PermissionDeniedError`.
+
+**Two idiom differences, both deliberate.** `timeout` is seconds rather than milliseconds,
+because that is what `httpx` and the rest of the ecosystem use. And the client is a context
+manager that closes the connection pool it created - while an `http_client` passed in stays the
+caller's, since it is frequently shared with the rest of their application.
+
+**What is not built (D181).** §7.2 says "sync client first with an async variant". This is the
+first half. `async`/`await` colours every function it touches, so the variant means a second
+transport and a second copy of all eleven namespaces; delivering it inside this sub-milestone
+would have produced two clients of which one was well tested. Recorded in §14 and named in the
+package's own README rather than left as a silent omission.
+
+**Verification across all three toolchains.**
+
+| Check | Result |
+|---|---|
+| `./gradlew build --max-workers=2` | BUILD SUCCESSFUL - **1002 tests**, 0 failures, 0 errors, 0 skipped, across 13 modules (993 before; +9 is `SdkParityTest`) |
+| `verifySdkSources` | up to date, 11 files - the generated artefacts are unchanged |
+| `verifyOpenApiBaseline` | in sync |
+| `verifyOpenApiCompatibility` | **0 breaking, 0 accepted, 0 additive** - M22.5-M22.7 touched no platform contract at all |
+| `npm run typecheck` / `npm test` / `typecheck:examples` | no errors / **108 tests**, 0 failures / six examples compile |
+| `mypy` (strict, package + tests + examples) | no issues, **34 source files** |
+| `pytest` | **193 tests**, 0 failures, 0 skipped (32 before) |
+| Python wheel + sdist | built, inspected, and the wheel installed into a clean interpreter |
+| Cross-language parity | 9 assertions, all passing, inside `./gradlew build` |
 
 #### M22.4 - Node SDK completion ✅ (2026-07-31)
 
