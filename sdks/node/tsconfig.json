@@ -1,0 +1,38 @@
+{
+  "// why": [
+    "The base configuration both output builds extend, and the one `npm run typecheck` uses.",
+    "Every strictness flag below is on deliberately: this package is a payments client, its",
+    "types are its product, and a setting that lets an `any` through here becomes a wrong type",
+    "in an integrator's editor. `exactOptionalPropertyTypes` in particular is what keeps the",
+    "generated models honest — the contract distinguishes an absent field from an explicitly",
+    "null one (D143), and without this flag TypeScript would let the two be confused."
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "rootDir": "src",
+    "types": ["node"],
+
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "useUnknownInCatchVariables": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "removeComments": false,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts"]
+}

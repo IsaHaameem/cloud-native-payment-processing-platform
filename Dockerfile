@@ -72,6 +72,11 @@ COPY openapi-tools/build.gradle.kts openapi-tools/build.gradle.kts
 # DockerBuildContextConsistencyTest now fails when a module is included without a
 # matching line here, so there should not be a fourth discovery of this kind.
 COPY test-support/build.gradle.kts test-support/build.gradle.kts
+# sdks/shared (M22.1) — the SDK code generator. Same rule again, and the first module
+# whose Gradle path is nested (`:sdks:shared`), so the path here is `sdks/shared/` rather
+# than a single segment. Nothing in any image needs it: it generates TypeScript and Python
+# from docs/openapi.yaml and no service depends on it in any scope.
+COPY sdks/shared/build.gradle.kts sdks/shared/build.gradle.kts
 
 RUN chmod +x gradlew
 

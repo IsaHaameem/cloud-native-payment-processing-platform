@@ -1,0 +1,4 @@
+# PEP 561 marker: this package ships type information, and a consumer's type checker should
+# use the annotations here rather than treat every import as `Any`. Empty by specification —
+# its presence is the whole signal. `mypy --strict` over this package in CI is what keeps the
+# promise it makes honest.

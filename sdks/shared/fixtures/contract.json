@@ -1,0 +1,8 @@
+{
+  "apiVersion" : "2026-08-01",
+  "title" : "PaymentFlow API",
+  "baseUrl" : "https://api.paymentflow.dev",
+  "operationCount" : 31,
+  "modelCount" : 32,
+  "enumCount" : 11
+}

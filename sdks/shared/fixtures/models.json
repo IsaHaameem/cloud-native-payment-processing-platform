@@ -1,0 +1,316 @@
+{
+  "AnalyticsBucketResponse" : [
+    "authorizedCount",
+    "bucketStart",
+    "capturedCount",
+    "createdCount",
+    "currency",
+    "failedCount",
+    "object",
+    "refundedCount",
+    "totalCapturedAmountMinor",
+    "totalRefundedAmountMinor",
+    "voidedCount"
+  ],
+  "AnalyticsSummaryResponse" : [
+    "authorizedCount",
+    "buckets",
+    "capturedCount",
+    "createdCount",
+    "failedCount",
+    "from",
+    "object",
+    "refundedCount",
+    "successRate",
+    "to",
+    "totalCapturedAmountMinor",
+    "totalRefundedAmountMinor",
+    "voidedCount"
+  ],
+  "ApiError" : [
+    "code",
+    "correlationId",
+    "docUrl",
+    "errors",
+    "message",
+    "param",
+    "path",
+    "requestId",
+    "status",
+    "timestamp",
+    "type"
+  ],
+  "ApiFieldError" : [
+    "field",
+    "message"
+  ],
+  "BalanceResponse" : [
+    "balances",
+    "object"
+  ],
+  "BalanceTransactionResponse" : [
+    "accountType",
+    "amountMinor",
+    "createdAt",
+    "currency",
+    "direction",
+    "eventType",
+    "id",
+    "mode",
+    "object",
+    "paymentId"
+  ],
+  "CreatePaymentRequest" : [
+    "amountMinor",
+    "currency",
+    "description",
+    "metadata",
+    "paymentMethodToken"
+  ],
+  "CreateSimulationOverrideRequest" : [
+    "declineCode",
+    "durationSeconds",
+    "errorCode",
+    "latencyMs",
+    "remainingCount",
+    "scenario"
+  ],
+  "CreateWebhookEndpointRequest" : [
+    "description",
+    "enabledEvents",
+    "metadata",
+    "url"
+  ],
+  "CurrencyBalance" : [
+    "availableMinor",
+    "currency",
+    "pendingMinor"
+  ],
+  "CursorPageBalanceTransactionResponse" : [
+    "data",
+    "hasMore",
+    "nextCursor",
+    "object"
+  ],
+  "CursorPageEventResponse" : [
+    "data",
+    "hasMore",
+    "nextCursor",
+    "object"
+  ],
+  "CursorPagePaymentResponse" : [
+    "data",
+    "hasMore",
+    "nextCursor",
+    "object"
+  ],
+  "CursorPageRefundResponse" : [
+    "data",
+    "hasMore",
+    "nextCursor",
+    "object"
+  ],
+  "CursorPageRequestLogResponse" : [
+    "data",
+    "hasMore",
+    "nextCursor",
+    "object"
+  ],
+  "DecisionLogEntryResponse" : [
+    "createdAt",
+    "decisionKey",
+    "declineCode",
+    "deferredDelayMs",
+    "deferredOperation",
+    "errorCode",
+    "latencyMs",
+    "operation",
+    "outcome",
+    "overrideId",
+    "paymentId",
+    "source"
+  ],
+  "EventResponse" : [
+    "created",
+    "data",
+    "id",
+    "mode",
+    "object",
+    "type"
+  ],
+  "PageResponseDecisionLogEntryResponse" : [
+    "content",
+    "first",
+    "last",
+    "page",
+    "size",
+    "totalElements",
+    "totalPages"
+  ],
+  "PageResponseWebhookDeliveryResponse" : [
+    "content",
+    "first",
+    "last",
+    "page",
+    "size",
+    "totalElements",
+    "totalPages"
+  ],
+  "PaymentResponse" : [
+    "amountMinor",
+    "capturedAmountMinor",
+    "createdAt",
+    "currency",
+    "description",
+    "failureReason",
+    "id",
+    "merchantId",
+    "metadata",
+    "mode",
+    "object",
+    "paymentMethodToken",
+    "refundedAmountMinor",
+    "refunds",
+    "status",
+    "updatedAt"
+  ],
+  "RefundRequest" : [
+    "amountMinor",
+    "metadata",
+    "reason"
+  ],
+  "RefundResponse" : [
+    "amountMinor",
+    "createdAt",
+    "currency",
+    "failureReason",
+    "id",
+    "merchantId",
+    "metadata",
+    "mode",
+    "object",
+    "paymentId",
+    "reason",
+    "status",
+    "updatedAt"
+  ],
+  "RequestLogResponse" : [
+    "clientIp",
+    "correlationId",
+    "durationMs",
+    "errorCode",
+    "id",
+    "keyId",
+    "method",
+    "mode",
+    "object",
+    "occurredAt",
+    "path",
+    "queryString",
+    "requestBody",
+    "requestHeaders",
+    "requestId",
+    "responseBody",
+    "statusCode",
+    "userAgent"
+  ],
+  "SimulationOverrideResponse" : [
+    "declineCode",
+    "enactedFrom",
+    "errorCode",
+    "expiresAt",
+    "id",
+    "latencyMs",
+    "remainingCount",
+    "scenario"
+  ],
+  "TestCardResponse" : [
+    "brand",
+    "captureBehaviour",
+    "declineCode",
+    "deferredDelayMs",
+    "description",
+    "errorCode",
+    "latencyMs",
+    "outcome",
+    "refundBehaviour",
+    "token"
+  ],
+  "UpdateWebhookEndpointRequest" : [
+    "description",
+    "enabled",
+    "enabledEvents",
+    "metadata"
+  ],
+  "UsageBucketResponse" : [
+    "clientErrors",
+    "day",
+    "keyId",
+    "maxDurationMs",
+    "meanDurationMs",
+    "p50DurationMs",
+    "p95DurationMs",
+    "p99DurationMs",
+    "requests",
+    "route",
+    "serverErrors"
+  ],
+  "UsageSummaryResponse" : [
+    "buckets",
+    "from",
+    "to",
+    "totalClientErrors",
+    "totalRequests",
+    "totalServerErrors"
+  ],
+  "WebhookDeliveryAttemptResponse" : [
+    "attemptNumber",
+    "attemptedAt",
+    "durationMs",
+    "error",
+    "id",
+    "outcome",
+    "requestBody",
+    "requestHeaders",
+    "requestUrl",
+    "responseBody",
+    "responseHeaders",
+    "responseStatus"
+  ],
+  "WebhookDeliveryResponse" : [
+    "attemptCount",
+    "attempts",
+    "createdAt",
+    "endpointId",
+    "eventId",
+    "eventType",
+    "id",
+    "lastAttemptedAt",
+    "nextAttemptAt",
+    "object",
+    "replayedFromDeliveryId",
+    "status",
+    "url"
+  ],
+  "WebhookEndpointCreatedResponse" : [
+    "endpoint",
+    "signingSecret"
+  ],
+  "WebhookEndpointResponse" : [
+    "apiVersion",
+    "consecutiveFailureCount",
+    "createdAt",
+    "description",
+    "disabledAt",
+    "disabledReason",
+    "enabled",
+    "enabledEvents",
+    "id",
+    "metadata",
+    "migratedFromLegacy",
+    "object",
+    "signingSecretPrefix",
+    "updatedAt",
+    "url"
+  ]
+}

@@ -46,23 +46,36 @@ class DockerBuildContextConsistencyTest {
     /** {@code include("payment-service")}, with or without Gradle's optional leading colon. */
     private static final Pattern INCLUDE = Pattern.compile("^\\s*include\\(\"[:]?([^\"]+)\"\\)", Pattern.MULTILINE);
 
-    /** {@code COPY payment-service/build.gradle.kts payment-service/build.gradle.kts}. */
+    /**
+     * {@code COPY payment-service/build.gradle.kts payment-service/build.gradle.kts}, and
+     * since M22.1 {@code COPY sdks/shared/build.gradle.kts …} — the character class admits
+     * {@code /} because a Gradle path may be nested. Without it {@code :sdks:shared} could
+     * never match any COPY line and the first test below would fail on a Dockerfile that is
+     * in fact correct, which is the worse of the two ways to get this wrong: a guard nobody
+     * can satisfy gets deleted.
+     */
     private static final Pattern COPY_BUILD_FILE =
-            Pattern.compile("^COPY\\s+([\\w.-]+)/build\\.gradle\\.kts", Pattern.MULTILINE);
+            Pattern.compile("^COPY\\s+([\\w./-]+)/build\\.gradle\\.kts", Pattern.MULTILINE);
 
-    private static Set<String> matches(Pattern pattern, Path file) throws IOException {
+    /**
+     * Both files are read in terms of the module's <em>directory</em>. Gradle writes a nested
+     * project as {@code sdks:shared} and every path in the Dockerfile and {@code .dockerignore}
+     * spells the same thing {@code sdks/shared}, so the two sets are only comparable once one
+     * spelling is chosen — and the directory is the one both artefacts under test actually use.
+     */
+    private static Set<String> moduleDirectories(Pattern pattern, Path file) throws IOException {
         Matcher matcher = pattern.matcher(Files.readString(file, StandardCharsets.UTF_8));
         Set<String> found = new LinkedHashSet<>();
         while (matcher.find()) {
-            found.add(matcher.group(1));
+            found.add(matcher.group(1).replace(':', '/'));
         }
         return found;
     }
 
     @Test
     void everyIncludedModulesBuildFileIsCopiedIntoTheBuilderStage() throws IOException {
-        Set<String> included = matches(INCLUDE, SETTINGS);
-        Set<String> copied = matches(COPY_BUILD_FILE, DOCKERFILE);
+        Set<String> included = moduleDirectories(INCLUDE, SETTINGS);
+        Set<String> copied = moduleDirectories(COPY_BUILD_FILE, DOCKERFILE);
 
         // Guard the guard: a regex that silently matched nothing would make this test pass
         // for the wrong reason, which is precisely the failure mode M21.6 recorded.
@@ -78,8 +91,8 @@ class DockerBuildContextConsistencyTest {
 
     @Test
     void everyCopiedBuildFileBelongsToAModuleStillInTheBuild() throws IOException {
-        Set<String> included = matches(INCLUDE, SETTINGS);
-        Set<String> copied = matches(COPY_BUILD_FILE, DOCKERFILE);
+        Set<String> included = moduleDirectories(INCLUDE, SETTINGS);
+        Set<String> copied = moduleDirectories(COPY_BUILD_FILE, DOCKERFILE);
 
         assertThat(included)
                 .describedAs("the Dockerfile copies a build file for a module no longer in "
@@ -93,16 +106,40 @@ class DockerBuildContextConsistencyTest {
         List<String> ignore = Files.readAllLines(DOCKERIGNORE, StandardCharsets.UTF_8);
 
         // The other half of the same invariant: .dockerignore drops the source of modules no
-        // image needs (load-tests, openapi-tools, test-support), and each such exclusion has to
-        // re-admit the one file the Dockerfile then copies. Excluding without re-admitting fails
-        // the build exactly as forgetting the COPY line does.
-        for (String module : matches(INCLUDE, SETTINGS)) {
-            if (ignore.contains(module + "/")) {
+        // image needs (load-tests, openapi-tools, test-support, sdks), and each such exclusion
+        // has to re-admit the one file the Dockerfile then copies. Excluding without re-admitting
+        // fails the build exactly as forgetting the COPY line does.
+        for (String module : moduleDirectories(INCLUDE, SETTINGS)) {
+            if (excludedByItselfOrAnAncestor(ignore, module)) {
                 assertThat(ignore)
                         .describedAs("%s is excluded from the Docker build context but its build file is "
                                 + "not re-admitted, so the Dockerfile cannot copy it", module)
                         .contains("!" + module + "/build.gradle.kts");
             }
         }
+    }
+
+    /**
+     * Whether {@code .dockerignore} drops this module's directory, directly or by dropping
+     * something it lives under.
+     *
+     * <p>The ancestor half is what M22.1 needed: {@code sdks/} excludes {@code sdks/shared}
+     * without ever naming it. Checking only for the module's own line would have found no
+     * exclusion, asserted nothing, and let a missing {@code !sdks/shared/build.gradle.kts}
+     * through — a guard that passes by not looking, which is the exact failure mode the
+     * repository's testing rules single out.
+     */
+    private static boolean excludedByItselfOrAnAncestor(List<String> ignore, String module) {
+        for (String prefix = module; prefix != null; prefix = parentOf(prefix)) {
+            if (ignore.contains(prefix + "/")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String parentOf(String path) {
+        int lastSlash = path.lastIndexOf('/');
+        return lastSlash < 0 ? null : path.substring(0, lastSlash);
     }
 }

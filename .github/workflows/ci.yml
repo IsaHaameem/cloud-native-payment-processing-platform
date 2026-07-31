@@ -3,11 +3,12 @@
 # published API contract, then build (but not yet push) a Docker image for every
 # one of the 9 microservices.
 #
-# Three jobs:
+# Four jobs:
 #   1. build-and-test — ./gradlew clean build across all modules. Any test
 #      failure fails this job immediately, which skips the others entirely
 #      (`needs:` below) — no Docker minutes are spent building images for a
-#      broken commit.
+#      broken commit. Since M22.1 this also runs the SDK codegen freshness
+#      gate, because `verifySdkSources` is wired into `check`.
 #   2. openapi-contract (M21.6) — the two questions about docs/openapi.yaml that
 #      `check` deliberately does not ask, because asking them costs six Spring
 #      contexts and six Postgres containers: is the committed baseline still what
@@ -15,7 +16,12 @@
 #      being merged into. Its own job rather than two more steps on job 1 so that
 #      "the API contract is intact" is a distinct, requireable status check whose
 #      failure message is not buried at the bottom of a long build log.
-#   3. docker-build — one matrix leg per service, each leg building exactly
+#   3. sdks (M22.1) — one matrix leg per SDK, building and testing each with
+#      its own toolchain. Separate from job 1 because neither Node nor Python
+#      is a prerequisite for building this monorepo and neither should become
+#      one; separate from each other so a Python failure does not hide a Node
+#      one.
+#   4. docker-build — one matrix leg per service, each leg building exactly
 #      one image via the shared M9 Dockerfile (docker-compose.yml's own
 #      SERVICE_MODULE/SERVICE_PORT build args, unchanged). Tagged
 #      GHCR-shaped (ghcr.io/<owner>/<service>:latest and :<sha>) but NOT
@@ -136,11 +142,17 @@ jobs:
           # Every module with test sources must have produced results. Deriving the
           # expectation from the source tree rather than from a hardcoded list means a
           # module added later is covered without anyone remembering to add it here.
+          #
+          # Recursive since M22.1, which added the first module whose Gradle path is
+          # nested (`:sdks:shared`, at sdks/shared). A single-level glob still matched
+          # twelve modules and reported no problem, so the gap would have looked exactly
+          # like success — the derivation was there precisely so a new module could not be
+          # forgotten, and it had quietly stopped covering one.
           missing = [
               module
               for module in (
                   module_of(path, "/src/test/java")
-                  for path in glob.glob("*/src/test/java")
+                  for path in glob.glob("**/src/test/java", recursive=True)
               )
               if per_module.get(module, 0) == 0
           ]
@@ -294,6 +306,100 @@ jobs:
             cat openapi-tools/build/openapi/contract-diff.txt >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # M22.1 — the SDK toolchains.
+  #
+  # Neither Node nor Python is a prerequisite for building this monorepo: the
+  # code generator is Java, it runs in `check`, and a contributor with neither
+  # installed can still run `./gradlew build` and have the freshness gate tell
+  # them if a generated model is stale (D136's constraint, applied to codegen).
+  # What those toolchains are needed for is the other half — that the packages
+  # they produce actually type-check, build, and pass their own tests — and
+  # that belongs here rather than wired into Gradle.
+  #
+  # `needs: build-and-test` for the same reason the two jobs above have it:
+  # job 1 already ran `verifySdkSources`, so if the generated sources are stale
+  # this never starts and the failure is reported once, in the place that
+  # explains it.
+  #
+  # Its own job rather than steps on job 1 so that "the SDKs are healthy" is a
+  # distinct, requireable status check — and so that a broken SDK build cannot
+  # be mistaken for a broken platform build.
+  # ──────────────────────────────────────────────────────────────────────────
+  sdks:
+    name: SDKs (${{ matrix.sdk }})
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [node, python]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        if: matrix.sdk == 'node'
+        uses: actions/setup-node@v4
+        with:
+          # 20, not the newest. The package's own floor is 18 (native `fetch`),
+          # and building on a runtime far ahead of what integrators run is how a
+          # newer API slips into a package that claims to support an older one.
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: sdks/node/package-lock.json
+
+      # `npm ci`, never `npm install`: it installs exactly the committed
+      # lockfile and fails if package.json and the lockfile disagree, so a
+      # dependency cannot drift in between a developer's machine and this run.
+      - name: Install (Node)
+        if: matrix.sdk == 'node'
+        working-directory: sdks/node
+        run: npm ci
+
+      # Type-check, dual ESM/CJS build, then the suite — against `dist/`, which
+      # is what an integrator installs. See sdks/node/README.md.
+      - name: Verify (Node)
+        if: matrix.sdk == 'node'
+        working-directory: sdks/node
+        run: npm run verify
+
+      - name: Set up Python
+        if: matrix.sdk == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install (Python)
+        if: matrix.sdk == 'python'
+        working-directory: sdks/python
+        run: python -m pip install --upgrade pip && pip install -e ".[dev]"
+
+      # Strict, over the package and its tests. `py.typed` tells a consumer's
+      # type checker to trust these annotations; shipping annotations nobody
+      # checked would make that marker a false promise.
+      - name: Type-check (Python)
+        if: matrix.sdk == 'python'
+        working-directory: sdks/python
+        run: mypy
+
+      # The suite includes tests/test_python_floor.py, which parses every
+      # shipped module against the grammar of the oldest Python the package
+      # claims to support. mypy cannot check that floor — current mypy refuses
+      # to model anything below 3.10 — and it would be the wrong tool anyway:
+      # what breaks at a version floor is syntax and runtime API, not types.
+      - name: Test (Python)
+        if: matrix.sdk == 'python'
+        working-directory: sdks/python
+        run: pytest
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### SDK — ${{ matrix.sdk }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Published: no (both packages are marked private; publishing needs explicit approval)" >> "$GITHUB_STEP_SUMMARY"
 
   docker-build:
     name: Docker build (${{ matrix.service }})

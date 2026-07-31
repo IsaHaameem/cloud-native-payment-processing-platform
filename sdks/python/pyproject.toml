@@ -1,0 +1,66 @@
+# The PaymentFlow SDK for Python (M22.1).
+#
+# One runtime dependency, deliberately. §7.2 makes minimal dependencies a design rule rather
+# than a preference: a payments SDK that drags in a transitive tree is a supply-chain
+# liability for every integrator, and `httpx` alone buys the sync and async clients this SDK
+# needs to expose the same surface twice.
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "paymentflow"
+version = "0.1.0"
+description = "The official PaymentFlow API client for Python."
+readme = "README.md"
+# 3.9, not the newest. An SDK runs in its users' environments, not in ours — the same
+# reasoning §7.2 records for the Java SDK targeting 17 while this platform is on 25.
+requires-python = ">=3.9"
+license = { text = "UNLICENSED" }
+classifiers = [
+    "Private :: Do Not Upload",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Typing :: Typed",
+]
+dependencies = [
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "mypy>=1.13",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/paymentflow"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Import the package from `src/` rather than from an install, so the suite runs the same way
+# in CI and in a checkout. `importmode=importlib` keeps that from putting the test directory
+# itself on the path, which is how a test file can shadow a package module.
+pythonpath = ["src"]
+addopts = "--strict-markers --strict-config"
+
+[tool.mypy]
+# Strict, because the type hints are half of what this package delivers. `py.typed` tells a
+# consumer's type checker to trust these annotations; shipping annotations that were never
+# checked would make that marker a false promise.
+#
+# 3.10, one minor version above this package's floor, because current mypy refuses to model
+# anything older — `python_version = "3.9"` is rejected outright. Saying 3.10 here would leave
+# the floor unchecked if nothing else covered it, so something else does:
+# `tests/test_python_floor.py` parses every shipped module with the interpreter's own parser
+# pinned to 3.9's grammar, and asserts the package uses no runtime construct newer than that.
+# A type checker could not have proved this anyway — the risk at the floor is syntax and
+# runtime API, not types.
+python_version = "3.10"
+strict = true
+files = ["src/paymentflow", "tests"]
+# The generated modules are checked like everything else. They are the most important part to
+# check: a generator that emitted an annotation referring to a name it never defined would
+# produce a package that imports fine and fails the first time a consumer runs a type checker.
+warn_unused_configs = true

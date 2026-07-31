@@ -64,6 +64,21 @@ yarn-error.log*
 *.tfplan
 override.tf
 
+# ── SDKs (M22) ──────────────────────────────────────────────────────────
+# Build output only. `sdks/node/src/generated` and `sdks/python/src/paymentflow/_generated`
+# are deliberately NOT ignored: the generated models are committed so a reviewer sees what a
+# contract change does to the SDKs, and `:sdks:shared:verifySdkSources` fails the build when
+# what is committed no longer matches docs/openapi.yaml.
+sdks/node/dist/
+sdks/python/dist/
+sdks/python/build/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+
 # ── Load testing (M14) ──────────────────────────────────────────────────
 # Generated per-run by SeedMerchantsSimulation (throwaway JWTs against
 # whatever local stack happens to be running) — not source, never committed.

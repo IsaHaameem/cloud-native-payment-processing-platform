@@ -59,6 +59,17 @@ include("load-tests")
 // deployed and never on a service's runtime classpath.
 include("openapi-tools")
 
+// ── SDK code generation (M22.1) ─────────────────────────────────────────
+// The one generator that feeds both the Node and the Python SDK, reading
+// docs/openapi.yaml. Build tooling like openapi-tools, and Java rather than
+// TypeScript for the reason D136 gives: a contributor with neither Node nor
+// Python installed must still be able to build this monorepo, and the freshness
+// gate that stops a generated model drifting from the spec has to run in the
+// build that owns the spec. `sdks:shared` — the SDK tree's own directory, not a
+// flat top-level module, because sdks/node and sdks/python sit beside it and
+// only this one is a Gradle project.
+include("sdks:shared")
+
 // ── Shared test scaffold (M21.7) ────────────────────────────────────────
 // The base classes the six public-API services' contract tests extend. A module
 // of its own rather than a testFixtures source set on common-lib, because

@@ -1,0 +1,58 @@
+{
+  "ApiErrorType" : [
+    "authentication_error",
+    "permission_error",
+    "invalid_request_error",
+    "idempotency_error",
+    "rate_limit_error",
+    "api_error"
+  ],
+  "BalanceTransactionResponseDirection" : [
+    "DEBIT",
+    "CREDIT"
+  ],
+  "BalanceTransactionResponseMode" : [
+    "test",
+    "live"
+  ],
+  "CreateSimulationOverrideRequestScenario" : [
+    "FORCE_DECLINE",
+    "FORCE_ERROR",
+    "INJECT_LATENCY",
+    "FORCE_TIMEOUT",
+    "FORCE_RATE_LIMIT",
+    "DELAY_SETTLEMENT",
+    "DUPLICATE_WEBHOOKS",
+    "WEBHOOK_FAILURE"
+  ],
+  "EventResponseMode" : [
+    "test",
+    "live"
+  ],
+  "PaymentResponseMode" : [
+    "test",
+    "live"
+  ],
+  "RefundResponseMode" : [
+    "test",
+    "live"
+  ],
+  "RequestLogResponseMode" : [
+    "test",
+    "live"
+  ],
+  "WebhookDeliveryAttemptResponseOutcome" : [
+    "SUCCEEDED",
+    "FAILED_STATUS",
+    "FAILED_TRANSPORT",
+    "BLOCKED"
+  ],
+  "WebhookDeliveryResponseStatus" : [
+    "PENDING",
+    "DELIVERED",
+    "DEAD_LETTERED"
+  ],
+  "WebhookEndpointResponseDisabledReason" : [
+    "CONSECUTIVE_FAILURES"
+  ]
+}

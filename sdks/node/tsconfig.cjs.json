@@ -1,0 +1,15 @@
+{
+  "// why": [
+    "The CommonJS half of the dual build. `verbatimModuleSyntax` is off here and only here:",
+    "it forbids emitting `import`/`export` as anything other than what was written, which is",
+    "precisely what a CommonJS emit has to do. Keeping it on for the ESM build and the",
+    "type-check means the source is still written to one standard."
+  ],
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "node10",
+    "verbatimModuleSyntax": false,
+    "outDir": "dist/cjs"
+  }
+}

@@ -1,0 +1,303 @@
+{
+  "getPaymentAnalytics" : {
+    "method" : "GET",
+    "path" : "/v1/analytics/payments",
+    "tag" : "Analytics",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [
+      "from",
+      "to"
+    ]
+  },
+  "getBalance" : {
+    "method" : "GET",
+    "path" : "/v1/balance",
+    "tag" : "Balance",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "listBalanceTransactions" : {
+    "method" : "GET",
+    "path" : "/v1/balance_transactions",
+    "tag" : "Balance transactions",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [
+      "limit",
+      "starting_after",
+      "created_after",
+      "created_before"
+    ]
+  },
+  "listEvents" : {
+    "method" : "GET",
+    "path" : "/v1/events",
+    "tag" : "Events",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [
+      "limit",
+      "starting_after",
+      "type",
+      "created_after",
+      "created_before"
+    ]
+  },
+  "getEvent" : {
+    "method" : "GET",
+    "path" : "/v1/events/{id}",
+    "tag" : "Events",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "listPayments" : {
+    "method" : "GET",
+    "path" : "/v1/payments",
+    "tag" : "Payments",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [
+      "limit",
+      "starting_after",
+      "status",
+      "currency",
+      "amount_min",
+      "amount_max",
+      "created_after",
+      "created_before",
+      "expand",
+      "metadata"
+    ]
+  },
+  "createPayment" : {
+    "method" : "POST",
+    "path" : "/v1/payments",
+    "tag" : "Payments",
+    "successStatus" : "201",
+    "hasRequestBody" : true,
+    "queryParameters" : [ ]
+  },
+  "getPayment" : {
+    "method" : "GET",
+    "path" : "/v1/payments/{id}",
+    "tag" : "Payments",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [
+      "expand"
+    ]
+  },
+  "authorizePayment" : {
+    "method" : "POST",
+    "path" : "/v1/payments/{id}/authorize",
+    "tag" : "Payments",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "capturePayment" : {
+    "method" : "POST",
+    "path" : "/v1/payments/{id}/capture",
+    "tag" : "Payments",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "refundPayment" : {
+    "method" : "POST",
+    "path" : "/v1/payments/{id}/refund",
+    "tag" : "Payments",
+    "successStatus" : "200",
+    "hasRequestBody" : true,
+    "queryParameters" : [ ]
+  },
+  "voidPayment" : {
+    "method" : "POST",
+    "path" : "/v1/payments/{id}/void",
+    "tag" : "Payments",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "listRefunds" : {
+    "method" : "GET",
+    "path" : "/v1/refunds",
+    "tag" : "Refunds",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [
+      "limit",
+      "starting_after",
+      "payment",
+      "status",
+      "created_after",
+      "created_before",
+      "metadata"
+    ]
+  },
+  "getRefund" : {
+    "method" : "GET",
+    "path" : "/v1/refunds/{id}",
+    "tag" : "Refunds",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "listRequestLogs" : {
+    "method" : "GET",
+    "path" : "/v1/request_logs",
+    "tag" : "Request logs",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [
+      "limit",
+      "starting_after",
+      "created_after",
+      "created_before",
+      "status_code",
+      "method"
+    ]
+  },
+  "listTestCards" : {
+    "method" : "GET",
+    "path" : "/v1/test/cards",
+    "tag" : "Test cards",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "listSandboxDecisions" : {
+    "method" : "GET",
+    "path" : "/v1/test/decisions",
+    "tag" : "Decisions",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [
+      "page",
+      "size",
+      "sort"
+    ]
+  },
+  "listSandboxDecisionsForPayment" : {
+    "method" : "GET",
+    "path" : "/v1/test/decisions/payments/{paymentId}",
+    "tag" : "Decisions",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "createSimulationOverride" : {
+    "method" : "POST",
+    "path" : "/v1/test/simulations",
+    "tag" : "Simulations",
+    "successStatus" : "201",
+    "hasRequestBody" : true,
+    "queryParameters" : [ ]
+  },
+  "revokeActiveSimulationOverride" : {
+    "method" : "DELETE",
+    "path" : "/v1/test/simulations/active",
+    "tag" : "Simulations",
+    "successStatus" : "204",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "getActiveSimulationOverride" : {
+    "method" : "GET",
+    "path" : "/v1/test/simulations/active",
+    "tag" : "Simulations",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "getUsage" : {
+    "method" : "GET",
+    "path" : "/v1/usage",
+    "tag" : "Usage",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [
+      "from",
+      "to"
+    ]
+  },
+  "listWebhookDeliveries" : {
+    "method" : "GET",
+    "path" : "/v1/webhook_deliveries",
+    "tag" : "Webhook deliveries",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [
+      "page",
+      "size",
+      "sort"
+    ]
+  },
+  "getWebhookDelivery" : {
+    "method" : "GET",
+    "path" : "/v1/webhook_deliveries/{id}",
+    "tag" : "Webhook deliveries",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "replayWebhookDelivery" : {
+    "method" : "POST",
+    "path" : "/v1/webhook_deliveries/{id}/replay",
+    "tag" : "Webhook deliveries",
+    "successStatus" : "201",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "listWebhookEndpoints" : {
+    "method" : "GET",
+    "path" : "/v1/webhook_endpoints",
+    "tag" : "Webhook endpoints",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "createWebhookEndpoint" : {
+    "method" : "POST",
+    "path" : "/v1/webhook_endpoints",
+    "tag" : "Webhook endpoints",
+    "successStatus" : "201",
+    "hasRequestBody" : true,
+    "queryParameters" : [ ]
+  },
+  "deleteWebhookEndpoint" : {
+    "method" : "DELETE",
+    "path" : "/v1/webhook_endpoints/{id}",
+    "tag" : "Webhook endpoints",
+    "successStatus" : "204",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "getWebhookEndpoint" : {
+    "method" : "GET",
+    "path" : "/v1/webhook_endpoints/{id}",
+    "tag" : "Webhook endpoints",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  },
+  "updateWebhookEndpoint" : {
+    "method" : "PATCH",
+    "path" : "/v1/webhook_endpoints/{id}",
+    "tag" : "Webhook endpoints",
+    "successStatus" : "200",
+    "hasRequestBody" : true,
+    "queryParameters" : [ ]
+  },
+  "rotateWebhookEndpointSecret" : {
+    "method" : "POST",
+    "path" : "/v1/webhook_endpoints/{id}/rotate_secret",
+    "tag" : "Webhook endpoints",
+    "successStatus" : "200",
+    "hasRequestBody" : false,
+    "queryParameters" : [ ]
+  }
+}

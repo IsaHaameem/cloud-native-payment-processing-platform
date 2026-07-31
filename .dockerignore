@@ -27,4 +27,9 @@ openapi-tools/
 # its source; its build file still has to be here because settings.gradle.kts names it.
 test-support/
 !test-support/build.gradle.kts
+# M22.1: the whole SDK tree. sdks/node and sdks/python are not Gradle projects at all and
+# no image has ever needed them; sdks/shared is, so its build file comes back for the same
+# configuration-phase reason as the three above.
+sdks/
+!sdks/shared/build.gradle.kts
 README*.md

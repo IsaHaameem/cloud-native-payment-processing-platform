@@ -1,0 +1,12 @@
+{
+  "// why": [
+    "The ESM half of the dual build. Emitted first; scripts/finalize-dual-build.mjs drops the",
+    "`package.json` marker that tells Node which module system each output directory speaks."
+  ],
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "outDir": "dist/esm"
+  }
+}
