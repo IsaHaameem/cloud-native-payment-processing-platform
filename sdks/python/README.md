@@ -2,9 +2,9 @@
 
 The official client for the PaymentFlow payments API.
 
-> **M22.1.** This package currently exposes its own identity and nothing else — the client,
-> the resources, the retry loop and the webhook helpers are M22.2 onwards. It is not
-> published; see [Status](#status).
+> **M22.1.** Still the skeleton: this package exposes its own identity and nothing else.
+> M22.2 and M22.3 built the Node client, and the approved sequence finishes Node before
+> Python begins — the Python client is M22.4 onwards. Not published; see [Status](#status).
 
 ## Requirements
 

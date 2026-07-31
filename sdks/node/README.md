@@ -2,9 +2,9 @@
 
 The official client for the PaymentFlow payments API.
 
-> **M22.1.** This package currently exposes its own identity and nothing else — the client,
-> the resources, the retry loop and the webhook helpers are M22.2 onwards. It is not
-> published; see [Status](#status).
+> **M22.3.** The client, all eleven resource namespaces, the retry loop, automatic
+> idempotency, pagination and the typed error hierarchy are implemented. Webhook signature
+> verification is M22.4. Not published; see [Status](#status).
 
 ## Requirements
 
@@ -15,22 +15,139 @@ The official client for the PaymentFlow payments API.
   script that writes the `{"type": ...}` marker each output directory needs; a bundler would
   have been the largest dependency in the tree.
 
-## What is here today
+## Quickstart
 
 ```ts
-import { VERSION, API_VERSION, DEFAULT_BASE_URL, USER_AGENT } from 'paymentflow';
+import { PaymentFlow } from 'paymentflow';
+
+const client = new PaymentFlow({ apiKey: process.env.PAYMENTFLOW_API_KEY });
+
+const payment = await client.payments.create({ amountMinor: 1000, currency: 'USD' });
+await client.payments.authorize(payment.id);
+await client.payments.capture(payment.id);
+
+for await (const p of await client.payments.list({ status: 'captured' })) {
+  console.log(p.id, p.amountMinor);
+}
 ```
 
-| Export | Meaning |
-|---|---|
-| `VERSION` | this package's version, on its own semver track |
-| `API_VERSION` | the dated API revision this build was generated against |
-| `DEFAULT_BASE_URL` | the host the client will call unless told otherwise |
-| `USER_AGENT` | how this SDK identifies itself in the request log |
+## Configuration
 
-`API_VERSION` is not `VERSION`. The API is versioned by date and the SDK by semver, and they
-move for different reasons: a bug fix here is a patch release against an unchanged contract,
-and a new contract revision changes nothing about this package by itself.
+| Option | Default | Notes |
+|---|---|---|
+| `apiKey` | `PAYMENTFLOW_API_KEY` | Required. The key alone decides test vs live mode. |
+| `baseUrl` | `https://api.paymentflow.dev` | Override for a local stack. |
+| `apiVersion` | the revision this build was generated against | Sent as `PaymentFlow-Version`. |
+| `timeout` | 30 000 ms | Per HTTP attempt. |
+| `maxRetries` | 3 | Applies only to retryable outcomes. |
+| `fetch` | the global one | Injectable, for tests and proxies. |
+
+Anything that cannot work is rejected by the constructor rather than by the first call — an
+empty base URL, a negative timeout, an API key with a trailing newline.
+
+## Resources
+
+`payments` · `refunds` · `balance` · `balanceTransactions` · `events` · `analytics` ·
+`requestLogs` · `usage` · `webhookEndpoints` · `webhookDeliveries` · `testHelpers`
+
+Every method is exactly one published operation and exactly one HTTP request. There are no
+convenience methods that make two calls: a `createAndCapture` would be two obvious lines and a
+failure mode nobody can reason about, because the second call failing leaves an authorized
+payment the caller does not know they have.
+
+Methods return what the endpoint returns, unwrapped. `payments.refund()` resolves to the
+**payment**, because that is what `POST /v1/payments/{id}/refund` responds with.
+
+## Idempotency and retries
+
+Every mutation the contract requires an `Idempotency-Key` for gets one, generated **once per
+logical call** and reused across every retry of it. That is the single most important
+correctness property here: a key regenerated per attempt makes the platform treat a retry as a
+new request, and the customer is charged twice — under exactly the network conditions that
+cause retries.
+
+Which operations need a key is read from the generated operation descriptors, not from a list
+kept in hand-written code, so it cannot drift from the contract.
+
+Retries apply to 429 and 5xx and to network failures and timeouts, and **only** to requests
+that are safe to replay: `GET`, `DELETE`, or anything carrying an idempotency key. A `POST`
+the platform does not deduplicate — creating a webhook endpoint, say — is never retried,
+because a response that never arrived does not mean a request that never arrived.
+
+Backoff is exponential with full jitter. `Retry-After` overrides it, because that is the
+interval the platform will actually accept the request again. `RateLimit-Reset` does **not**:
+it describes the *daily* quota window and is present on successful responses too, so treating
+it as a delay would idle a healthy client until midnight UTC. When `Retry-After` is longer than
+a minute — an exhausted daily quota, which clears at 00:00 UTC — the SDK stops retrying and
+raises a `RateLimitError` carrying `retryAfterSeconds`, so the work can be scheduled rather
+than blocked on.
+
+## Pagination
+
+List methods return a page that is also an async iterable, so the ordinary thing is already
+the paginating thing:
+
+```ts
+for await (const refund of await client.refunds.list({ payment: 'pay_1' })) { /* … */ }
+```
+
+`.data` (or `.content`), `.hasMore` and `.nextPage()` are there for manual control. Breaking
+out of the loop stops making requests.
+
+Two page shapes exist because the API has two: cursor pages on every M19 list, and offset
+pages on `webhookDeliveries` and `testHelpers.listDecisions`, which D139 deliberately left on
+the older envelope. Both iterate identically.
+
+## Errors
+
+```ts
+import { RateLimitError, InvalidRequestError, PaymentFlowError } from 'paymentflow';
+
+try {
+  await client.payments.capture(id);
+} catch (error) {
+  if (error instanceof RateLimitError) scheduleRetry(error.retryAfterSeconds);
+  else if (error instanceof InvalidRequestError) reject(error.param, error.message);
+  else if (error instanceof PaymentFlowError) report(error.requestId);
+  else throw error;
+}
+```
+
+| Class | Raised for |
+|---|---|
+| `AuthenticationError` | the key is missing, malformed or unrecognised |
+| `PermissionError` | the key is valid and not allowed to do this |
+| `InvalidRequestError` | a validation failure, an unknown id, an impossible state change |
+| `IdempotencyError` | an `Idempotency-Key` conflict — may succeed later, unlike the above |
+| `RateLimitError` | the rate limit or the daily quota |
+| `ApiConnectionError` | no response at all: DNS, reset, or the timeout elapsing |
+| `ApiError` | the platform failed to handle a request it accepted |
+
+All extend `PaymentFlowError`, so catching that alone is a complete handler. The class is
+chosen from `ApiError.type` rather than from the status code, because the platform
+distinguishes a retryable 409 from a terminal one and the status does not. An unrecognised
+`type` falls back to the status instead of failing — new error types ship without a new API
+revision.
+
+Every error carries `code`, `message`, `param`, `fieldErrors`, `requestId`, `correlationId`,
+`docUrl`, `statusCode` and `attempts`.
+
+## Tracing a call
+
+Every response carries `X-Request-Id` and `X-Correlation-Id`, and list results expose them on
+`.meta` along with the answering API revision and the quota telemetry. `requestId` keys the
+matching row of `GET /v1/request_logs`.
+
+That was not true before M22.2: the gateway sent the request id downstream and never returned
+it, so a caller could learn it only from an error body. The additive fix is in this milestone.
+
+## What is deliberately absent
+
+- **No `mode` option.** The key decides test or live, and nothing else can. A switch that
+  appeared to move a client between modes would be a lie.
+- **No request/response hooks.** Not in the approved design, and not added speculatively.
+- **No response validation.** Unknown fields and unknown enum values must ride through
+  untouched, or the platform's safest kind of change becomes everyone's outage.
 
 ## Types
 

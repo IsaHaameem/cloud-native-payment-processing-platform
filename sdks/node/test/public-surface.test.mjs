@@ -24,10 +24,68 @@ test('the public surface is exactly what index.ts names', () => {
   // and in particular to make re-exporting the generated tree impossible to do by accident.
   assert.deepEqual(Object.keys(esm).sort(), [
     'API_VERSION',
+    'ApiConnectionError',
+    'ApiError',
+    'AuthenticationError',
     'DEFAULT_BASE_URL',
+    'IdempotencyError',
+    'InvalidRequestError',
+    'PaymentFlow',
+    'PaymentFlowConfigurationError',
+    'PaymentFlowError',
+    'PermissionError',
+    'RateLimitError',
     'USER_AGENT',
     'VERSION',
   ]);
+});
+
+test('the error hierarchy is exported as classes an integrator can branch on', () => {
+  // Every one of these has to be a real constructor reachable from the package root, because
+  // the way a caller distinguishes "fix your key" from "retry later" is `instanceof`. A
+  // type-only export would type-check in their editor and be `undefined` at runtime.
+  for (const name of [
+    'PaymentFlowError',
+    'AuthenticationError',
+    'PermissionError',
+    'InvalidRequestError',
+    'IdempotencyError',
+    'RateLimitError',
+    'ApiConnectionError',
+    'ApiError',
+  ]) {
+    assert.equal(typeof esm[name], 'function', `${name} is a class`);
+  }
+
+  // And all of them narrow from the base, so `catch (e) { if (e instanceof PaymentFlowError) }`
+  // is a complete handler rather than one that misses six cases.
+  for (const name of ['AuthenticationError', 'RateLimitError', 'ApiConnectionError', 'ApiError']) {
+    const error = new esm[name]('boom');
+    assert.ok(error instanceof esm.PaymentFlowError, `${name} extends PaymentFlowError`);
+    assert.equal(error.name, name, 'the class name survives into `error.name`');
+  }
+});
+
+test('every resource namespace named by the milestone exists on a client', () => {
+  const client = new esm.PaymentFlow({ apiKey: 'sk_test_surface' });
+
+  // The eleven the milestone specifies, by name. A namespace renamed or dropped is a breaking
+  // change to every integrator at once, and is not the sort of thing to notice in review.
+  for (const name of [
+    'payments',
+    'refunds',
+    'balance',
+    'balanceTransactions',
+    'events',
+    'analytics',
+    'requestLogs',
+    'usage',
+    'webhookEndpoints',
+    'webhookDeliveries',
+    'testHelpers',
+  ]) {
+    assert.equal(typeof client[name], 'object', `client.${name} exists`);
+  }
 });
 
 test('nothing generated leaks into the public surface', async () => {
@@ -95,4 +153,24 @@ test('type declarations are emitted for the published entry point', async () => 
   // installs cleanly and gives a TypeScript user nothing at all.
   assert.match(declaration, /API_VERSION/);
   assert.match(declaration, /USER_AGENT/);
+  assert.match(declaration, /export \{ PaymentFlow \}/);
+});
+
+test('the generated models reach users by a curated list, never by a wildcard', async () => {
+  const declaration = await readFile(join(packageRoot, 'dist/esm/index.d.ts'), 'utf8');
+
+  // The architecture's rule is that generated code is an internal implementation detail. Taken
+  // literally that would make the SDK unusable — a caller has to be able to name the object a
+  // method returns — so the resolution is that the *types* are re-exported one by one, from a
+  // list a person maintains, and the *values* are not re-exported at all. A wildcard would
+  // quietly hand the generator authority over this package's public API, so that a schema
+  // renamed inside a Java service becomes a breaking change nobody reviewed.
+  // Anchored to the start of a line: this file's own prose quotes the wildcard form as the
+  // thing it exists to avoid, and an unanchored pattern matched the explanation.
+  assert.doesNotMatch(declaration, /^export\s+\*\s+from\s+['"]\.\/generated/m);
+  assert.match(declaration, /PaymentResponse/, 'the response models are nameable');
+
+  // The request models are deliberately absent: what a caller passes is the hand-written
+  // parameter type, which states requirements the document understates (D170).
+  assert.doesNotMatch(declaration, /\bCreatePaymentRequest\b/);
 });

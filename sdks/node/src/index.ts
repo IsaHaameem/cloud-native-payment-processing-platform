@@ -1,51 +1,144 @@
 /**
  * The PaymentFlow SDK for Node.js and TypeScript.
  *
- * ## What this module is, as of M22.1
+ * ```ts
+ * import { PaymentFlow } from 'paymentflow';
  *
- * The SDK's identity: which package this is, which dated API revision it was generated
- * against, which host it talks to by default, and how it identifies itself on the wire. The
- * client, the resources, the retry loop and the webhook helpers are M22.2 and later.
+ * const client = new PaymentFlow({ apiKey: process.env.PAYMENTFLOW_API_KEY });
+ * const payment = await client.payments.create({ amountMinor: 1000, currency: 'USD' });
+ * for await (const p of await client.payments.list({ status: 'captured' })) {
+ *   console.log(p.id);
+ * }
+ * ```
  *
- * ## Why the generated code is not re-exported from here
+ * ## What this file is for
  *
- * `src/generated` is written by `:sdks:shared` from `docs/openapi.yaml` and is regenerated in
- * full every time the contract moves. Re-exporting it would make this package's public API a
- * function of a code generator's naming decisions — so a refactor of the generator, or a
- * schema renamed in a service's Java, would become a breaking change to an SDK that nobody
- * meant to break. What an integrator may rely on is decided here, deliberately, and named by
- * this file. `test/public-surface.test.mjs` asserts that rather than trusting it.
+ * This is the package's public API, decided here and nowhere else. `src/generated` is written
+ * by `:sdks:shared` from `docs/openapi.yaml` and is regenerated in full whenever the contract
+ * moves; `export * from './generated/...'` would make every name an integrator can import a
+ * function of a code generator's decisions, so a refactor of the generator — or a Java class
+ * renamed inside a service — would silently become a breaking change to this package.
+ *
+ * So the generated module's *runtime* values (the operation table, the enum value lists) are
+ * never exported at all, and the generated *types* are re-exported one by one, by name, from
+ * the list below. Adding a model to the contract does not add it to this SDK's API; someone
+ * decides. `test/public-surface.test.mjs` asserts both halves of that rather than trusting it.
  */
 
-import { API_VERSION as GENERATED_API_VERSION, DEFAULT_BASE_URL as GENERATED_BASE_URL } from './generated/contract.js';
+// ── The client ──────────────────────────────────────────────────────────────────────────
+
+export { PaymentFlow } from './client.js';
+
+// ── Configuration ───────────────────────────────────────────────────────────────────────
+
+export { PaymentFlowConfigurationError, USER_AGENT } from './config.js';
+export type { FetchLike, PaymentFlowOptions, ResolvedConfig } from './config.js';
 
 /**
- * This package's own version, which moves on its own schedule.
+ * This package's own version.
  *
  * Deliberately *not* the API revision. §7.3 pins SDK semver as independent of the dated
  * contract version: an SDK bug fix is a patch release against an unchanged API, and a new API
  * revision does not by itself change anything about this package. Conflating them would make
  * every contract revision a major version bump and every bug fix look like an API change.
  */
-export const VERSION = '0.1.0';
+export { SDK_VERSION as VERSION } from './config.js';
+
+/** The dated API revision this build was generated against, and the host it calls. */
+export { API_VERSION, DEFAULT_BASE_URL } from './generated/contract.js';
+
+// ── Errors ──────────────────────────────────────────────────────────────────────────────
+
+export {
+  ApiConnectionError,
+  ApiError,
+  AuthenticationError,
+  IdempotencyError,
+  InvalidRequestError,
+  PaymentFlowError,
+  PermissionError,
+  RateLimitError,
+} from './errors.js';
+export type { PaymentFlowErrorDetail } from './errors.js';
+
+// ── The request pipeline ────────────────────────────────────────────────────────────────
+
+export type { RateLimitMeta, RequestOptions, ResponseMeta } from './transport.js';
+export type { CursorPage, OffsetPage, Page } from './pagination.js';
+
+// ── Resource namespaces and their parameters ────────────────────────────────────────────
+//
+// The classes are exported as types only. A caller may want to name one — a function that
+// takes `client.payments`, say — but constructing one directly would mean constructing a
+// transport directly, and that is not an API this package offers.
+
+export type { Payments, PaymentCreateParams, PaymentListParams, PaymentRefundParams } from './resources/payments.js';
+export type { Refunds, RefundListParams } from './resources/refunds.js';
+export type { Balance, BalanceTransactions, BalanceTransactionListParams } from './resources/balance.js';
+export type { Events, EventListParams } from './resources/events.js';
+export type {
+  Analytics,
+  AnalyticsSummaryParams,
+  RequestLogs,
+  RequestLogListParams,
+  Usage,
+  UsageSummaryParams,
+} from './resources/reporting.js';
+export type {
+  WebhookDeliveries,
+  WebhookDeliveryListParams,
+  WebhookEndpoints,
+  WebhookEndpointCreateParams,
+  WebhookEndpointUpdateParams,
+} from './resources/webhooks.js';
+export type { TestHelpers, DecisionListParams, SimulationOverrideCreateParams } from './resources/test-helpers.js';
+
+// ── The contract's data shapes ──────────────────────────────────────────────────────────
+//
+// Types only, listed one by one. These are the objects the API returns, so an integrator needs
+// to be able to name them; what they must not be able to do is depend on a name this package
+// never meant to publish. The request models are deliberately absent — the parameter types
+// above are the hand-written ones a caller actually passes.
+
+export type {
+  AnalyticsBucketResponse,
+  AnalyticsSummaryResponse,
+  ApiFieldError,
+  BalanceResponse,
+  BalanceTransactionResponse,
+  CurrencyBalance,
+  DecisionLogEntryResponse,
+  EventResponse,
+  PaymentResponse,
+  RefundResponse,
+  RequestLogResponse,
+  SimulationOverrideResponse,
+  TestCardResponse,
+  UsageBucketResponse,
+  UsageSummaryResponse,
+  WebhookDeliveryAttemptResponse,
+  WebhookDeliveryResponse,
+  WebhookEndpointCreatedResponse,
+  WebhookEndpointResponse,
+} from './generated/models.js';
 
 /**
- * The dated API revision this build was generated against, sent as `PaymentFlow-Version` on
- * every request.
+ * The open vocabularies the contract documents.
  *
- * Re-exported under this SDK's own name rather than from the generated module, so that the
- * public surface stays this file's decision.
+ * Open on purpose: §9 says new values ship without a new API revision, so each of these is a
+ * union of the known values *plus* `string`. Code that switches on one must have a default
+ * branch, and code that stores one must not validate against a fixed list.
  */
-export const API_VERSION: string = GENERATED_API_VERSION;
-
-/** The host the client calls unless a `baseUrl` option overrides it. */
-export const DEFAULT_BASE_URL: string = GENERATED_BASE_URL;
-
-/**
- * How this SDK identifies itself.
- *
- * Sent on every request. It is not decoration: §7.1 notes that it is what makes SDK adoption
- * measurable in the request log M20 already records, which is the only way to know whether an
- * integrator is on a version with a known bug.
- */
-export const USER_AGENT = `paymentflow-node/${VERSION} node/${process.versions.node}`;
+export type {
+  ApiErrorType,
+  BalanceTransactionResponseDirection,
+  BalanceTransactionResponseMode,
+  CreateSimulationOverrideRequestScenario,
+  EventResponseMode,
+  PaymentResponseMode,
+  RefundResponseMode,
+  RequestLogResponseMode,
+  WebhookDeliveryAttemptResponseOutcome,
+  WebhookDeliveryResponseStatus,
+  WebhookEndpointResponseDisabledReason,
+} from './generated/models.js';

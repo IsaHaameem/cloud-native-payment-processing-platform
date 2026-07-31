@@ -61,10 +61,20 @@ CI runs both in jobs of their own (`.github/workflows/ci.yml`).
 ## Status
 
 **M22.1 — the foundation.** The generator, the pipeline, the freshness gate, both package
-skeletons, and the cross-language parity harness. Each package's public surface is currently
-its identity: `VERSION`, `API_VERSION`, `DEFAULT_BASE_URL`, `USER_AGENT`.
+skeletons, and the cross-language parity harness.
 
-The client and everything built on it is M22.2 onwards. Neither package is published:
+**M22.2 / M22.3 — the Node client.** Configuration, native-`fetch` transport, authentication,
+automatic idempotency keys reused across retries, the retry engine with full-jitter backoff
+and `Retry-After` handling, timeouts, request-id and correlation-id propagation, the typed
+error hierarchy mapped from `ApiError.type`, transparent pagination in both of the platform's
+page shapes, and all eleven resource namespaces covering every one of the 31 published
+operations. See [`node/README.md`](node/README.md).
+
+**Python is untouched by M22.2 and M22.3**, deliberately: the approved sequence is that Node
+is finished before Python begins. `sdks/python` is still the M22.1 skeleton, and its public
+surface is still its identity — `VERSION`, `API_VERSION`, `DEFAULT_BASE_URL`, `USER_AGENT`.
+
+Webhook signature verification (`webhooks.constructEvent`) is M22.4. Neither package is published:
 `sdks/node/package.json` is marked `private` and `sdks/python/pyproject.toml` carries
 `Private :: Do Not Upload`. Publishing to a public registry is irreversible and effectively
 claims a public name, so it needs explicit approval and does not happen by accident.
