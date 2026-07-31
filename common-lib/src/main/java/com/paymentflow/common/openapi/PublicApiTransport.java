@@ -99,7 +99,7 @@ public final class PublicApiTransport {
     // ── The definitions ─────────────────────────────────────────────────────────────────
 
     /**
-     * The eight transport headers, defined once each.
+     * The ten transport headers, defined once each.
      *
      * <p>A {@link LinkedHashMap} built by a supplier per entry rather than a constant map of
      * {@code Header} instances: swagger's models are mutable, and one shared instance
@@ -114,6 +114,21 @@ public final class PublicApiTransport {
                         + "client can correlate its own logs with PaymentFlow's. This is the "
                         + "value to quote in a support request when the response carried no "
                         + "body to read `requestId` from.",
+                // Deliberately left word-for-word as M22.0 published it. Rewording a shared
+                // component is a breaking change to every `$ref` that points at it, and the
+                // gate says so — an improvement to one sentence is not worth an entry in the
+                // accepted-breaking file, which §14's debt item 4 already warns can rot into
+                // a blanket suppression. The sentence is still true; it is merely no longer
+                // the only answer now that X-Request-Id is on every response.
+                new StringSchema().format("uuid")));
+
+        headers.put(CorrelationConstants.REQUEST_ID_HEADER, () -> header(
+                "Identifies this one HTTP call, and keys the matching row of "
+                        + "`GET /v1/request_logs`. **Quote this in a support request.** Echoed "
+                        + "from your request when you send one and generated when you do not. "
+                        + "Present on every response, including successful ones — `requestId` "
+                        + "in an error body is the same value, for the case where you have the "
+                        + "body and not the headers.",
                 new StringSchema().format("uuid")));
 
         headers.put(PublicApiHeaders.VERSION, () -> header(
@@ -276,8 +291,9 @@ public final class PublicApiTransport {
         List<String> names = new ArrayList<>();
 
         // CorrelationIdWebFilter runs at HIGHEST_PRECEDENCE, before anything can refuse a
-        // request, so this one is on literally every response the platform produces.
+        // request, so these two are on literally every response the platform produces.
         names.add(CorrelationConstants.CORRELATION_ID_HEADER);
+        names.add(CorrelationConstants.REQUEST_ID_HEADER);
 
         if (!REFUSED_BEFORE_RATE_LIMITING.contains(status)) {
             names.add(PublicApiHeaders.RATE_LIMIT_LIMIT);

@@ -12,9 +12,9 @@ import com.paymentflow.sdk.codegen.SdkSpec.SdkEnum;
 import com.paymentflow.sdk.codegen.SdkSpec.SdkField;
 import com.paymentflow.sdk.codegen.SdkSpec.SdkModel;
 import com.paymentflow.sdk.codegen.SdkSpec.SdkOperation;
-import com.paymentflow.sdk.codegen.SdkSpec.SdkParameter;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -122,16 +122,17 @@ final class FixtureEmitter {
             node.put("tag", operation.tag());
             node.put("successStatus", operation.success() == null ? "" : operation.success().status());
             node.put("hasRequestBody", operation.requestModel() != null);
-            ArrayNode query = NODES.arrayNode();
-            for (SdkParameter parameter : operation.parameters()) {
-                if ("query".equals(parameter.in())) {
-                    query.add(parameter.name());
-                }
-            }
-            node.set("queryParameters", query);
+            node.set("queryParameters", names(SdkSpec.queryParameters(operation)));
+            node.set("requiredHeaders", names(SdkSpec.requiredHeaders(operation)));
             root.set(operation.id(), node);
         }
         return root;
+    }
+
+    private static ArrayNode names(List<String> values) {
+        ArrayNode array = NODES.arrayNode();
+        values.forEach(array::add);
+        return array;
     }
 
     /**

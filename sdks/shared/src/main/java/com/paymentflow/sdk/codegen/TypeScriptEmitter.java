@@ -7,7 +7,9 @@ import com.paymentflow.sdk.codegen.SdkSpec.SdkOperation;
 import com.paymentflow.sdk.codegen.SdkSpec.SdkType;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Emits the Node SDK's generated TypeScript (M22.1).
@@ -111,6 +113,11 @@ final class TypeScriptEmitter {
         return out.toString().stripTrailing() + "\n";
     }
 
+    /** A comma-separated list of quoted names, for the array literals above. */
+    private static String names(List<String> values) {
+        return values.stream().map(TypeScriptEmitter::quote).collect(Collectors.joining(", "));
+    }
+
     // ── operations.ts ───────────────────────────────────────────────────────────────────
 
     private static String operations(SdkSpec spec) {
@@ -128,6 +135,16 @@ final class TypeScriptEmitter {
                   readonly successStatus: string;
                   /** Names of the query parameters this operation accepts, in wire spelling. */
                   readonly queryParameters: readonly string[];
+                  /**
+                   * Header parameters the contract marks `required` — today, `Idempotency-Key` on
+                   * the five payment mutations that have always rejected a request without one.
+                   *
+                   * Read from the document rather than listed in hand-written code: a client that
+                   * carried its own copy of "which operations need a key" would keep sending the
+                   * old answer after the contract changed, and the failure would be a rejected
+                   * request or, worse, a duplicated charge.
+                   */
+                  readonly requiredHeaders: readonly string[];
                   /** Whether the operation takes a JSON request body. */
                   readonly hasRequestBody: boolean;
                 }
@@ -143,15 +160,10 @@ final class TypeScriptEmitter {
                     .append("    summary: ").append(quote(operation.summary())).append(",\n")
                     .append("    successStatus: ")
                     .append(quote(operation.success() == null ? "" : operation.success().status())).append(",\n")
-                    .append("    queryParameters: [");
-            String separator = "";
-            for (SdkSpec.SdkParameter parameter : operation.parameters()) {
-                if ("query".equals(parameter.in())) {
-                    out.append(separator).append(quote(parameter.name()));
-                    separator = ", ";
-                }
-            }
-            out.append("] as const,\n")
+                    .append("    queryParameters: [").append(names(SdkSpec.queryParameters(operation)))
+                    .append("] as const,\n")
+                    .append("    requiredHeaders: [").append(names(SdkSpec.requiredHeaders(operation)))
+                    .append("] as const,\n")
                     .append("    hasRequestBody: ").append(operation.requestModel() != null).append(",\n")
                     .append("  },\n");
         }

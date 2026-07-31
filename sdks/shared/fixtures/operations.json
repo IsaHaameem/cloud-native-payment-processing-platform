@@ -8,7 +8,8 @@
     "queryParameters" : [
       "from",
       "to"
-    ]
+    ],
+    "requiredHeaders" : [ ]
   },
   "getBalance" : {
     "method" : "GET",
@@ -16,7 +17,8 @@
     "tag" : "Balance",
     "successStatus" : "200",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "listBalanceTransactions" : {
     "method" : "GET",
@@ -29,7 +31,8 @@
       "starting_after",
       "created_after",
       "created_before"
-    ]
+    ],
+    "requiredHeaders" : [ ]
   },
   "listEvents" : {
     "method" : "GET",
@@ -43,7 +46,8 @@
       "type",
       "created_after",
       "created_before"
-    ]
+    ],
+    "requiredHeaders" : [ ]
   },
   "getEvent" : {
     "method" : "GET",
@@ -51,7 +55,8 @@
     "tag" : "Events",
     "successStatus" : "200",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "listPayments" : {
     "method" : "GET",
@@ -70,7 +75,8 @@
       "created_before",
       "expand",
       "metadata"
-    ]
+    ],
+    "requiredHeaders" : [ ]
   },
   "createPayment" : {
     "method" : "POST",
@@ -78,7 +84,10 @@
     "tag" : "Payments",
     "successStatus" : "201",
     "hasRequestBody" : true,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [
+      "Idempotency-Key"
+    ]
   },
   "getPayment" : {
     "method" : "GET",
@@ -88,7 +97,8 @@
     "hasRequestBody" : false,
     "queryParameters" : [
       "expand"
-    ]
+    ],
+    "requiredHeaders" : [ ]
   },
   "authorizePayment" : {
     "method" : "POST",
@@ -96,7 +106,10 @@
     "tag" : "Payments",
     "successStatus" : "200",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [
+      "Idempotency-Key"
+    ]
   },
   "capturePayment" : {
     "method" : "POST",
@@ -104,7 +117,10 @@
     "tag" : "Payments",
     "successStatus" : "200",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [
+      "Idempotency-Key"
+    ]
   },
   "refundPayment" : {
     "method" : "POST",
@@ -112,7 +128,10 @@
     "tag" : "Payments",
     "successStatus" : "200",
     "hasRequestBody" : true,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [
+      "Idempotency-Key"
+    ]
   },
   "voidPayment" : {
     "method" : "POST",
@@ -120,7 +139,10 @@
     "tag" : "Payments",
     "successStatus" : "200",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [
+      "Idempotency-Key"
+    ]
   },
   "listRefunds" : {
     "method" : "GET",
@@ -136,7 +158,8 @@
       "created_after",
       "created_before",
       "metadata"
-    ]
+    ],
+    "requiredHeaders" : [ ]
   },
   "getRefund" : {
     "method" : "GET",
@@ -144,7 +167,8 @@
     "tag" : "Refunds",
     "successStatus" : "200",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "listRequestLogs" : {
     "method" : "GET",
@@ -159,7 +183,8 @@
       "created_before",
       "status_code",
       "method"
-    ]
+    ],
+    "requiredHeaders" : [ ]
   },
   "listTestCards" : {
     "method" : "GET",
@@ -167,7 +192,8 @@
     "tag" : "Test cards",
     "successStatus" : "200",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "listSandboxDecisions" : {
     "method" : "GET",
@@ -179,7 +205,8 @@
       "page",
       "size",
       "sort"
-    ]
+    ],
+    "requiredHeaders" : [ ]
   },
   "listSandboxDecisionsForPayment" : {
     "method" : "GET",
@@ -187,7 +214,8 @@
     "tag" : "Decisions",
     "successStatus" : "200",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "createSimulationOverride" : {
     "method" : "POST",
@@ -195,7 +223,8 @@
     "tag" : "Simulations",
     "successStatus" : "201",
     "hasRequestBody" : true,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "revokeActiveSimulationOverride" : {
     "method" : "DELETE",
@@ -203,7 +232,8 @@
     "tag" : "Simulations",
     "successStatus" : "204",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "getActiveSimulationOverride" : {
     "method" : "GET",
@@ -211,7 +241,8 @@
     "tag" : "Simulations",
     "successStatus" : "200",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "getUsage" : {
     "method" : "GET",
@@ -222,7 +253,8 @@
     "queryParameters" : [
       "from",
       "to"
-    ]
+    ],
+    "requiredHeaders" : [ ]
   },
   "listWebhookDeliveries" : {
     "method" : "GET",
@@ -234,7 +266,8 @@
       "page",
       "size",
       "sort"
-    ]
+    ],
+    "requiredHeaders" : [ ]
   },
   "getWebhookDelivery" : {
     "method" : "GET",
@@ -242,7 +275,8 @@
     "tag" : "Webhook deliveries",
     "successStatus" : "200",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "replayWebhookDelivery" : {
     "method" : "POST",
@@ -250,7 +284,8 @@
     "tag" : "Webhook deliveries",
     "successStatus" : "201",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "listWebhookEndpoints" : {
     "method" : "GET",
@@ -258,7 +293,8 @@
     "tag" : "Webhook endpoints",
     "successStatus" : "200",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "createWebhookEndpoint" : {
     "method" : "POST",
@@ -266,7 +302,8 @@
     "tag" : "Webhook endpoints",
     "successStatus" : "201",
     "hasRequestBody" : true,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "deleteWebhookEndpoint" : {
     "method" : "DELETE",
@@ -274,7 +311,8 @@
     "tag" : "Webhook endpoints",
     "successStatus" : "204",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "getWebhookEndpoint" : {
     "method" : "GET",
@@ -282,7 +320,8 @@
     "tag" : "Webhook endpoints",
     "successStatus" : "200",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "updateWebhookEndpoint" : {
     "method" : "PATCH",
@@ -290,7 +329,8 @@
     "tag" : "Webhook endpoints",
     "successStatus" : "200",
     "hasRequestBody" : true,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   },
   "rotateWebhookEndpointSecret" : {
     "method" : "POST",
@@ -298,6 +338,7 @@
     "tag" : "Webhook endpoints",
     "successStatus" : "200",
     "hasRequestBody" : false,
-    "queryParameters" : [ ]
+    "queryParameters" : [ ],
+    "requiredHeaders" : [ ]
   }
 }

@@ -193,6 +193,30 @@ class SdkCodegenTest {
     }
 
     @Test
+    void anOperationCarriesTheHeadersTheContractRequiresOfIt() throws IOException {
+        Map<String, String> files = SdkCodegen.generate(baseline()).files();
+
+        // The five payment mutations have always rejected a request with no Idempotency-Key.
+        // An SDK must generate one for exactly those, once per logical call and reused across
+        // every retry — and must *not* invent one for an endpoint the platform does not
+        // deduplicate on, where a retry would then be silently accepted as a second request.
+        // Reading that from the descriptor rather than from a hand-maintained list is what
+        // stops the client's answer and the contract's answer drifting apart.
+        String typescript = files.get("sdks/node/src/generated/operations.ts");
+        assertThat(typescript).contains("requiredHeaders: ['Idempotency-Key'] as const");
+
+        String fixtures = files.get("sdks/shared/fixtures/operations.json");
+        assertThat(fixtures).contains("\"requiredHeaders\"");
+        assertThat(files.get("sdks/python/src/paymentflow/_generated/operations.py"))
+                .contains("\"required_headers\": (\"Idempotency-Key\", )");
+
+        // Every operation documents PaymentFlow-Version and X-Correlation-Id, and both are
+        // optional — so an emitter that ignored `required` would mark all 31 operations as
+        // needing headers the caller never has to send.
+        assertThat(typescript).contains("requiredHeaders: [] as const");
+    }
+
+    @Test
     void everyGeneratedFileEndsItsLinesTheWayTheRepositoryStoresThem() {
         Map<String, String> files = SdkCodegen.generate(SPEC).files();
 

@@ -70,6 +70,7 @@ class PublicApiTransportTest {
                         + "on every response")
                 .containsExactlyInAnyOrder(
                         CorrelationConstants.CORRELATION_ID_HEADER,
+                        CorrelationConstants.REQUEST_ID_HEADER,
                         PublicApiHeaders.VERSION,
                         PublicApiHeaders.RATE_LIMIT_LIMIT,
                         PublicApiHeaders.RATE_LIMIT_REMAINING,
@@ -110,7 +111,7 @@ class PublicApiTransportTest {
         PublicApiTransport.apply(document);
 
         assertThat(headerNames(document, "201"))
-                .contains(CorrelationConstants.CORRELATION_ID_HEADER)
+                .contains(CorrelationConstants.CORRELATION_ID_HEADER, CorrelationConstants.REQUEST_ID_HEADER)
                 .containsAll(RATE_LIMIT_HEADERS)
                 .containsAll(VERSION_HEADERS)
                 .describedAs("Retry-After answers a question a 2xx did not ask")
@@ -128,7 +129,8 @@ class PublicApiTransportTest {
                     .describedAs("a %s is written by ApiKeyAuthenticationWebFilter at order "
                             + "+20 — the rate limiter (+30) and the version filter (+40) never "
                             + "run, so neither header is ever on it", status)
-                    .containsExactly(CorrelationConstants.CORRELATION_ID_HEADER);
+                    .containsExactly(CorrelationConstants.CORRELATION_ID_HEADER,
+                            CorrelationConstants.REQUEST_ID_HEADER);
         }
     }
 
@@ -140,7 +142,8 @@ class PublicApiTransportTest {
 
         assertThat(headerNames(document, "429"))
                 .describedAs("refused at +30: the quota is known, the revision was never resolved")
-                .contains(CorrelationConstants.CORRELATION_ID_HEADER, PublicApiHeaders.RETRY_AFTER)
+                .contains(CorrelationConstants.CORRELATION_ID_HEADER, CorrelationConstants.REQUEST_ID_HEADER,
+                        PublicApiHeaders.RETRY_AFTER)
                 .containsAll(RATE_LIMIT_HEADERS)
                 .doesNotContainAnyElementsOf(VERSION_HEADERS);
     }
@@ -169,8 +172,9 @@ class PublicApiTransportTest {
 
         only(document).getResponses().forEach((status, response) ->
                 assertThat(response.getHeaders())
-                        .describedAs("the %s response carries X-Correlation-Id", status)
-                        .containsKey(CorrelationConstants.CORRELATION_ID_HEADER));
+                        .describedAs("the %s response carries both trace identifiers", status)
+                        .containsKeys(CorrelationConstants.CORRELATION_ID_HEADER,
+                                CorrelationConstants.REQUEST_ID_HEADER));
     }
 
     // ── Request headers ─────────────────────────────────────────────────────────────────

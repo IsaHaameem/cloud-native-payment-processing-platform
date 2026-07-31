@@ -19,6 +19,7 @@ class OperationDescriptor(TypedDict):
     summary: str
     success_status: str
     query_parameters: Tuple[str, ...]
+    required_headers: Tuple[str, ...]
     has_request_body: bool
 
 
@@ -31,6 +32,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Summarize payment activity",
         "success_status": "200",
         "query_parameters": ("from", "to", ),
+        "required_headers": (),
         "has_request_body": False,
     },
     "getBalance": {
@@ -41,6 +43,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Retrieve your balance",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": False,
     },
     "listBalanceTransactions": {
@@ -51,6 +54,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "List balance transactions",
         "success_status": "200",
         "query_parameters": ("limit", "starting_after", "created_after", "created_before", ),
+        "required_headers": (),
         "has_request_body": False,
     },
     "listEvents": {
@@ -61,6 +65,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "List events",
         "success_status": "200",
         "query_parameters": ("limit", "starting_after", "type", "created_after", "created_before", ),
+        "required_headers": (),
         "has_request_body": False,
     },
     "getEvent": {
@@ -71,6 +76,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Retrieve an event",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": False,
     },
     "listPayments": {
@@ -81,6 +87,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "List payments",
         "success_status": "200",
         "query_parameters": ("limit", "starting_after", "status", "currency", "amount_min", "amount_max", "created_after", "created_before", "expand", "metadata", ),
+        "required_headers": (),
         "has_request_body": False,
     },
     "createPayment": {
@@ -91,6 +98,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Create a payment",
         "success_status": "201",
         "query_parameters": (),
+        "required_headers": ("Idempotency-Key", ),
         "has_request_body": True,
     },
     "getPayment": {
@@ -101,6 +109,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Retrieve a payment",
         "success_status": "200",
         "query_parameters": ("expand", ),
+        "required_headers": (),
         "has_request_body": False,
     },
     "authorizePayment": {
@@ -111,6 +120,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Authorize a payment",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": ("Idempotency-Key", ),
         "has_request_body": False,
     },
     "capturePayment": {
@@ -121,6 +131,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Capture an authorized payment",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": ("Idempotency-Key", ),
         "has_request_body": False,
     },
     "refundPayment": {
@@ -131,6 +142,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Refund a captured payment",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": ("Idempotency-Key", ),
         "has_request_body": True,
     },
     "voidPayment": {
@@ -141,6 +153,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Void a payment",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": ("Idempotency-Key", ),
         "has_request_body": False,
     },
     "listRefunds": {
@@ -151,6 +164,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "List refunds",
         "success_status": "200",
         "query_parameters": ("limit", "starting_after", "payment", "status", "created_after", "created_before", "metadata", ),
+        "required_headers": (),
         "has_request_body": False,
     },
     "getRefund": {
@@ -161,6 +175,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Retrieve a refund",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": False,
     },
     "listRequestLogs": {
@@ -171,6 +186,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "List API request logs",
         "success_status": "200",
         "query_parameters": ("limit", "starting_after", "created_after", "created_before", "status_code", "method", ),
+        "required_headers": (),
         "has_request_body": False,
     },
     "listTestCards": {
@@ -181,6 +197,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "List the test cards",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": False,
     },
     "listSandboxDecisions": {
@@ -191,6 +208,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "List sandbox decisions",
         "success_status": "200",
         "query_parameters": ("page", "size", "sort", ),
+        "required_headers": (),
         "has_request_body": False,
     },
     "listSandboxDecisionsForPayment": {
@@ -201,6 +219,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "List the decisions for one payment",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": False,
     },
     "createSimulationOverride": {
@@ -211,6 +230,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Force a sandbox behaviour",
         "success_status": "201",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": True,
     },
     "revokeActiveSimulationOverride": {
@@ -221,6 +241,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Revoke the active override",
         "success_status": "204",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": False,
     },
     "getActiveSimulationOverride": {
@@ -231,6 +252,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Retrieve the active override",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": False,
     },
     "getUsage": {
@@ -241,6 +263,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Summarize API usage",
         "success_status": "200",
         "query_parameters": ("from", "to", ),
+        "required_headers": (),
         "has_request_body": False,
     },
     "listWebhookDeliveries": {
@@ -251,6 +274,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "List webhook deliveries",
         "success_status": "200",
         "query_parameters": ("page", "size", "sort", ),
+        "required_headers": (),
         "has_request_body": False,
     },
     "getWebhookDelivery": {
@@ -261,6 +285,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Retrieve a webhook delivery",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": False,
     },
     "replayWebhookDelivery": {
@@ -271,6 +296,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Replay a webhook delivery",
         "success_status": "201",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": False,
     },
     "listWebhookEndpoints": {
@@ -281,6 +307,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "List your webhook endpoints",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": False,
     },
     "createWebhookEndpoint": {
@@ -291,6 +318,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Register a webhook endpoint",
         "success_status": "201",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": True,
     },
     "deleteWebhookEndpoint": {
@@ -301,6 +329,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Delete a webhook endpoint",
         "success_status": "204",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": False,
     },
     "getWebhookEndpoint": {
@@ -311,6 +340,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Retrieve a webhook endpoint",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": False,
     },
     "updateWebhookEndpoint": {
@@ -321,6 +351,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Update a webhook endpoint",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": True,
     },
     "rotateWebhookEndpointSecret": {
@@ -331,6 +362,7 @@ OPERATIONS: Final[Dict[str, OperationDescriptor]] = {
         "summary": "Rotate an endpoint's signing secret",
         "success_status": "200",
         "query_parameters": (),
+        "required_headers": (),
         "has_request_body": False,
     },
 }

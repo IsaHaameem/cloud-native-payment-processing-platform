@@ -18,6 +18,16 @@ export interface OperationDescriptor {
   readonly successStatus: string;
   /** Names of the query parameters this operation accepts, in wire spelling. */
   readonly queryParameters: readonly string[];
+  /**
+   * Header parameters the contract marks `required` — today, `Idempotency-Key` on
+   * the five payment mutations that have always rejected a request without one.
+   *
+   * Read from the document rather than listed in hand-written code: a client that
+   * carried its own copy of "which operations need a key" would keep sending the
+   * old answer after the contract changed, and the failure would be a rejected
+   * request or, worse, a duplicated charge.
+   */
+  readonly requiredHeaders: readonly string[];
   /** Whether the operation takes a JSON request body. */
   readonly hasRequestBody: boolean;
 }
@@ -31,6 +41,7 @@ export const OPERATIONS = {
     summary: 'Summarize payment activity',
     successStatus: '200',
     queryParameters: ['from', 'to'] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   getBalance: {
@@ -41,6 +52,7 @@ export const OPERATIONS = {
     summary: 'Retrieve your balance',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   listBalanceTransactions: {
@@ -51,6 +63,7 @@ export const OPERATIONS = {
     summary: 'List balance transactions',
     successStatus: '200',
     queryParameters: ['limit', 'starting_after', 'created_after', 'created_before'] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   listEvents: {
@@ -61,6 +74,7 @@ export const OPERATIONS = {
     summary: 'List events',
     successStatus: '200',
     queryParameters: ['limit', 'starting_after', 'type', 'created_after', 'created_before'] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   getEvent: {
@@ -71,6 +85,7 @@ export const OPERATIONS = {
     summary: 'Retrieve an event',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   listPayments: {
@@ -81,6 +96,7 @@ export const OPERATIONS = {
     summary: 'List payments',
     successStatus: '200',
     queryParameters: ['limit', 'starting_after', 'status', 'currency', 'amount_min', 'amount_max', 'created_after', 'created_before', 'expand', 'metadata'] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   createPayment: {
@@ -91,6 +107,7 @@ export const OPERATIONS = {
     summary: 'Create a payment',
     successStatus: '201',
     queryParameters: [] as const,
+    requiredHeaders: ['Idempotency-Key'] as const,
     hasRequestBody: true,
   },
   getPayment: {
@@ -101,6 +118,7 @@ export const OPERATIONS = {
     summary: 'Retrieve a payment',
     successStatus: '200',
     queryParameters: ['expand'] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   authorizePayment: {
@@ -111,6 +129,7 @@ export const OPERATIONS = {
     summary: 'Authorize a payment',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: ['Idempotency-Key'] as const,
     hasRequestBody: false,
   },
   capturePayment: {
@@ -121,6 +140,7 @@ export const OPERATIONS = {
     summary: 'Capture an authorized payment',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: ['Idempotency-Key'] as const,
     hasRequestBody: false,
   },
   refundPayment: {
@@ -131,6 +151,7 @@ export const OPERATIONS = {
     summary: 'Refund a captured payment',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: ['Idempotency-Key'] as const,
     hasRequestBody: true,
   },
   voidPayment: {
@@ -141,6 +162,7 @@ export const OPERATIONS = {
     summary: 'Void a payment',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: ['Idempotency-Key'] as const,
     hasRequestBody: false,
   },
   listRefunds: {
@@ -151,6 +173,7 @@ export const OPERATIONS = {
     summary: 'List refunds',
     successStatus: '200',
     queryParameters: ['limit', 'starting_after', 'payment', 'status', 'created_after', 'created_before', 'metadata'] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   getRefund: {
@@ -161,6 +184,7 @@ export const OPERATIONS = {
     summary: 'Retrieve a refund',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   listRequestLogs: {
@@ -171,6 +195,7 @@ export const OPERATIONS = {
     summary: 'List API request logs',
     successStatus: '200',
     queryParameters: ['limit', 'starting_after', 'created_after', 'created_before', 'status_code', 'method'] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   listTestCards: {
@@ -181,6 +206,7 @@ export const OPERATIONS = {
     summary: 'List the test cards',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   listSandboxDecisions: {
@@ -191,6 +217,7 @@ export const OPERATIONS = {
     summary: 'List sandbox decisions',
     successStatus: '200',
     queryParameters: ['page', 'size', 'sort'] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   listSandboxDecisionsForPayment: {
@@ -201,6 +228,7 @@ export const OPERATIONS = {
     summary: 'List the decisions for one payment',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   createSimulationOverride: {
@@ -211,6 +239,7 @@ export const OPERATIONS = {
     summary: 'Force a sandbox behaviour',
     successStatus: '201',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: true,
   },
   revokeActiveSimulationOverride: {
@@ -221,6 +250,7 @@ export const OPERATIONS = {
     summary: 'Revoke the active override',
     successStatus: '204',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   getActiveSimulationOverride: {
@@ -231,6 +261,7 @@ export const OPERATIONS = {
     summary: 'Retrieve the active override',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   getUsage: {
@@ -241,6 +272,7 @@ export const OPERATIONS = {
     summary: 'Summarize API usage',
     successStatus: '200',
     queryParameters: ['from', 'to'] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   listWebhookDeliveries: {
@@ -251,6 +283,7 @@ export const OPERATIONS = {
     summary: 'List webhook deliveries',
     successStatus: '200',
     queryParameters: ['page', 'size', 'sort'] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   getWebhookDelivery: {
@@ -261,6 +294,7 @@ export const OPERATIONS = {
     summary: 'Retrieve a webhook delivery',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   replayWebhookDelivery: {
@@ -271,6 +305,7 @@ export const OPERATIONS = {
     summary: 'Replay a webhook delivery',
     successStatus: '201',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   listWebhookEndpoints: {
@@ -281,6 +316,7 @@ export const OPERATIONS = {
     summary: 'List your webhook endpoints',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   createWebhookEndpoint: {
@@ -291,6 +327,7 @@ export const OPERATIONS = {
     summary: 'Register a webhook endpoint',
     successStatus: '201',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: true,
   },
   deleteWebhookEndpoint: {
@@ -301,6 +338,7 @@ export const OPERATIONS = {
     summary: 'Delete a webhook endpoint',
     successStatus: '204',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   getWebhookEndpoint: {
@@ -311,6 +349,7 @@ export const OPERATIONS = {
     summary: 'Retrieve a webhook endpoint',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
   updateWebhookEndpoint: {
@@ -321,6 +360,7 @@ export const OPERATIONS = {
     summary: 'Update a webhook endpoint',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: true,
   },
   rotateWebhookEndpointSecret: {
@@ -331,6 +371,7 @@ export const OPERATIONS = {
     summary: 'Rotate an endpoint\'s signing secret',
     successStatus: '200',
     queryParameters: [] as const,
+    requiredHeaders: [] as const,
     hasRequestBody: false,
   },
 } as const satisfies Record<string, OperationDescriptor>;

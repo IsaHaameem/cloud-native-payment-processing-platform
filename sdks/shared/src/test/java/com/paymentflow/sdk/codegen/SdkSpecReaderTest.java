@@ -285,6 +285,44 @@ class SdkSpecReaderTest {
     }
 
     @Test
+    void anObjectQueryParameterIsAcceptedOnlyInTheEncodingBothSdksImplement() {
+        String spec = """
+                paths:
+                  /v1/things:
+                    get:
+                      operationId: listThings
+                      parameters:
+                      - name: metadata
+                        in: query
+                        style: %s
+                        explode: true
+                        schema:
+                          type: object
+                          additionalProperties:
+                            type: string
+                      responses:
+                        "200": {}
+                components:
+                  schemas: {}
+                """;
+
+        // Both hand-written clients encode a map query parameter from the shape of the value,
+        // as `metadata[key]=value`. That is `deepObject` and nothing else — a map declared
+        // `form` is spelled `metadata=key,value`, and the platform ignores a filter it cannot
+        // parse, so the caller would receive an unfiltered page that reads as a correct answer
+        // to a narrower question. Reported here rather than commented on there.
+        SdkSpecReader accepted = new SdkSpecReader();
+        accepted.read(OpenApiYaml.read(MINIMAL_HEADER + spec.formatted("deepObject")));
+        assertThat(accepted.unsupported()).isEmpty();
+
+        SdkSpecReader refused = new SdkSpecReader();
+        refused.read(OpenApiYaml.read(MINIMAL_HEADER + spec.formatted("form")));
+        assertThat(refused.unsupported()).singleElement().asString()
+                .contains("listThings.metadata")
+                .contains("deepObject");
+    }
+
+    @Test
     void anOperationWithNoIdIsReportedBecauseNothingCouldNameTheMethod() {
         SdkSpecReader reader = new SdkSpecReader();
 

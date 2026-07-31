@@ -209,12 +209,14 @@ public final class SdkSpecReader {
         }
 
         List<SdkParameter> parameters = new ArrayList<>();
-        operation.path("parameters").forEach(parameter -> parameters.add(new SdkParameter(
-                parameter.path("name").asText(),
-                parameter.path("in").asText(),
-                parameter.path("required").asBoolean(false),
-                readType(parameter.path("schema"), id + "." + parameter.path("name").asText()),
-                text(parameter.path("description")))));
+        operation.path("parameters").forEach(parameter -> {
+            String name = parameter.path("name").asText();
+            String in = parameter.path("in").asText();
+            SdkType type = readType(parameter.path("schema"), id + "." + name);
+            checkQueryEncoding(id, name, in, type, parameter);
+            parameters.add(new SdkParameter(name, in, parameter.path("required").asBoolean(false),
+                    type, text(parameter.path("description"))));
+        });
 
         return new SdkOperation(
                 id,
@@ -225,6 +227,31 @@ public final class SdkSpecReader {
                 parameters,
                 bodyModel(operation.path("requestBody")),
                 successResponse(operation.path("responses")));
+    }
+
+    /**
+     * Guards the one query-string encoding rule the hand-written clients assume.
+     *
+     * <p>Both SDKs encode a query parameter from the <em>shape of the value</em>: an array
+     * repeats the name, and a map becomes {@code name[key]=value}. That is exactly right for
+     * this document, where the only map-valued query parameter is {@code metadata} and it is
+     * declared {@code style: deepObject}. It would be exactly wrong for a map declared
+     * {@code form}, which is spelled {@code name=key,value} instead — and the failure would be
+     * silent, because the platform ignores a filter it cannot parse and returns an unfiltered
+     * page that looks like a correct answer to a narrower question.
+     *
+     * <p>So the assumption is checked here rather than commented on there. A findings entry
+     * fails {@code generateSdkSources}, which is the only place a reader would think to look.
+     */
+    private void checkQueryEncoding(String id, String name, String in, SdkType type, JsonNode parameter) {
+        if (!"query".equals(in) || type.kind() != SdkType.Kind.MAP) {
+            return;
+        }
+        String style = parameter.path("style").asText("form");
+        if (!"deepObject".equals(style)) {
+            unsupported.add(id + "." + name + ": an object query parameter with `style: " + style
+                    + "`. Both SDKs encode a map as `" + name + "[key]=value`, which is `deepObject` only");
+        }
     }
 
     private static String bodyModel(JsonNode requestBody) {

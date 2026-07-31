@@ -16,7 +16,7 @@ class CorrelationIdWebFilterTest {
     private final CorrelationIdWebFilter filter = new CorrelationIdWebFilter();
 
     @Test
-    void generatesIdsWhenAbsentAndEchoesCorrelationIdOnResponse() {
+    void generatesIdsWhenAbsentAndEchoesBothOnResponse() {
         MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/v1/auth/ping"));
         AtomicReference<ServerWebExchange> forwarded = new AtomicReference<>();
 
@@ -28,9 +28,18 @@ class CorrelationIdWebFilterTest {
         HttpHeaders downstreamHeaders = forwarded.get().getRequest().getHeaders();
         String correlationId = downstreamHeaders.getFirst(CorrelationConstants.CORRELATION_ID_HEADER);
         assertThat(correlationId).isNotBlank();
-        assertThat(downstreamHeaders.getFirst(CorrelationConstants.REQUEST_ID_HEADER)).isNotBlank();
-        assertThat(exchange.getResponse().getHeaders().getFirst(CorrelationConstants.CORRELATION_ID_HEADER))
-                .isEqualTo(correlationId);
+        String requestId = downstreamHeaders.getFirst(CorrelationConstants.REQUEST_ID_HEADER);
+        assertThat(requestId).isNotBlank();
+
+        // Both are echoed. `requestId` used to go downstream and never come back, so a caller
+        // could learn it only from an error body - and it is what keys their own request-log
+        // rows and what the error contract tells them to quote in a support request. A
+        // successful call was the one case they could not correlate (M22.2, D168).
+        HttpHeaders responseHeaders = exchange.getResponse().getHeaders();
+        assertThat(responseHeaders.getFirst(CorrelationConstants.CORRELATION_ID_HEADER)).isEqualTo(correlationId);
+        assertThat(responseHeaders.getFirst(CorrelationConstants.REQUEST_ID_HEADER)).isEqualTo(requestId);
+        // The two identify different things and must never collapse into one value.
+        assertThat(requestId).isNotEqualTo(correlationId);
     }
 
     @Test
@@ -49,7 +58,8 @@ class CorrelationIdWebFilterTest {
         HttpHeaders downstreamHeaders = forwarded.get().getRequest().getHeaders();
         assertThat(downstreamHeaders.getFirst(CorrelationConstants.CORRELATION_ID_HEADER)).isEqualTo("caller-correlation-id");
         assertThat(downstreamHeaders.getFirst(CorrelationConstants.REQUEST_ID_HEADER)).isEqualTo("caller-request-id");
-        assertThat(exchange.getResponse().getHeaders().getFirst(CorrelationConstants.CORRELATION_ID_HEADER))
-                .isEqualTo("caller-correlation-id");
+        HttpHeaders responseHeaders = exchange.getResponse().getHeaders();
+        assertThat(responseHeaders.getFirst(CorrelationConstants.CORRELATION_ID_HEADER)).isEqualTo("caller-correlation-id");
+        assertThat(responseHeaders.getFirst(CorrelationConstants.REQUEST_ID_HEADER)).isEqualTo("caller-request-id");
     }
 }

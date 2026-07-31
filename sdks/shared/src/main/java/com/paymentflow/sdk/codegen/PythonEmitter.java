@@ -8,8 +8,10 @@ import com.paymentflow.sdk.codegen.SdkSpec.SdkParameter;
 import com.paymentflow.sdk.codegen.SdkSpec.SdkType;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Emits the Python SDK's generated modules (M22.1).
@@ -193,6 +195,14 @@ final class PythonEmitter {
         return name.matches("[A-Za-z_][A-Za-z0-9_]*") && !RESERVED.contains(name);
     }
 
+    /**
+     * Names as Python tuple elements. A trailing comma on every element, so a one-element
+     * tuple is a tuple rather than a parenthesised string — Python's oldest sharp edge.
+     */
+    private static String names(List<String> values) {
+        return values.stream().map(name -> quote(name) + ", ").collect(Collectors.joining());
+    }
+
     // ── operations.py ───────────────────────────────────────────────────────────────────
 
     private static String operations(SdkSpec spec) {
@@ -211,6 +221,7 @@ final class PythonEmitter {
                     summary: str
                     success_status: str
                     query_parameters: Tuple[str, ...]
+                    required_headers: Tuple[str, ...]
                     has_request_body: bool
 
 
@@ -225,15 +236,10 @@ final class PythonEmitter {
                     .append("        \"summary\": ").append(quote(operation.summary())).append(",\n")
                     .append("        \"success_status\": ")
                     .append(quote(operation.success() == null ? "" : operation.success().status())).append(",\n")
-                    .append("        \"query_parameters\": (");
-            for (SdkParameter parameter : operation.parameters()) {
-                if ("query".equals(parameter.in())) {
-                    // A trailing comma on every element, so a one-element tuple is a tuple
-                    // rather than a parenthesised string — Python's oldest sharp edge.
-                    out.append(quote(parameter.name())).append(", ");
-                }
-            }
-            out.append("),\n")
+                    .append("        \"query_parameters\": (").append(names(SdkSpec.queryParameters(operation)))
+                    .append("),\n")
+                    .append("        \"required_headers\": (").append(names(SdkSpec.requiredHeaders(operation)))
+                    .append("),\n")
                     .append("        \"has_request_body\": ")
                     .append(operation.requestModel() != null ? "True" : "False").append(",\n")
                     .append("    },\n");

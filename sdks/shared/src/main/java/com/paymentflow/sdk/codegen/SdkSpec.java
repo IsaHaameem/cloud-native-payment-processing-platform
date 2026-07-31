@@ -96,6 +96,36 @@ public record SdkSpec(
     public record SdkParameter(String name, String in, boolean required, SdkType type, String description) {
     }
 
+    /**
+     * The query parameters an operation accepts, in the document's order.
+     *
+     * <p>Here rather than in each emitter so that the three of them cannot answer differently.
+     * The fixtures exist to prove Node and Python describe the same contract; a fixture derived
+     * by its own filter could agree with neither.
+     */
+    public static List<String> queryParameters(SdkOperation operation) {
+        return operation.parameters().stream()
+                .filter(parameter -> "query".equals(parameter.in()))
+                .map(SdkParameter::name)
+                .toList();
+    }
+
+    /**
+     * The header parameters an operation marks {@code required}.
+     *
+     * <p>Today this is {@code Idempotency-Key} on the five payment mutations, and nothing else:
+     * every operation documents {@code PaymentFlow-Version} and {@code X-Correlation-Id}, and
+     * both are optional. A hand-written client needs the distinction because it must generate a
+     * key for exactly those operations — once per logical call, reused across every retry —
+     * and it must not invent one for an endpoint the platform does not deduplicate on.
+     */
+    public static List<String> requiredHeaders(SdkOperation operation) {
+        return operation.parameters().stream()
+                .filter(parameter -> "header".equals(parameter.in()) && parameter.required())
+                .map(SdkParameter::name)
+                .toList();
+    }
+
     /** The operation's documented success: its status and, when it has one, its body model. */
     public record SdkResponse(String status, String model) {
     }

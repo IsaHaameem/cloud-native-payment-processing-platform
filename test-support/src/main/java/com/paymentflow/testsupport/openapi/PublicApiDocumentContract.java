@@ -330,10 +330,14 @@ public abstract class PublicApiDocumentContract {
                     Set<String> headers = names(response.getValue().path("headers"));
                     String where = "%s %s (%s)".formatted(verb, path, status);
 
-                    // Positive direction. X-Correlation-Id has no exceptions — its filter runs
-                    // before anything can refuse a request.
-                    assertThat(headers).describedAs("%s carries the correlation id", where)
-                            .contains(CorrelationConstants.CORRELATION_ID_HEADER);
+                    // Positive direction. These two have no exceptions — their filter runs at
+                    // HIGHEST_PRECEDENCE, before anything can refuse a request. The request id
+                    // in particular must be on *successes* too: it keys the caller's own
+                    // request-log rows, and an SDK that could only report it on failure would
+                    // leave a payment that succeeded strangely impossible to trace (D168).
+                    assertThat(headers).describedAs("%s carries both trace identifiers", where)
+                            .contains(CorrelationConstants.CORRELATION_ID_HEADER,
+                                    CorrelationConstants.REQUEST_ID_HEADER);
 
                     // Negative direction, and the half worth having. The gateway's filter
                     // order decides what a refusal can carry: a 401/403 is written at +20 and

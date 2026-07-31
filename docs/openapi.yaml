@@ -80,6 +80,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -99,6 +101,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -118,6 +122,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -145,6 +151,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -178,6 +186,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Summarize payment activity
       tags:
       - Analytics
@@ -227,6 +237,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -246,6 +258,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -265,6 +279,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -292,6 +308,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -325,6 +343,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Retrieve your balance
       tags:
       - Balance
@@ -401,6 +421,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "400":
           content:
             application/json:
@@ -424,6 +446,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -443,6 +467,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -462,6 +488,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -489,6 +517,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -522,6 +552,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: List balance transactions
       tags:
       - Balance transactions
@@ -607,6 +639,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "400":
           content:
             application/json:
@@ -630,6 +664,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -649,6 +685,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -668,6 +706,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -695,6 +735,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -728,6 +770,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: List events
       tags:
       - Events
@@ -781,6 +825,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "400":
           content:
             application/json:
@@ -804,6 +850,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -823,6 +871,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -842,6 +892,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -865,6 +917,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -892,6 +946,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -925,6 +981,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Retrieve an event
       tags:
       - Events
@@ -1048,6 +1106,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "400":
           content:
             application/json:
@@ -1071,6 +1131,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -1090,6 +1152,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -1109,6 +1173,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -1136,6 +1202,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -1169,6 +1237,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: List payments
       tags:
       - Payments
@@ -1229,6 +1299,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "400":
           content:
             application/json:
@@ -1252,6 +1324,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -1271,6 +1345,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -1290,6 +1366,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "409":
           content:
             application/json:
@@ -1313,6 +1391,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -1340,6 +1420,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -1373,6 +1455,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Create a payment
       tags:
       - Payments
@@ -1433,6 +1517,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -1452,6 +1538,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -1471,6 +1559,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -1494,6 +1584,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -1521,6 +1613,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -1554,6 +1648,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Retrieve a payment
       tags:
       - Payments
@@ -1616,6 +1712,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -1635,6 +1733,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -1654,6 +1754,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -1677,6 +1779,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "409":
           content:
             application/json:
@@ -1700,6 +1804,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -1727,6 +1833,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -1760,6 +1868,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Authorize a payment
       tags:
       - Payments
@@ -1822,6 +1932,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -1841,6 +1953,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -1860,6 +1974,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -1883,6 +1999,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "409":
           content:
             application/json:
@@ -1906,6 +2024,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -1933,6 +2053,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -1966,6 +2088,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Capture an authorized payment
       tags:
       - Payments
@@ -2033,6 +2157,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "400":
           content:
             application/json:
@@ -2056,6 +2182,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -2075,6 +2203,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -2094,6 +2224,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -2117,6 +2249,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "409":
           content:
             application/json:
@@ -2140,6 +2274,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -2167,6 +2303,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -2200,6 +2338,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Refund a captured payment
       tags:
       - Payments
@@ -2259,6 +2399,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -2278,6 +2420,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -2297,6 +2441,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -2320,6 +2466,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "409":
           content:
             application/json:
@@ -2343,6 +2491,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -2370,6 +2520,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -2403,6 +2555,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Void a payment
       tags:
       - Payments
@@ -2501,6 +2655,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "400":
           content:
             application/json:
@@ -2524,6 +2680,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -2543,6 +2701,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -2562,6 +2722,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -2589,6 +2751,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -2622,6 +2786,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: List refunds
       tags:
       - Refunds
@@ -2675,6 +2841,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -2694,6 +2862,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -2713,6 +2883,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -2736,6 +2908,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -2763,6 +2937,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -2796,6 +2972,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Retrieve a refund
       tags:
       - Refunds
@@ -2889,6 +3067,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "400":
           content:
             application/json:
@@ -2912,6 +3092,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -2931,6 +3113,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -2950,6 +3134,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -2977,6 +3163,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -3010,6 +3198,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: List API request logs
       tags:
       - Request logs
@@ -3063,6 +3253,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -3090,6 +3282,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -3123,6 +3317,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       security: []
       summary: List the test cards
       tags:
@@ -3199,6 +3395,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -3218,6 +3416,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -3237,6 +3437,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -3264,6 +3466,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -3297,6 +3501,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: List sandbox decisions
       tags:
       - Decisions
@@ -3355,6 +3561,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -3374,6 +3582,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -3393,6 +3603,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -3420,6 +3632,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -3453,6 +3667,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: List the decisions for one payment
       tags:
       - Decisions
@@ -3510,6 +3726,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "400":
           content:
             application/json:
@@ -3533,6 +3751,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -3552,6 +3772,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -3571,6 +3793,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -3598,6 +3822,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -3631,6 +3857,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Force a sandbox behaviour
       tags:
       - Simulations
@@ -3673,6 +3901,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -3692,6 +3922,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -3711,6 +3943,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -3738,6 +3972,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -3771,6 +4007,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Revoke the active override
       tags:
       - Simulations
@@ -3816,6 +4054,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -3835,6 +4075,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -3854,6 +4096,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -3877,6 +4121,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -3904,6 +4150,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -3937,6 +4185,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Retrieve the active override
       tags:
       - Simulations
@@ -4004,6 +4254,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -4023,6 +4275,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -4042,6 +4296,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -4069,6 +4325,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -4102,6 +4360,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Summarize API usage
       tags:
       - Usage
@@ -4177,6 +4437,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -4196,6 +4458,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -4215,6 +4479,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -4242,6 +4508,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -4275,6 +4543,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: List webhook deliveries
       tags:
       - Webhook deliveries
@@ -4328,6 +4598,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -4347,6 +4619,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -4366,6 +4640,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -4389,6 +4665,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -4416,6 +4694,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -4449,6 +4729,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Retrieve a webhook delivery
       tags:
       - Webhook deliveries
@@ -4505,6 +4787,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -4524,6 +4808,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -4543,6 +4829,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -4566,6 +4854,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "409":
           content:
             application/json:
@@ -4589,6 +4879,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -4616,6 +4908,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -4649,6 +4943,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Replay a webhook delivery
       tags:
       - Webhook deliveries
@@ -4697,6 +4993,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -4716,6 +5014,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -4735,6 +5035,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -4762,6 +5064,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -4795,6 +5099,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: List your webhook endpoints
       tags:
       - Webhook endpoints
@@ -4851,6 +5157,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "400":
           content:
             application/json:
@@ -4874,6 +5182,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -4893,6 +5203,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -4912,6 +5224,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "409":
           content:
             application/json:
@@ -4935,6 +5249,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -4962,6 +5278,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -4995,6 +5313,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Register a webhook endpoint
       tags:
       - Webhook endpoints
@@ -5044,6 +5364,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -5063,6 +5385,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -5082,6 +5406,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -5105,6 +5431,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -5132,6 +5460,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -5165,6 +5495,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Delete a webhook endpoint
       tags:
       - Webhook endpoints
@@ -5217,6 +5549,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -5236,6 +5570,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -5255,6 +5591,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -5278,6 +5616,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -5305,6 +5645,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -5338,6 +5680,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Retrieve a webhook endpoint
       tags:
       - Webhook endpoints
@@ -5399,6 +5743,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "400":
           content:
             application/json:
@@ -5422,6 +5768,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -5441,6 +5789,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -5460,6 +5810,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -5483,6 +5835,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -5510,6 +5864,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -5543,6 +5899,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Update a webhook endpoint
       tags:
       - Webhook endpoints
@@ -5601,6 +5959,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "401":
           content:
             application/json:
@@ -5620,6 +5980,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "403":
           content:
             application/json:
@@ -5639,6 +6001,8 @@ paths:
           headers:
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "404":
           content:
             application/json:
@@ -5662,6 +6026,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "429":
           content:
             application/json:
@@ -5689,6 +6055,8 @@ paths:
               $ref: "#/components/headers/Retry-After"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
         "500":
           content:
             application/json:
@@ -5722,6 +6090,8 @@ paths:
               $ref: "#/components/headers/Sunset"
             X-Correlation-Id:
               $ref: "#/components/headers/X-Correlation-Id"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
       summary: Rotate an endpoint's signing secret
       tags:
       - Webhook endpoints
@@ -5804,6 +6174,12 @@ components:
         example: "Sun, 01 Aug 2027 00:00:00 GMT"
     X-Correlation-Id:
       description: "Identifies the whole distributed trace this call belongs to. Echoed from your request when you send one and generated when you do not, so a client can correlate its own logs with PaymentFlow's. This is the value to quote in a support request when the response carried no body to read `requestId` from."
+      required: false
+      schema:
+        type: string
+        format: uuid
+    X-Request-Id:
+      description: "Identifies this one HTTP call, and keys the matching row of `GET /v1/request_logs`. **Quote this in a support request.** Echoed from your request when you send one and generated when you do not. Present on every response, including successful ones — `requestId` in an error body is the same value, for the case where you have the body and not the headers."
       required: false
       schema:
         type: string

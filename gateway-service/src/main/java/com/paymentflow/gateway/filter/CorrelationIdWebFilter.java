@@ -50,8 +50,17 @@ public class CorrelationIdWebFilter implements WebFilter, Ordered {
         // own CorrelationIdFilter also echoes this header on its response, which the gateway's
         // proxy filter copies onto this exchange — beforeCommit fires after that copy but
         // before the wire write, so .set() (replace, not add) collapses it to one value.
+        //
+        // Both identifiers are echoed. `requestId` was previously sent downstream and never
+        // returned, which meant a caller could learn it only from an error body — and it is
+        // the identifier every one of their own request-log rows is keyed by, and the one the
+        // error contract tells them to quote in a support request. A successful call was
+        // therefore the one case they could not correlate, which is exactly backwards: a
+        // payment that succeeded strangely is more worth tracing than one that failed loudly.
+        // Found while implementing the Node SDK's request-id propagation (M22.2, D168).
         exchange.getResponse().beforeCommit(() -> {
             exchange.getResponse().getHeaders().set(CorrelationConstants.CORRELATION_ID_HEADER, correlationId);
+            exchange.getResponse().getHeaders().set(CorrelationConstants.REQUEST_ID_HEADER, requestId);
             return Mono.empty();
         });
 
