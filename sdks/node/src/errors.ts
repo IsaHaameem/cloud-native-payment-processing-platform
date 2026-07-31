@@ -150,6 +150,56 @@ export class ApiConnectionError extends PaymentFlowError {}
  */
 export class ApiError extends PaymentFlowError {}
 
+/**
+ * A webhook delivery that could not be trusted.
+ *
+ * Separate from the HTTP hierarchy above because it describes the opposite direction: these
+ * are raised while *receiving* something the platform sent, not while calling it. Nothing here
+ * has a `statusCode`, because there was no request.
+ */
+export class WebhookVerificationError extends PaymentFlowError {}
+
+/**
+ * The signature header was malformed, or no signature in it matched.
+ *
+ * **Treat this as hostile.** A body that fails verification did not come from PaymentFlow, or
+ * did not arrive intact, and either way must not be acted on.
+ */
+export class WebhookSignatureError extends WebhookVerificationError {}
+
+/**
+ * The signature was valid but its timestamp is outside the tolerance window.
+ *
+ * Distinct from {@link WebhookSignatureError} because it is a different operational problem
+ * with a different fix. A valid signature arriving late is usually a replayed delivery — which
+ * is exactly what the timestamp exists to make detectable (D105) — but it is also what a
+ * clock skewed by minutes looks like. One of those is an attack and the other is NTP, and a
+ * receiver that could not tell them apart would either ignore a real replay or chase a
+ * security incident that is a misconfigured server.
+ */
+export class WebhookTimestampError extends WebhookVerificationError {
+  /** The `t` value the header carried, in epoch seconds. */
+  readonly timestamp: number;
+  /** How far outside the window it fell, in seconds. Always positive. */
+  readonly skewSeconds: number;
+
+  constructor(message: string, timestamp: number, skewSeconds: number) {
+    super(message);
+    this.timestamp = timestamp;
+    this.skewSeconds = skewSeconds;
+  }
+}
+
+/**
+ * The signature verified, and the body is not an event envelope this SDK can return.
+ *
+ * Reachable only from a platform defect, and raised rather than papered over because
+ * `constructEvent` promises a `WebhookEvent` whose `id`, `type` and `data` are present. A
+ * helper that returned an object missing them would move the failure into the caller's handler,
+ * where it reads as their bug.
+ */
+export class WebhookPayloadError extends WebhookVerificationError {}
+
 /** The `type` values this SDK maps to a class, spelled as the platform publishes them. */
 const BY_TYPE: Readonly<Record<string, new (message: string, detail: PaymentFlowErrorDetail) => PaymentFlowError>> = {
   authentication_error: AuthenticationError,

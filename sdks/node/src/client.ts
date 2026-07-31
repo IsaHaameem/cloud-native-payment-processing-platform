@@ -21,6 +21,7 @@ import { Events } from './resources/events.js';
 import { Analytics, RequestLogs, Usage } from './resources/reporting.js';
 import { WebhookDeliveries, WebhookEndpoints } from './resources/webhooks.js';
 import { TestHelpers } from './resources/test-helpers.js';
+import { webhooks, type Webhooks } from './webhooks-namespace.js';
 
 export class PaymentFlow {
   /** The configuration this client resolved, after defaults and validation. */
@@ -48,6 +49,15 @@ export class PaymentFlow {
   readonly webhookDeliveries: WebhookDeliveries;
   /** The sandbox controls. Test mode only, decided by your key. */
   readonly testHelpers: TestHelpers;
+
+  /**
+   * Verifying deliveries you receive.
+   *
+   * The one namespace that makes no HTTP requests and needs no API key — it is here for
+   * discoverability, and the same functions are exported from the package root so a receiver
+   * process that never calls the API does not have to construct a client to use them.
+   */
+  readonly webhooks: Webhooks = webhooks;
 
   constructor(options: PaymentFlowOptions = {}) {
     this.config = resolveConfig(options);

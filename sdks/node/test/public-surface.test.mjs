@@ -28,6 +28,7 @@ test('the public surface is exactly what index.ts names', () => {
     'ApiError',
     'AuthenticationError',
     'DEFAULT_BASE_URL',
+    'DEFAULT_TOLERANCE_SECONDS',
     'IdempotencyError',
     'InvalidRequestError',
     'PaymentFlow',
@@ -35,8 +36,17 @@ test('the public surface is exactly what index.ts names', () => {
     'PaymentFlowError',
     'PermissionError',
     'RateLimitError',
+    'SIGNATURE_HEADER',
     'USER_AGENT',
     'VERSION',
+    'WebhookPayloadError',
+    'WebhookSignatureError',
+    'WebhookTimestampError',
+    'WebhookVerificationError',
+    'constructEvent',
+    'signPayload',
+    'signatureHeaderFor',
+    'webhooks',
   ]);
 });
 

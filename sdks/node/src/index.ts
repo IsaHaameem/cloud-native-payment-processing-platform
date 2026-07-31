@@ -58,8 +58,29 @@ export {
   PaymentFlowError,
   PermissionError,
   RateLimitError,
+  WebhookPayloadError,
+  WebhookSignatureError,
+  WebhookTimestampError,
+  WebhookVerificationError,
 } from './errors.js';
 export type { PaymentFlowErrorDetail } from './errors.js';
+
+// ── Webhooks ────────────────────────────────────────────────────────────────────────────
+//
+// Exported both as a namespace and as individual functions. A receiver is often a different
+// process from the one that calls the API and frequently holds no API key, so verification
+// must not require a client to exist.
+
+export { webhooks } from './webhooks-namespace.js';
+export type { Webhooks } from './webhooks-namespace.js';
+export {
+  constructEvent,
+  signPayload,
+  signatureHeaderFor,
+  DEFAULT_TOLERANCE_SECONDS,
+  SIGNATURE_HEADER,
+} from './webhooks.js';
+export type { ConstructEventOptions, WebhookEvent } from './webhooks.js';
 
 // ── The request pipeline ────────────────────────────────────────────────────────────────
 
