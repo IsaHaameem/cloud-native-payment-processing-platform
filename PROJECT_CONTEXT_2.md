@@ -131,8 +131,24 @@
 > recorded in §14, because adding to a `required` list is classified breaking and this milestone
 > was additive-only. Python is untouched by both, deliberately: Node finishes before Python
 > begins.
+> **M22.4 complete** (2026-07-31), and with it **the Node SDK**: webhook verification,
+> packaging, documentation and examples. `constructEvent` implements M18.4's signing
+> specification and is checked against the same five shared vectors as `WebhookSigner` and the
+> reference `verify.js`/`verify.py` - no signing logic was duplicated, and a divergence fails a
+> test here rather than reaching a merchant. Three distinct error classes, and the signature is
+> verified before the timestamp window so that a `WebhookTimestampError` only ever describes a
+> delivery that genuinely came from PaymentFlow (D176). Verification needs no client and no API
+> key, because a receiver usually holds neither (D174). The package declares
+> `sideEffects: false` and a test reads the built entry point back to prove it; `npm pack` is
+> asserted to ship `dist/` and nothing else. The README's 18 TypeScript snippets and all six
+> examples are **compiled against the built declarations** on every run (D177) - which found a
+> real API defect on its first execution: `new PaymentFlow({ apiKey: process.env.KEY })` did not
+> type-check, because `exactOptionalPropertyTypes` distinguishes "may be omitted" from "may be
+> undefined" and `process.env` produces the latter. That is the first line every integrator
+> writes, and the fix they would have reached for is a non-null assertion on a credential
+> (D173). **0 breaking, 0 accepted, 0 additive**: M22.4 touched no platform contract at all.
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D172**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D177**.
 
 ---
 
@@ -2806,6 +2822,11 @@ decisions are appended as milestones are implemented.
 | D170 | (M22.3) The hand-written parameter types state the contract's **real** requirements, even where the published `required` list understates them - `amountMinor` is required by `PaymentCreateParams` | (a) Mirror the document exactly, leaving `amountMinor` optional; (b) add `amountMinor` to the schema's `required` list so the document and the SDK agree; (c) validate it at runtime in the SDK instead of in the type | `CreatePaymentRequest.amountMinor` is a Java primitive `long` with `@Positive`: a body omitting it deserializes to `0` and is rejected with a 400, every time. The document lists only `currency` as required, so it understates a requirement that has never been optional - the same class of defect M21.7 found with `Idempotency-Key`, where the document let a caller write the one request the API always refuses. (b) is the correct long-term fix and is **not available in this milestone**: adding an entry to `required` is classified breaking in both directions by `OpenApiDiff`, deliberately, and the instruction for this milestone is that a platform fix ships only if it is additive. So the document is left alone and recorded as debt (§14), and the SDK - whose types are hand-written precisely so they can be better than a generated mirror - states the truth. (c) moves a compile-time guarantee to runtime for no gain in a typed language |
 | D171 | (M22.3) The SDK uses the **contract's own spelling** throughout: `amountMinor` in bodies, `starting_after` in query strings. No camelCase translation layer | (a) Normalise everything to camelCase, which is idiomatic JavaScript; (b) normalise everything to snake_case; (c) accept both spellings and translate | The platform is genuinely mixed - response bodies are camelCase and query parameters are snake_case - so there is no single idiom to be faithful to, only a choice between the contract's spelling and an invented one. Using the contract's makes three things true at once: what a caller writes is what goes on the wire, the transport's validation against the generated `queryParameters` list is exact rather than approximate, and the published documentation is searchable from the call site. (a) requires a translation table that is a fourth copy of the parameter list, maintained by hand, whose failure mode is a filter silently dropped - the platform ignores a query parameter it does not recognise and returns an unfiltered page, which reads as a correct answer to a narrower question. (b) would rename the body fields the models already declare, splitting the SDK from its own generated types. (c) doubles the surface and makes the wrong spelling work, so nobody ever learns the right one |
 | D172 | (M22.3) The generated **types** are re-exported from `index.ts` one by one, by name; the generated **values** are not exported at all | (a) `export * from './generated/models.js'`; (b) export no generated types, leaving callers to write `Awaited<ReturnType<typeof client.payments.retrieve>>`; (c) hand-write a parallel set of response interfaces | The architecture's rule is that generated code never becomes part of the public SDK API, and (b) is that rule applied literally - it makes the package unusable, because an integrator has to be able to name the object a method returned in order to pass it to their own function. The resolution that keeps the rule's *purpose* is to split runtime from types: the operation table and the enum value lists are never reachable from the package root, and the response models are re-exported from a curated list a person maintains. (a) hands the generator authority over this package's semver, so a schema renamed inside a Java service becomes a breaking npm release nobody reviewed. (c) is the same list written twice, and the copy drifts the first time a field is added. Request models are deliberately excluded from the list, because what a caller passes is the hand-written parameter type - which under D170 states requirements the generated one does not |
+| D173 | (M22.4) Client **option** types are `T \| undefined`, not merely optional, even though response types keep the stricter `exactOptionalPropertyTypes` treatment | (a) Leave `apiKey?: string` and let callers assert; (b) turn `exactOptionalPropertyTypes` off for the package; (c) accept `null` as well, so any absent-ish value works | Found by type-checking the examples against the built declarations: `new PaymentFlow({ apiKey: process.env.PAYMENTFLOW_API_KEY })` did not compile, because `process.env.X` is `string \| undefined` and under `exactOptionalPropertyTypes` "may be omitted" and "may be undefined" are different types. That line is the first one every integrator writes and it is in this SDK's own quickstart. (a) leaves them reaching for `process.env.KEY!`, which teaches a non-null assertion on a credential - the one place a wrong assumption is most expensive - and it would have to be repeated at every option. (b) throws away the flag where it genuinely earns its keep: on *response* models the contract distinguishes an absent field from an explicitly null one (D143), and collapsing that would make the generated types lie. The asymmetry is the point - strictness on data the platform sends, tolerance on values a caller supplies. (c) adds a third spelling of "nothing" for no benefit; `null` is not what `process.env` or an optional config field produces |
+| D174 | (M22.4) Webhook verification is exported as **free functions** as well as a namespace, and needs no client | (a) Only `client.webhooks.constructEvent`, matching every other namespace; (b) only free functions, with no namespace at all; (c) a separate entry point, `paymentflow/webhooks` | A receiver is frequently a different process from the one that calls the API, and it often holds no API key at all - it needs the endpoint's signing secret and nothing else. (a) would force that process to construct a client, which means either handing it a secret API key it has no use for or skipping verification, and the second is what actually happens. §7.1 names the namespace form, so (b) would diverge from the shape the other three SDKs will take. Exporting both costs one object literal and satisfies both readings. (c) was rejected because a second entry point is a second `exports` condition, a second declaration file and a second thing to get wrong in a bundler, to save importing one function |
+| D175 | (M22.4) `constructEvent` returns a **hand-written `WebhookEvent`**, not the generated `EventResponse` | (a) Return `EventResponse`, which is the same event from `/v1/events`; (b) return `unknown` and let the caller assert; (c) generate a webhook-envelope model from the contract | They are genuinely different shapes. `WebhookEventBody` carries `apiVersion`; `EventResponse` does not, because the read API does not publish it. Returning `EventResponse` would under-declare the object actually handed back, so a caller reading `event.apiVersion` would be told it does not exist while it sits in the JSON. (b) gives up the entire point of a typed helper. (c) is the right instinct and has nowhere to read from: the delivered envelope is not in `docs/openapi.yaml` at all - it is what notification-service POSTs, described in the merchant guide - so the generator has no source for it. The hand-written type also lets `id`, `type` and `data` be declared **required**, which `constructEvent` then checks after verifying, so the promise is enforced rather than hoped for |
+| D176 | (M22.4) The signature is verified **before** the timestamp window | (a) Check the cheap timestamp first and skip the HMAC when it fails; (b) check both and report whichever failed first in header order | Ordering is observable. Checking the window first tells anyone who can reach the endpoint whether a body was correctly signed, by timing which error comes back - and it reports a garbage header as "too old", which sends an integrator to inspect a clock that is fine. (a) is the natural performance instinct and buys one HMAC over a few kilobytes, which is nothing next to the request that carried it. The order chosen means a `WebhookTimestampError` is only ever raised about a delivery that genuinely came from PaymentFlow, which is what makes it actionable: it is a replay or a skewed clock, never a forgery |
+| D177 | (M22.4) The README's TypeScript snippets and the `examples/` directory are **compiled against the built declarations** as part of `npm run verify` | (a) Review documentation by reading it; (b) compile the examples but not the README; (c) compile against `src/` rather than `dist/` | A snippet is the first code a new integrator writes, and when it does not compile they assume the error is theirs. Documentation drifting from the API it documents is the failure R10 exists to name, and a long README drifts silently - a renamed method, a type no longer exported, a parameter that changed shape. (a) is what everyone intends and nobody sustains. (b) leaves the most-read code unchecked. (c) is the subtle one and matters most: a type that is correct in the sources and missing from `dist/index.d.ts` passes a source-relative check and fails for every person who installs the package, so both the examples and the extracted snippets resolve `paymentflow` to the built `.d.ts`. It paid for itself immediately - D173 was found this way, not by review |
 | D151 | (M21.3) The merge is a **new `:openapi-tools` module** whose fragments are produced by each service's existing `OpenApiDocumentIntegrationTest`, not by `springdoc-openapi-gradle-plugin` and not by Gradle-script logic in `build-logic` | (a) `org.springdoc.openapi-gradle-plugin`, the tool built for exactly this job — it `bootRun`s the service and fetches `/v3/api-docs`; (b) merge logic written directly in the root build file or as a `build-logic` task class; (c) commit six per-service documents and skip the merge until M25 needs one | (a) is the obvious choice and fails on this platform's shape: it starts each service for real, so producing the document would require Postgres, Redis **and** Kafka reachable at build time for six services. The pre-M21.3 audit had just finished demonstrating what that dependency costs — 18 spurious test failures from Docker exhaustion, and a compose stack whose stale images answered `/v3/api-docs` with 401 (§14). Worse, it would be a *second* path to the published contract, one that asserts nothing: the fragment it produced could differ from the one the document tests approved and no test would notice. Reusing the integration test makes the fragment a by-product of an assertion — the path set, the tier exclusion and the shared contract are all checked before the bytes are written. (b) keeps the wiring together but makes the interesting part — deduplicating shared components, refusing to merge fragments that disagree — reachable only through a Gradle invocation, when it is ordinary logic with ordinary failure modes; §10's standing position is that logic like that gets unit tests, and `OpenApiMergerTest`'s hand-written *disagreeing* fragments could not be written at all against the real six, which agree. (c) defers the one artefact everything downstream consumes and leaves nothing to diff, which is precisely the "documentation drifts into fiction" failure §9.5 and R10 exist to prevent. The module also has to exist for M21.6, which diffs this same document for breaking changes |
 
 ---
@@ -7723,6 +7744,86 @@ across languages; generated code never part of the public SDK API; native `fetch
 `httpx` as Python's only runtime dependency; cross-language parity testing against shared
 golden fixtures; `docs/openapi.yaml` as the one contract source; and M22.0 kept strictly
 additive.
+
+#### M22.4 - Node SDK completion ✅ (2026-07-31)
+
+**Webhook verification, which is the point of the milestone.** `constructEvent(payload,
+signature, secret, tolerance)` verifies the HMAC in constant time, enforces the timestamp
+window, and returns a typed event. Everything else in this package is convenience - an
+integrator who skipped the SDK would still end up with working payments, just more slowly.
+This one is different: a receiver that does not verify will accept a forged `payment.captured`
+from anyone who learns the URL, and one that verifies the body but ignores the timestamp will
+accept a genuine delivery replayed forever.
+
+**No signing logic was duplicated.** The specification is M18.4's, and the implementation is
+checked against
+`notification-service/src/test/resources/signature-vectors/webhook-signature-vectors.json` -
+the same five vectors that `WebhookSigner`, the reference `verify.js` and the reference
+`verify.py` are checked against. That file's own header anticipated this: *"M22's Node SDK
+helper is expected to consume this same vector file as its own fixture, so a divergence there
+fails loudly rather than being discovered by a merchant."* Asserting against the vectors rather
+than against the SDK's own output is what makes the suite worth anything - a test that signed a
+body and then verified it would pass just as happily if the algorithm were wrong in both
+directions.
+
+Three error classes, because they are three different operational problems (§7.1 requires the
+first two to be distinct): `WebhookSignatureError` for a malformed header or a signature that
+did not match, `WebhookTimestampError` for a valid signature outside the window, and
+`WebhookPayloadError` for an authentic body that is not an event envelope. The signature is
+checked **before** the window (D176) - the other order leaks whether a body was correctly
+signed, and reports a garbage header as "too old". The return type is hand-written rather than
+the generated `EventResponse` (D175), because the delivered envelope carries `apiVersion` and
+the read API's model does not.
+
+Verification needs no client and no API key (D174), because a receiver is frequently a separate
+process that holds neither.
+
+**Packaging.** `sideEffects: false`, so a bundler can drop what an application does not
+reference - and a test reads the built entry point back to confirm the claim is true, line by
+line, rather than trusting the manifest. `npm pack --dry-run` is asserted to ship `dist/`, the
+README and both module-system markers, and to ship no sources, tests, examples or tsconfigs.
+Both entry points are loaded the way a consumer loads them and asserted to expose the same
+surface and to verify a signature identically - the CommonJS build imports `node:crypto`
+differently, and a dual build that got that wrong would fail only there.
+
+**Documentation that cannot rot.** A production README - installation, authentication, client
+construction, payments, refunds, pagination, errors, webhooks, idempotency, tracing, TypeScript
+- plus six runnable examples. Every one of the README's 18 TypeScript snippets is extracted and
+compiled against the **built declarations**, and so are the examples (D177). Documentation that
+does not compile is documentation that is wrong, in the most expensive place there is: a
+snippet is the first code a new integrator writes, and they will assume the error is theirs.
+
+**A real API defect, found by that check on its first run.**
+`new PaymentFlow({ apiKey: process.env.PAYMENTFLOW_API_KEY })` did not compile. Under
+`exactOptionalPropertyTypes`, `apiKey?: string` means "may be omitted", not "may be undefined",
+and `process.env.X` is `string | undefined`. That is the first line every integrator writes and
+it is in this SDK's own quickstart; the fix a user would reach for is `process.env.KEY!`, a
+non-null assertion on a credential. Client option types are now `T | undefined` explicitly,
+while response types keep the stricter treatment where it earns its keep (D173). Two smaller
+defects came from the same run: an example named an `AnalyticsSummaryResponse` field that does
+not exist, and a comment key inside `compilerOptions` is not legal TypeScript configuration.
+
+**Pagination completion.** Nothing was missing, and "consistent across every list endpoint" was
+not being checked. `test/pagination.test.mjs` now drives **every** list method from a table and
+asserts they behave identically - iteration, `nextPage()`, `hasMore`, filter propagation across
+pages, stopping when the caller stops, and the empty case. The table is cross-checked against
+the client by reflection, so a list method added without a decision about how it paginates
+fails rather than being noticed later. It found one immediately:
+`testHelpers.listDecisionsForPayment` was unclassified.
+
+**Verification.**
+
+| Check | Result |
+|---|---|
+| `./gradlew build --max-workers=2` | BUILD SUCCESSFUL - no Java changed in M22.4, so 84 of 85 tasks were up to date against the 993-test run recorded above |
+| `verifySdkSources` | executed; up to date, 11 files - the generated artefacts are unchanged |
+| `verifyOpenApiBaseline` | in sync |
+| `verifyOpenApiCompatibility` | **0 breaking, 0 accepted, 0 additive** - M22.4 touched no platform contract at all |
+| `npm run typecheck` | no errors |
+| `npm test` | **108 tests**, 0 failures, 0 skipped (54 before) |
+| `npm run typecheck:examples` | six examples compile against the built `.d.ts` |
+| README snippets | 18 extracted, all compile |
+| `npm pack --dry-run` | succeeds; ships `dist/`, `package.json`, `README.md` and nothing else |
 
 #### M22.3 - the Node resources ✅ (2026-07-31)
 

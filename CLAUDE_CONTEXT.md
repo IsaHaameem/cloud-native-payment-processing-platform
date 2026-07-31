@@ -25,12 +25,12 @@
 | **Purpose** | A payment processor's orchestration layer — payment lifecycle FSM, double-entry ledger, and asynchronous state propagation — built across independently deployable microservices. A portfolio/engineering project, not a production payment system. |
 | **Repository version** | V2 in progress (V1 complete and frozen) |
 | **Development phase** | Phase B complete — *Product surface*; Phase C in progress (see §3) |
-| **Current milestone** | **M22 in progress** — Node & Python SDKs. M22.0–M22.3 complete; M22.4 next |
+| **Current milestone** | **M22 in progress** — Node & Python SDKs. M22.0–M22.4 complete (**the Node SDK is finished**); M22.5 next |
 | **Branch** | `main` |
-| **Latest commit** | *docs(m22): synchronize PROJECT_CONTEXT_2.md and CLAUDE_CONTEXT.md through M22.3* |
+| **Latest commit** | *docs(m22): synchronize PROJECT_CONTEXT_2.md and CLAUDE_CONTEXT.md through M22.4* |
 | **Repository health** | Healthy |
 | **Build status** | `./gradlew build --max-workers=2` — **BUILD SUCCESSFUL** |
-| **Test status** | **993 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18), plus 54 Node and 32 Python |
+| **Test status** | **993 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18), plus 108 Node and 32 Python |
 | **Working tree** | Clean |
 | **Public API revision** | `2026-08-01` current; `2026-07-27` superseded (sunset 2027-08-01) |
 
@@ -126,7 +126,8 @@ end.
 | M22.1 | The SDK foundation — `sdks/`, the shared generator, both skeletons, CI | ✅ |
 | M22.2 | The Node SDK core — config, transport, idempotency, retries, errors, pagination | ✅ |
 | M22.3 | The Node resources — eleven namespaces over all 31 published operations | ✅ |
-| M22.4+ | Webhook signature verification, then Python parity, examples, packaging, dry-run release | ⬜ next |
+| M22.4 | Node completion — webhooks, packaging, documentation, examples | ✅ |
+| M22.5+ | The Python client, then packaging verification and the dry-run release pipelines | ⬜ next |
 
 ### Remaining roadmap
 
@@ -145,9 +146,9 @@ end.
 
 Every service is bootable and tested; the public API is complete, documented, versioned and
 machine-readable down to its transport headers; the SDK generation pipeline exists and is gated;
-and the Node SDK is a working client — every published operation is callable, with idempotency,
-retries, pagination and typed errors. What M22 still owes is `webhooks.constructEvent`, then the
-same client in Python.
+and **the Node SDK is finished** — every published operation is callable, with idempotency,
+retries, pagination, typed errors, webhook verification, packaging checks and documentation whose
+snippets compile. What M22 still owes is the same client in Python.
 
 ---
 
@@ -430,8 +431,15 @@ validation against the descriptor, header assembly, the idempotency key, the ret
 so adding an endpoint cannot accidentally add a behaviour. `errors.ts`, `config.ts` and
 `pagination.ts` are the other three pieces; the resource classes are deliberately thin.
 
-Zero runtime dependencies, Node 18+, dual ESM/CJS. Its suites run under `node --test` against
-`dist/`, in a CI job of its own — never as part of `./gradlew build` (D136, D164).
+`webhooks.ts` is the exception to the thinness: it implements M18.4's signing specification and
+is checked against the platform's own shared vector file rather than against itself.
+
+Zero runtime dependencies, Node 18+, dual ESM/CJS, `sideEffects: false`. Its suites run under
+`node --test` against `dist/`, in a CI job of its own — never as part of `./gradlew build`
+(D136, D164). `npm run verify` additionally compiles `examples/` and every TypeScript snippet in
+the README against the **built** declarations (D177), because a type that is correct in `src/`
+and missing from `dist/index.d.ts` passes a source-relative check and fails for everyone who
+installed the package.
 
 ### `sdks/python` — the Python SDK *(PyPI package, not published)*
 
@@ -1027,8 +1035,9 @@ contract source.
 | M22.1 | The SDK foundation: `sdks/`, the shared generator, both package skeletons, the codegen pipeline, the freshness gate, CI | ✅ |
 | M22.2 | The Node SDK core: the client, native-`fetch` transport, auth, automatic idempotency keys, the retry engine, timeouts, trace-id propagation, the typed error hierarchy | ✅ |
 | M22.3 | The Node resources: eleven namespaces covering **all 31** published operations, with transparent pagination in both page shapes | ✅ |
-| M22.4 | `webhooks.constructEvent` — HMAC verification and timestamp tolerance | ⬜ next |
-| M22.5+ | Python parity, examples, packaging verification, dry-run release pipelines | ⬜ |
+| M22.4 | Node completion: `webhooks.constructEvent` against M18's shared vectors, packaging verification, the README and six examples — all compiled | ✅ |
+| M22.5 | The Python client — the same design, in Python | ⬜ next |
+| M22.6+ | Python packaging verification, the cross-language equivalence scenario, dry-run release pipelines | ⬜ |
 
 ### What exists today
 
@@ -1066,11 +1075,24 @@ recorded as a decision rather than silently deviated from.
 §5/M22 additionally lists request/response hooks. They are not in §7.1's agreed cross-language
 contract, so they were not built — a speculative extension point is public API forever.
 
-### What M22.4 needs from here
+### Webhook verification (M22.4)
 
-Nothing further from the platform. The webhook signing scheme, its header format and its
-tolerance window all exist from M18 and are already exercised by the platform's own tests;
-`constructEvent` is hand-written verification against them.
+`constructEvent(payload, signature, secret, tolerance)` implements M18.4's specification —
+`v1 = hex(HMAC-SHA256(secret, "{t}.{body}"))`, the `whsec_` prefix included in the key, several
+`v1` values accepted for the rotation window — and is checked against the **same five shared
+vectors** as `WebhookSigner`, `verify.js` and `verify.py`. Nothing was reimplemented from
+memory, and a divergence fails a test rather than reaching a merchant.
+
+Three error classes: signature, timestamp, payload. The signature is verified **before** the
+window (D176), so a `WebhookTimestampError` only ever describes a delivery that really came
+from PaymentFlow — which is what makes it actionable as "a replay, or a clock" rather than
+ambiguous with a forgery. Verification takes no client and no API key (D174).
+
+### What M22.5 needs from here
+
+Nothing further from the platform, and nothing further from Node. The Python package already
+has the generated models, the shared fixtures and the vector file; M22.5 is the same design
+transcribed, with §7.1's table and D166–D177 as the specification it implements.
 
 ## 18. Repository Health
 
@@ -1111,7 +1133,7 @@ D164). They are counted separately:
 
 | Package | Suite | Tests |
 |---|---|---|
-| `sdks/node` | `npm run verify` — typecheck, dual build, then `node --test` against `dist/` | **54** pass, 0 fail, 0 skipped |
+| `sdks/node` | `npm run verify` — typecheck, dual build, `node --test` against `dist/`, then the examples | **108** pass, 0 fail, 0 skipped |
 | `sdks/python` | `python -m pytest` | 32 passed |
 
 ### Warnings a new session must know
