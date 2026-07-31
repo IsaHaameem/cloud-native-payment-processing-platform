@@ -389,6 +389,12 @@ jobs:
       # claims to support. mypy cannot check that floor — current mypy refuses
       # to model anything below 3.10 — and it would be the wrong tool anyway:
       # what breaks at a version floor is syntax and runtime API, not types.
+      #
+      # It also includes tests/test_packaging.py, which builds a wheel and an
+      # sdist into a temporary directory, inspects both, and installs the wheel
+      # into a clean interpreter to confirm it imports. Nothing publishes: both
+      # packages carry a marker their registry refuses, and releasing needs an
+      # explicit decision rather than a green build.
       - name: Test (Python)
         if: matrix.sdk == 'python'
         working-directory: sdks/python

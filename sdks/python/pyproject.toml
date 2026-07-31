@@ -32,6 +32,9 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "mypy>=1.13",
+    # PEP 517 front end. tests/test_packaging.py builds a wheel and an sdist into a temporary
+    # directory and inspects them; nothing publishes.
+    "build>=1.2",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -59,7 +62,10 @@ addopts = "--strict-markers --strict-config"
 # runtime API, not types.
 python_version = "3.10"
 strict = true
-files = ["src/paymentflow", "tests"]
+# The examples are checked too, and against the same strict settings. They import from the
+# package exactly as an integrator does, so an API change that broke them fails here rather
+# than being discovered by someone copying one.
+files = ["src/paymentflow", "tests", "examples"]
 # The generated modules are checked like everything else. They are the most important part to
 # check: a generator that emitted an annotation referring to a name it never defined would
 # produce a package that imports fine and fails the first time a consumer runs a type checker.
