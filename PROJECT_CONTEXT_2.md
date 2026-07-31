@@ -108,8 +108,31 @@
 > stale model; it was observed failing on an edited file, a deleted file and an orphaned file
 > before being trusted. Both packages build, type-check and test in CI. Neither is published,
 > and neither toolchain is a prerequisite for building the monorepo.
+> **M22.2 complete** (2026-07-31): the Node SDK core. Configuration, native-`fetch` transport,
+> authentication, automatic idempotency keys generated once per logical call and reused across
+> every retry of it, the retry engine, timeouts, request-id and correlation-id propagation, and
+> the seven-class error hierarchy mapped from `ApiError.type`. Three of §7.1's rules were
+> written before M20 and M22.0 settled what the transport headers mean and are wrong when read
+> against the platform as built: `RateLimit-Reset` describes the *daily* quota and appears on
+> successful responses, so only `Retry-After` is honoured (D167); a `Retry-After` of up to
+> 86,400 seconds is surrendered to rather than slept through (D168); and "retry 429 and 5xx"
+> is split into retryable-status *and* safe-to-replay, so a `POST` the platform does not
+> deduplicate is never retried (D169). Found and fixed a real platform defect: the gateway sent
+> `X-Request-Id` downstream and never echoed it back, so the identifier keying a caller's own
+> request-log rows reached them only in an error body - a successful payment was the one call
+> they could not trace. Additive: **0 breaking, 0 accepted, 186 additive**.
+> **M22.3 complete** (2026-07-31): the developer-facing SDK. Eleven resource namespaces over
+> **all 31 published operations**, with coverage derived from the generated operation table so a
+> new endpoint fails a test rather than being quietly uncallable. No convenience methods and no
+> hidden second requests - every method is one operation and one HTTP call, asserted per method.
+> Generated *types* are re-exported by name from a curated list and generated *values* are not
+> exported at all (D172). Writing the parameter types exposed that `amountMinor` is required in
+> practice and optional in the document; the SDK states the truth (D170) and the document is
+> recorded in §14, because adding to a `required` list is classified breaking and this milestone
+> was additive-only. Python is untouched by both, deliberately: Node finishes before Python
+> begins.
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D165**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D172**.
 
 ---
 
@@ -2776,6 +2799,13 @@ decisions are appended as milestones are implemented.
 | D163 | (M22.0) `ApiError.type` is published as a real `enum` in the document, generated from `ErrorType.values()`, while the Java field stays a `String` | (a) Leave it as `type: string` and let each SDK hand-maintain the vocabulary from the prose, as the description already lists it; (b) change the record field to `ErrorType` so springdoc generates the enum by reflection; (c) publish it as an enum and also make the SDKs reject an unrecognised value | This is the field §7.1's typed error hierarchy branches on, so every one of the four SDKs would otherwise carry a transcribed copy of a list that already exists in `common-dto`, checked against nothing. (a) is the status quo and is exactly the "documentation drifts into fiction" failure R10 names, one indirection further out: the prose and the enum would drift, and the SDKs would drift from both. (b) looks cleaner and is the one option that could actually hurt — a platform that learns a seventh classification would fail to *deserialize its own error response*, which is a strictly worse failure than a slightly stale document, and the field is a `String` for that reason. Generating the enum from `ErrorType.values()` in the customizer gets the contract without the runtime brittleness: adding a classification updates the document in the same commit, and the SDKs' parity fixtures regenerate from it. On (c): §9 requires clients to tolerate enum values they do not know, which is what makes "a new enum value is additive" true rather than aspirational — so both SDKs widen this to their plain string type and expose the documented values beside it, and the enum is a vocabulary to recognise against, never one to validate with |
 | D164 | (M22.1) The shared SDK generator is **Java, in a Gradle module at `sdks/shared`**, not TypeScript run by npm | (a) Write it in TypeScript, in the SDK tree, run by the Node toolchain the SDKs already need; (b) use an off-the-shelf generator (`openapi-generator`, `openapi-typescript`) per language; (c) keep it in `:openapi-tools`, which already parses this document | **D136** settled the shape of this question for the webhook vectors and applies with more force here: making `node` a build prerequisite of a JVM monorepo means a contributor with neither Node nor Python can no longer build at all. This is not a one-off script but a *gate* — the thing that stops a committed model drifting from the spec — and it has to run in the build that owns the spec, or a stale generated file reaches `main` whenever the person who pushed it had no Node. It also reuses rather than reimplements: `:openapi-tools` already reads and diffs this document with 65 tests behind it, so a TypeScript reader would be a third walk over the same tree (§15's no-duplicated-code rule) and the first one untested. (b) was rejected on the blueprint's own terms — fully generated SDKs are out, and every off-the-shelf generator produces the ergonomic layer badly and the models adequately, so the cost of adopting one is a large dependency and a template fight for the half that is already easy. (c) is close and was rejected on ownership: `openapi-tools` exists to *produce and judge* the published document, and a module that also emits Python would make "what is this module for" unanswerable. `sdks/node` and `sdks/python` deliberately stay outside Gradle — wrapping `npm` in a task would reintroduce exactly the prerequisite this decision removes |
 | D165 | (M22.1) Both emitters read **one language-neutral intermediate representation** (`SdkSpec`), which is also serialized as the shared golden fixtures | (a) Two emitters each walking the OpenAPI tree directly; (b) generate one language and translate its output into the other; (c) an IR, but fixtures written by hand as the agreed contract between the SDKs | M22's risk table names divergence between the two SDKs as the risk worth designing against, and (a) is how it happens: each emitter would make its own decision about what a nullable type union means, which enums exist and what they are called, and the day they disagree nothing notices — both still produce a valid package. With one reader, disagreement is impossible by construction; the emitters are handed the same answers and can only differ in idiom. It is also what makes the parity fixtures meaningful, because they are that same representation serialized, so "the two languages describe the same contract" is a test both suites run against one artefact rather than a claim in a design document. (b) makes the second language's output a function of the first's syntax, which is how a Python SDK ends up with TypeScript's naming. (c) puts a third hand-maintained copy of the contract in the repository — the exact artefact that goes stale first, and the one nothing regenerates. The fixtures deliberately carry the *contract's* facts (revision, operations, vocabularies, field lists) rather than a dump of the IR's own shape, so refactoring the reader does not break two test suites for a reason neither can see |
+| D166 | (M22.2) The operation descriptors carry **`requiredHeaders`, read from the contract**, and the SDK's idempotency policy is derived from it rather than from a list in hand-written code | (a) Hardcode the five payment mutations in the client; (b) generate a key for every non-`GET`; (c) generate one only when the caller asks for it | The five operations that require `Idempotency-Key` are a fact of the published document, and a client carrying its own copy of that fact keeps answering the old question after the contract moves. (a) is how the SDK ends up sending a key to an endpoint that ignores it - harmless - or, in the direction that matters, *not* sending one to a new mutation that deduplicates on it, so a retry becomes a second charge. (b) is worse than it sounds: `POST /v1/webhook_endpoints` and `POST /v1/webhook_deliveries/{id}/replay` do not deduplicate, so a key sent to them is decoration, and the SDK would then believe those calls are safe to replay when they are not. (c) makes the single most important correctness property opt-in, which is the one thing §7.1 says it must not be. The IR already carried `in` and `required` per parameter, so this cost one derivation on `SdkSpec` shared by all three emitters and no new source of truth |
+| D167 | (M22.2) The retry loop honours **`Retry-After` only**. `RateLimit-Reset` is surfaced as quota telemetry and is never used as a delay | (a) Honour whichever of the two is present, as §7.1's wording literally says; (b) honour `RateLimit-Reset` when `Retry-After` is absent; (c) ignore both and always use the computed backoff | §7.1 was written before M20 and M22.0 settled what these headers mean, and taken literally it is wrong for this platform. `RateLimit-Reset` is **seconds until the daily quota window resets at 00:00 UTC** - it describes the daily allowance, not the burst bucket, and it is present on *successful* responses too. An SDK that treated it as "wait this long" would idle a perfectly healthy client for up to twenty-four hours after a 200. `Retry-After` is the platform's actual answer to "when may I retry", and it is already correct for both causes: seconds for `RATE_LIMIT_EXCEEDED`, time-until-midnight for `DAILY_QUOTA_EXCEEDED`. (b) is the same trap one step further away, reachable whenever a 429 is written by a path that sets the quota headers and not `Retry-After`. (c) throws away the one number that is not a guess. The published header descriptions say all of this - M22.0 wrote them - so this decision is the SDK reading its own contract rather than its planning document |
+| D168 | (M22.2) A `Retry-After` longer than **60 seconds ends the retry loop immediately**, raising `RateLimitError` with `retryAfterSeconds` set, rather than sleeping it out. Separately, the gateway now **echoes `X-Request-Id` on every response** | (a) Sleep for whatever `Retry-After` says, since it is authoritative; (b) cap the sleep at 60s and retry anyway, ignoring the rest of the interval; (c) make the bound a public configuration option | An exhausted daily quota returns the time remaining until 00:00 UTC - up to 86,400 seconds. Sleeping that inside a caller's request handler is not honouring the header, it is a hang, and (a) turns a rate limit into an outage in the integrator's own service. (b) is worse than useless: it retries at a moment the platform has already said it will refuse, spending an attempt to learn what it was told. Surrendering with the interval attached is the only option that lets the caller do the right thing, which is to schedule the work; §9 already tells them to branch on the `code` for exactly this reason. (c) was rejected as speculative surface - §7.1's option table is agreed across four languages, and adding a knob to one of them makes the SDKs diverge in configuration before they diverge in behaviour. **The request-id half is a platform defect this milestone exposed**: `CorrelationIdWebFilter` put `X-Request-Id` on the *downstream* request and echoed only `X-Correlation-Id` back, so a caller could learn the identifier that keys their own request-log rows - the one the error contract tells them to quote in a support request - only when something failed. A successful payment was the single case they could not trace. The fix is one line in the filter plus the header's documentation, and it is strictly additive: **0 breaking, 0 accepted, 186 additive** |
+| D169 | (M22.2) A request is retried only when it is **safe to replay**: `GET`, `DELETE`, or a request carrying an `Idempotency-Key`. Retryable *status* is a separate, narrower question | (a) Retry every 429 and 5xx, which is what "retry on 429, 5xx and network errors" says; (b) retry everything including 4xx; (c) retry nothing but `GET` | A response that never arrived does not mean a request that never arrived - a 502 from a proxy, or a socket closed after the platform committed, are indistinguishable at the client from a request that was dropped. So the question "should this be retried" has two halves, and (a) answers only one of them: `POST /v1/webhook_endpoints` requires no idempotency key, the platform therefore cannot recognise a replay, and retrying a 503 from it can leave two endpoints where the caller asked for one. (b) additionally retries requests the platform will reject identically forever, which only delays the error the caller needs. (c) is safe and gives up the `DELETE` and idempotent-`POST` cases that are the majority of mutations here - and `DELETE /v1/webhook_endpoints/{id}` is idempotent by HTTP's own definition. Splitting the two questions is what lets the loop be aggressive where replay is provably safe and silent where it is not |
+| D170 | (M22.3) The hand-written parameter types state the contract's **real** requirements, even where the published `required` list understates them - `amountMinor` is required by `PaymentCreateParams` | (a) Mirror the document exactly, leaving `amountMinor` optional; (b) add `amountMinor` to the schema's `required` list so the document and the SDK agree; (c) validate it at runtime in the SDK instead of in the type | `CreatePaymentRequest.amountMinor` is a Java primitive `long` with `@Positive`: a body omitting it deserializes to `0` and is rejected with a 400, every time. The document lists only `currency` as required, so it understates a requirement that has never been optional - the same class of defect M21.7 found with `Idempotency-Key`, where the document let a caller write the one request the API always refuses. (b) is the correct long-term fix and is **not available in this milestone**: adding an entry to `required` is classified breaking in both directions by `OpenApiDiff`, deliberately, and the instruction for this milestone is that a platform fix ships only if it is additive. So the document is left alone and recorded as debt (§14), and the SDK - whose types are hand-written precisely so they can be better than a generated mirror - states the truth. (c) moves a compile-time guarantee to runtime for no gain in a typed language |
+| D171 | (M22.3) The SDK uses the **contract's own spelling** throughout: `amountMinor` in bodies, `starting_after` in query strings. No camelCase translation layer | (a) Normalise everything to camelCase, which is idiomatic JavaScript; (b) normalise everything to snake_case; (c) accept both spellings and translate | The platform is genuinely mixed - response bodies are camelCase and query parameters are snake_case - so there is no single idiom to be faithful to, only a choice between the contract's spelling and an invented one. Using the contract's makes three things true at once: what a caller writes is what goes on the wire, the transport's validation against the generated `queryParameters` list is exact rather than approximate, and the published documentation is searchable from the call site. (a) requires a translation table that is a fourth copy of the parameter list, maintained by hand, whose failure mode is a filter silently dropped - the platform ignores a query parameter it does not recognise and returns an unfiltered page, which reads as a correct answer to a narrower question. (b) would rename the body fields the models already declare, splitting the SDK from its own generated types. (c) doubles the surface and makes the wrong spelling work, so nobody ever learns the right one |
+| D172 | (M22.3) The generated **types** are re-exported from `index.ts` one by one, by name; the generated **values** are not exported at all | (a) `export * from './generated/models.js'`; (b) export no generated types, leaving callers to write `Awaited<ReturnType<typeof client.payments.retrieve>>`; (c) hand-write a parallel set of response interfaces | The architecture's rule is that generated code never becomes part of the public SDK API, and (b) is that rule applied literally - it makes the package unusable, because an integrator has to be able to name the object a method returned in order to pass it to their own function. The resolution that keeps the rule's *purpose* is to split runtime from types: the operation table and the enum value lists are never reachable from the package root, and the response models are re-exported from a curated list a person maintains. (a) hands the generator authority over this package's semver, so a schema renamed inside a Java service becomes a breaking npm release nobody reviewed. (c) is the same list written twice, and the copy drifts the first time a field is added. Request models are deliberately excluded from the list, because what a caller passes is the hand-written parameter type - which under D170 states requirements the generated one does not |
 | D151 | (M21.3) The merge is a **new `:openapi-tools` module** whose fragments are produced by each service's existing `OpenApiDocumentIntegrationTest`, not by `springdoc-openapi-gradle-plugin` and not by Gradle-script logic in `build-logic` | (a) `org.springdoc.openapi-gradle-plugin`, the tool built for exactly this job — it `bootRun`s the service and fetches `/v3/api-docs`; (b) merge logic written directly in the root build file or as a `build-logic` task class; (c) commit six per-service documents and skip the merge until M25 needs one | (a) is the obvious choice and fails on this platform's shape: it starts each service for real, so producing the document would require Postgres, Redis **and** Kafka reachable at build time for six services. The pre-M21.3 audit had just finished demonstrating what that dependency costs — 18 spurious test failures from Docker exhaustion, and a compose stack whose stale images answered `/v3/api-docs` with 401 (§14). Worse, it would be a *second* path to the published contract, one that asserts nothing: the fragment it produced could differ from the one the document tests approved and no test would notice. Reusing the integration test makes the fragment a by-product of an assertion — the path set, the tier exclusion and the shared contract are all checked before the bytes are written. (b) keeps the wiring together but makes the interesting part — deduplicating shared components, refusing to merge fragments that disagree — reachable only through a Gradle invocation, when it is ordinary logic with ordinary failure modes; §10's standing position is that logic like that gets unit tests, and `OpenApiMergerTest`'s hand-written *disagreeing* fragments could not be written at all against the real six, which agree. (c) defers the one artefact everything downstream consumes and leaves nothing to diff, which is precisely the "documentation drifts into fiction" failure §9.5 and R10 exist to prevent. The module also has to exist for M21.6, which diffs this same document for breaking changes |
 
 ---
@@ -2860,6 +2890,10 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **`SchemaValidator` implements a subset of JSON Schema, and fails safe rather than silently** (M21.7). It covers the keywords this platform's generated document actually uses and reports anything else as a violation (D158's reasoning applied to validation) — so the failure mode is a contract test blocked by a keyword nobody has written a rule for, not a response that was never really checked. That is the right direction, but it does mean a legitimate springdoc upgrade emitting a new keyword breaks six suites at once until a rule is added. Recorded so the next person to meet that message knows it is a gap in this class rather than a defect in their change.
 - **M21.7 widened the `docs/` build-context gap from one test to seven.** `ErrorCatalogueDocumentationConsistencyTest` already read `../docs/ERRORS.md`, and the six new `PublicApiContractIntegrationTest`s now read `../docs/openapi.yaml`. `docs/` is in `.dockerignore`, so none of them can run inside an image build — which stays latent only because image builds run `-x test`. The exposure is unchanged in kind and larger in extent; if a future milestone ever runs tests during an image build, it will now fail in seven places rather than one.
 - **`payment-service` relaxes Tomcat's query-string parser for `[` and `]`** (D142). Scoped to two characters and one service, but it *is* a widening of what the HTTP layer accepts, made to serve a documented filter syntax. Recorded as an accepted risk rather than a neutral configuration line: any future audit of input handling should know the parser is non-default here and why, and M21's error-contract work should confirm the relaxed characters still route malformed input to the JSON error handler rather than Tomcat's HTML page — which is the failure D142 exists to have fixed.
+- **`CreatePaymentRequest.amountMinor` is required in practice and optional in the published document.** The Java field is a primitive `long` with `@Positive`, so a body omitting it deserializes to `0` and is rejected with a 400 - but `required` lists only `currency`. Found while writing the Node SDK's parameter types (M22.3). This is the same class of defect M21.7 found with `Idempotency-Key`: a caller who trusts the document writes the one request the API always refuses. **Not fixed here, deliberately.** Adding an entry to a schema's `required` list is classified breaking in both directions by `OpenApiDiff`, and this milestone's instruction was that a platform fix ships only if it is additive. The SDK states the truth in its own hand-written type (D170), so no integrator is misled today; the document still is. Closing it properly means either a dated revision or a reviewed entry in the acceptance file, and it should be done together with a sweep for the same pattern - every primitive-typed request field in the platform is a candidate. Unowned.
+- **The Python SDK's 3.9 floor is verified by grammar, not by a 3.9 interpreter.** Current mypy refuses `python_version = "3.9"`, so `tests/test_python_floor.py` parses every shipped module with `ast.parse(feature_version=(3, 9))` and forbids PEP 585/604 spellings outside annotations. That covers syntax and the realistic runtime-API mistake; it does not cover a stdlib behaviour that differs on 3.9. Owned by M22 as "add a 3.9 CI leg once the suite is worth running twice".
+- **Neither SDK runs a style linter.** TypeScript's `strict` family and `mypy --strict` cover correctness; formatting and idiom conventions are unenforced, so the first outside contributor to either package has nothing to conform to. Low while the packages are small, and worth doing before they are not. Unowned.
+- **Two bullets in §5/M22's feature list and one line in §7.1 describe SDK behaviour that was not built, and should not have been.** "`RateLimit-Reset`-aware backoff rather than blind sleeping" and "Request/response hooks for logging" both predate M20 and M22.0, which settled what the transport headers actually mean and what the shared design contract actually specifies. `RateLimit-Reset` is the *daily* quota window and appears on successful responses, so backing off against it would idle a healthy client until midnight UTC (D167); hooks appear in §5's wish-list but not in §7.1's agreed cross-language contract, so building them would have added public API to one of four SDKs on no authority. Left in place deliberately rather than edited, following the same convention as §4.9/D137: §5 and §7 are the *plan*, and the decision log is where a plan is corrected by implementation. Flagged here so nobody reads either section in isolation and reintroduces them.
 
 ---
 
@@ -7689,6 +7723,118 @@ across languages; generated code never part of the public SDK API; native `fetch
 `httpx` as Python's only runtime dependency; cross-language parity testing against shared
 golden fixtures; `docs/openapi.yaml` as the one contract source; and M22.0 kept strictly
 additive.
+
+#### M22.3 - the Node resources ✅ (2026-07-31)
+
+**What was built.** Eleven resource namespaces on the client - `payments`, `refunds`,
+`balance`, `balanceTransactions`, `events`, `analytics`, `requestLogs`, `usage`,
+`webhookEndpoints`, `webhookDeliveries`, `testHelpers` - covering **all 31 published
+operations**. A test derives that coverage from the generated operation table rather than from
+a list written beside it, so an endpoint added to the platform surfaces as a failing assertion
+rather than as an SDK that quietly cannot call it.
+
+**What was deliberately not built.** No convenience methods. `payments.createAndCapture()`
+would be two obvious lines and a failure mode an integrator cannot reason about, because the
+second call failing leaves an authorized payment they do not know they have. Every method is
+exactly one published operation and exactly one HTTP request, and a test asserts the request
+count per method rather than trusting the reading.
+
+`refunds` is read-only, because the API is: a refund is created by
+`POST /v1/payments/{id}/refund`, which returns the **payment**. Mirroring that as
+`refunds.create()` would be a second name for one endpoint, and the two would disagree about
+their return type the moment either moved. `payments.refund()` therefore resolves to the
+payment, unwrapped - reshaping it into the refund would need either a second request or a guess
+about which element of `refunds` is the new one.
+
+**Types.** Parameter types are hand-written; response types are the generated models,
+re-exported from `index.ts` **one by one, by name** (D172). The runtime half of the generated
+tree - the operation table, the enum value lists - is not exported at all, and the built
+`index.d.ts` is asserted to contain no `export * from './generated/...'`. Spelling follows the
+contract throughout, `amountMinor` in bodies and `starting_after` in queries (D171), because
+the platform is genuinely mixed and the only alternative to its spelling is an invented one
+with a translation table to maintain.
+
+**A defect the types exposed.** `CreatePaymentRequest.amountMinor` is a primitive `long` with
+`@Positive`, so a request omitting it is rejected every time - and the document lists only
+`currency` as required. The SDK's hand-written type requires it (D170); the document is left
+alone and recorded in §14, because adding to a `required` list is classified breaking and this
+milestone's rule was additive-only.
+
+#### M22.2 - the Node SDK core ✅ (2026-07-31)
+
+**What was built.** The `PaymentFlow` client over a resolved, validated configuration; a
+native-`fetch` transport with per-attempt timeouts built from a hand-joined `AbortSignal`
+(`AbortSignal.any` arrived in Node 20 and this package supports 18); bearer authentication and
+a `User-Agent` that makes SDK adoption measurable in M20's request log; automatic idempotency
+keys; the retry engine; transparent pagination in both of the platform's page shapes; and the
+seven-class error hierarchy §7.1 specifies, mapped from `ApiError.type` rather than from the
+status code.
+
+**The property this milestone exists to hold.** An idempotency key is generated **once per
+logical call**, before the retry loop, and reused by every attempt within it. A key regenerated
+per attempt makes the platform treat the retry as a new request and the customer is charged
+twice - under exactly the network conditions that cause retries, which is to say never in a
+test anyone writes by hand. Which operations need a key is read from the generated descriptors
+(D166), not from a list in the client, so it cannot drift from the contract.
+
+**Four decisions where the plan and the platform disagreed, and the platform won.**
+
+§7.1 says the retry loop honours "`RateLimit-Reset` or `Retry-After`". Read against the
+platform as built, half of that is wrong: `RateLimit-Reset` is seconds until the **daily quota**
+window resets at 00:00 UTC and is present on *successful* responses too, so an SDK treating it
+as a delay would idle a healthy client for up to a day after a 200. Only `Retry-After` is
+honoured (D167); the quota headers are surfaced as telemetry on `.meta`.
+
+`Retry-After` itself can be 86,400 seconds when a daily quota is exhausted. Sleeping that
+inside a caller's request handler is a hang, not compliance - so past 60 seconds the loop stops
+and raises `RateLimitError` with `retryAfterSeconds` attached, which is what a caller needs in
+order to schedule the work (D168).
+
+"Retry on 429, 5xx and network errors" answers only half the question. A response that never
+arrived does not mean a request that never arrived, so retry eligibility is split: retryable
+*status* is one test, safe-to-*replay* is another, and both must hold (D169). `GET`, `DELETE`
+and anything carrying an idempotency key are replayable; `POST /v1/webhook_endpoints` is not,
+and a 503 from it is raised rather than retried, because a second attempt could leave two
+endpoints where the caller asked for one.
+
+Request/response hooks were listed as a possible deliverable "if part of the approved
+architecture". They are not in §7.1, so they were not built - a speculative extension point is
+public API that has to be supported forever and was never asked for.
+
+**A platform defect this milestone found and fixed.** `CorrelationIdWebFilter` set
+`X-Request-Id` on the request it forwarded downstream and echoed only `X-Correlation-Id` back
+to the caller. So `requestId` - the identifier that keys every row of the caller's own
+`GET /v1/request_logs`, and the one the error contract tells them to quote in a support request
+- reached them **only in an error body**. A successful payment was the single case they could
+not trace, which is backwards: a payment that succeeded strangely is more worth tracing than
+one that failed loudly. The fix is one line in the filter, the header documented alongside the
+other nine, and the shared contract test extended to require it on every response of every
+operation. Strictly additive: **0 breaking, 0 accepted, 186 additive** (D168).
+
+**One near-miss worth recording.** The first attempt also *reworded* the `X-Correlation-Id`
+header description, and the gate correctly reported **1 breaking** - a shared component's
+definition changing is breaking for every `$ref` that points at it. The wording was reverted
+rather than accepted: §14's debt item 4 already warns that the acceptance file can rot into a
+blanket suppression, and an improvement to one sentence does not earn an entry in it.
+
+**Generator changes, both minimal and both contract-derived.** Operation descriptors now carry
+`requiredHeaders` (D166). And `SdkSpecReader` now *refuses* an object-valued query parameter
+declared any style other than `deepObject`: both SDKs encode a map as `name[key]=value` from
+the shape of the value, which is right for `metadata` and would be silently wrong for a `form`
+map - the platform ignores a filter it cannot parse and returns an unfiltered page, which reads
+as a correct answer to a narrower question. The assumption is now checked where it can fail the
+build rather than commented on where nobody would look.
+
+**Verification.**
+
+| Check | Result |
+|---|---|
+| `./gradlew build --max-workers=2` | BUILD SUCCESSFUL in 19m 27s - **993 tests**, 0 failures, 0 errors, 0 skipped, across 13 modules (991 before) |
+| `verifyOpenApiCompatibility` | **0 breaking, 0 accepted, 186 additive**; no new dated revision |
+| `verifySdkSources` | up to date, 11 files |
+| `npm run typecheck` (strict, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`) | no errors |
+| `npm test` (dual build, then the suites against `dist/`) | **54 tests**, 0 failures, 0 skipped |
+| `pytest` / `mypy --strict` (Python, unchanged by this milestone) | 32 passed / no issues in 8 files |
 
 #### M22.1 — the SDK foundation ✅ (2026-07-30)
 

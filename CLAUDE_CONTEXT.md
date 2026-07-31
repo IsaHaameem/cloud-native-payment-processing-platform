@@ -25,12 +25,12 @@
 | **Purpose** | A payment processor's orchestration layer — payment lifecycle FSM, double-entry ledger, and asynchronous state propagation — built across independently deployable microservices. A portfolio/engineering project, not a production payment system. |
 | **Repository version** | V2 in progress (V1 complete and frozen) |
 | **Development phase** | Phase B complete — *Product surface*; Phase C in progress (see §3) |
-| **Current milestone** | **M22 in progress** — Node & Python SDKs. M22.0 and M22.1 complete; M22.2 next |
+| **Current milestone** | **M22 in progress** — Node & Python SDKs. M22.0–M22.3 complete; M22.4 next |
 | **Branch** | `main` |
-| **Latest commit** | *docs(m22): synchronize PROJECT_CONTEXT_2.md and CLAUDE_CONTEXT.md through M22.1* |
+| **Latest commit** | *docs(m22): synchronize PROJECT_CONTEXT_2.md and CLAUDE_CONTEXT.md through M22.3* |
 | **Repository health** | Healthy |
 | **Build status** | `./gradlew build --max-workers=2` — **BUILD SUCCESSFUL** |
-| **Test status** | **991 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18) |
+| **Test status** | **993 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18), plus 54 Node and 32 Python |
 | **Working tree** | Clean |
 | **Public API revision** | `2026-08-01` current; `2026-07-27` superseded (sunset 2027-08-01) |
 
@@ -124,8 +124,9 @@ end.
 |---|---|---|
 | M22.0 | Platform prerequisites — the transport headers, and `ApiError.type` as an enum | ✅ |
 | M22.1 | The SDK foundation — `sdks/`, the shared generator, both skeletons, CI | ✅ |
-| M22.2 | The Node client | ⬜ next |
-| M22.3+ | Python parity, examples, packaging verification, dry-run release | ⬜ |
+| M22.2 | The Node SDK core — config, transport, idempotency, retries, errors, pagination | ✅ |
+| M22.3 | The Node resources — eleven namespaces over all 31 published operations | ✅ |
+| M22.4+ | Webhook signature verification, then Python parity, examples, packaging, dry-run release | ⬜ next |
 
 ### Remaining roadmap
 
@@ -142,9 +143,11 @@ end.
 
 ### Implementation status in one line
 
-Every service is bootable and tested; the public API is complete, documented, versioned and now
-machine-readable down to its transport headers; the SDK generation pipeline exists and is gated,
-and what M22 still owes is the hand-written client layer in both languages.
+Every service is bootable and tested; the public API is complete, documented, versioned and
+machine-readable down to its transport headers; the SDK generation pipeline exists and is gated;
+and the Node SDK is a working client — every published operation is callable, with idempotency,
+retries, pagination and typed errors. What M22 still owes is `webhooks.constructEvent`, then the
+same client in Python.
 
 ---
 
@@ -406,7 +409,34 @@ to build the monorepo (D136's constraint). Depends on `:openapi-tools` for parsi
 walking the document a third time.
 
 The reader **refuses to guess**: a construct it has no rule for is reported and fails the task,
-never emitted as a permissive type.
+never emitted as a permissive type. Since M22.2 it also refuses an object-valued *query*
+parameter declared any style but `deepObject` — both SDKs encode a map as `name[key]=value` from
+the shape of the value, and a `form`-styled map would be spelled `name=key,value`, which the
+platform would ignore and answer with an unfiltered page.
+
+Operation descriptors carry `requiredHeaders` as well as `queryParameters` (D166), so the
+hand-written clients derive "which mutations need an `Idempotency-Key`" from the contract rather
+than from a list of their own that would keep answering the old question.
+
+### `sdks/node` — the Node SDK *(npm package, not published)*
+
+The hand-written client (M22.2/M22.3). `src/generated` is the generator's output and is never
+re-exported wholesale; `src/index.ts` is the public API, and the generated *types* are
+re-exported from it one by one while the generated *values* are not exported at all (D172).
+
+`client.ts` wires eleven resource namespaces over one `Transport`. `transport.ts` owns
+everything that could otherwise differ per endpoint — path substitution, query encoding and
+validation against the descriptor, header assembly, the idempotency key, the retry loop —
+so adding an endpoint cannot accidentally add a behaviour. `errors.ts`, `config.ts` and
+`pagination.ts` are the other three pieces; the resource classes are deliberately thin.
+
+Zero runtime dependencies, Node 18+, dual ESM/CJS. Its suites run under `node --test` against
+`dist/`, in a CI job of its own — never as part of `./gradlew build` (D136, D164).
+
+### `sdks/python` — the Python SDK *(PyPI package, not published)*
+
+Still the M22.1 skeleton: generated models, `py.typed`, and the identity constants. The client
+is M22.5+, because the approved sequence finishes Node first.
 
 ### `load-tests` — Gatling
 
@@ -622,15 +652,16 @@ which would tell pinned merchants their contract moved when it did not.
 `/api/v1` and `/internal/v1` are **deliberately excluded** — documenting them would imply a
 promise the platform does not make.
 
-### Transport headers (M22.0)
+### Transport headers (M22.0, extended in M22.2)
 
-Nine headers are declared once each in `components.headers` and referenced by `$ref`. Names
+Ten headers are declared once each in `components.headers` and referenced by `$ref`. Names
 live in `common-dto`'s `PublicApiHeaders`, which the gateway filters read from, so the document
 and the code cannot disagree (D162).
 
 | Header | Direction | Set by | Present on |
 |---|---|---|---|
 | `X-Correlation-Id` | both | `CorrelationIdWebFilter` (HIGHEST) | **every** response |
+| `X-Request-Id` | both | `CorrelationIdWebFilter` (HIGHEST) | **every** response — since M22.2 |
 | `PaymentFlow-Version` | both | `ApiVersionWebFilter` (+40) | every response except 401/403/429 |
 | `Deprecation`, `Sunset`, `Link` | response | `ApiVersionWebFilter` (+40) | same, and only on a superseded revision |
 | `RateLimit-Limit`, `-Remaining`, `-Reset` | response | `ApiKeyRateLimitWebFilter` (+30) | every response except 401/403 |
@@ -639,6 +670,19 @@ and the code cannot disagree (D162).
 **The per-status split is the filter chain, not a convention (D161).** A rejection written by an
 early filter never reaches the later ones, so a 401 genuinely carries no rate-limit headers and
 a 429 genuinely carries no revision. Documenting all nine uniformly would be shorter and untrue.
+
+**`X-Request-Id` on the response is new in M22.2 and was a real defect (D168).** The filter had
+always generated it and sent it *downstream*, and echoed only the correlation id back — so
+`requestId`, which keys every row of the caller's `GET /v1/request_logs` and which the error
+contract tells them to quote in a support request, reached them only inside an error body. A
+successful payment was the one call they could not trace. One line in the filter; strictly
+additive to the contract (0 breaking, 186 additive).
+
+**The two rate-limit headers answer different questions, and an SDK must not confuse them.**
+`Retry-After` is "when may I retry" and is correct for both causes — seconds for
+`RATE_LIMIT_EXCEEDED`, time-until-midnight for `DAILY_QUOTA_EXCEEDED`. `RateLimit-Reset` is
+*always* seconds until the daily window resets at 00:00 UTC, and it is present on **successful**
+responses. It is telemetry, never a delay (D167).
 
 `ApiError.type` is a real `enum` in the document, generated from `ErrorType.values()` (D163) —
 it is what an SDK's exception hierarchy maps onto. The Java field stays a `String` so the
@@ -847,7 +891,7 @@ See §18 for what that means for trusting a green build.
 | **OpenAPI** | Generated per service from code; document-level contract and shared prose via `common-lib`; merged into a committed `docs/openapi.yaml`; internal tiers excluded. Three gates: baseline freshness, compatibility, and live-response validation. | D147–D151, D157–D160 |
 | **Contract gating** | A breaking change needs a new dated revision to declare it; an unclassified difference counts as breaking; a change that only corrects the description of unchanged behaviour is recorded in a reviewed acceptance file rather than versioned. | D157, D158, D160 |
 | **Shared test code** | A `:test-support` module, not `testFixtures` on `common-lib` — D11 keeps `common-lib` from exporting a servlet stack to anyone who depends on it. | D159 |
-| **Transport contract** | The nine headers are in the published document, named once in `common-dto`, and attached per response status according to what the gateway's filter order can actually produce. `ApiError.type` is a generated enum. | D161–D163 |
+| **Transport contract** | The ten headers are in the published document, named once in `common-dto` (bar the two trace ids, which live in `CorrelationConstants`), and attached per response status according to what the gateway's filter order can actually produce. `ApiError.type` is a generated enum. | D161–D163, D168 |
 | **SDKs** | Generated models plus a hand-written ergonomic layer. One Java generator in `:sdks:shared` reading `docs/openapi.yaml` into a single IR, emitting both languages and the shared parity fixtures. Generated code is never part of a package's public API. Neither Node nor Python is a prerequisite for `./gradlew build`. | D164, D165, D136 |
 | **Error handling** | One envelope, one assembly point (`ApiErrorFactory`), closed `type` vocabulary plus an open `code` set, catalogue asserted against docs in both directions. Universal error responses applied by one customizer. | D152, D153 |
 | **Webhooks** | Signed with a timestamped HMAC; secrets encrypted (not hashed) because they are keys; explicit retry schedule, DLQ, auto-disable; SSRF egress guard; delivery log and replay. | D131, D137 |
@@ -954,8 +998,9 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 | 13 | **`failed_count` exists only on hourly buckets**, not the running totals, so lifetime success rate cannot be computed. | Low | Unowned | Low |
 | 14 | **Not every seeded test card is driven through a real authorize call.** 17 seeded, 9 metadata-checked, 4 exercised end-to-end. | Low — a bad seed row would go unnoticed | Unowned | Low |
 | 15 | **Several tests read repository files that are not in the Docker build context** — `../docs/` (`ErrorCatalogueDocumentationConsistencyTest`, M21.7's six contract tests, and `SdkCodegenTest`) and `../Dockerfile`/`../.dockerignore` (`DockerBuildContextConsistencyTest`). Latent only: image builds run `-x test`, so nothing executes them there. | Very low | Unowned | Low |
-| 16 | **`README.md`'s "At a glance" is stale**: claims 8 services, 230+ tests, 96 decisions. Actual: **9 services, 991 tests, 165 decisions**. | Low — reader-facing only | **M30** (README rewrite) | Low |
+| 16 | **`README.md`'s "At a glance" is stale**: claims 8 services, 230+ tests, 96 decisions. Actual: **9 services, 993 tests, 172 decisions**. | Low — reader-facing only | **M30** (README rewrite) | Low |
 | 17 | **The Python SDK's 3.9 floor is verified by grammar, not by a 3.9 interpreter.** Current mypy refuses `python_version = "3.9"`, so `tests/test_python_floor.py` parses every shipped module with `ast.parse(feature_version=(3, 9))` and forbids PEP 585/604 outside annotations. That covers syntax and the realistic runtime-API mistake; it does not cover a stdlib behaviour that differs on 3.9. | Low — a genuine 3.9 regression could still ship | M22.3 (add a 3.9 CI leg once the suite is worth running twice) | Medium |
+| 19 | **`CreatePaymentRequest.amountMinor` is required in practice and optional in the document.** The Java field is a primitive `long` with `@Positive`, so a body omitting it is rejected with a 400 every time — but `required` lists only `currency`. The SDK's hand-written type states the truth (D170); the published document still understates it, so a caller generating from the spec can write the one request the API always refuses. Not fixed in M22 because adding to a `required` list is classified **breaking**, and the milestone was additive-only. | Medium — the same class as M21.7's `Idempotency-Key` defect | Unowned (needs a dated revision or a reviewed acceptance entry, plus a sweep for the same pattern) | **High** |
 | 18 | **Neither SDK runs a style linter.** TypeScript's `strict` family and `mypy --strict` cover correctness; formatting and idiom conventions are unenforced, so the first contributor to either package has nothing to conform to. | Low now, Medium once the packages have real code | M22.2 | Low |
 
 ---
@@ -980,8 +1025,10 @@ contract source.
 |---|---|---|
 | M22.0 | Platform prerequisites: the transport headers in the published document, named once in `common-dto`, attached per response status; `ApiError.type` as a generated enum | ✅ |
 | M22.1 | The SDK foundation: `sdks/`, the shared generator, both package skeletons, the codegen pipeline, the freshness gate, CI | ✅ |
-| M22.2 | The Node client — config, transport, idempotency, retries, pagination, errors, webhooks | ⬜ next |
-| M22.3+ | Python parity, examples, packaging verification, dry-run release pipelines | ⬜ |
+| M22.2 | The Node SDK core: the client, native-`fetch` transport, auth, automatic idempotency keys, the retry engine, timeouts, trace-id propagation, the typed error hierarchy | ✅ |
+| M22.3 | The Node resources: eleven namespaces covering **all 31** published operations, with transparent pagination in both page shapes | ✅ |
+| M22.4 | `webhooks.constructEvent` — HMAC verification and timestamp tolerance | ⬜ next |
+| M22.5+ | Python parity, examples, packaging verification, dry-run release pipelines | ⬜ |
 
 ### What exists today
 
@@ -990,28 +1037,50 @@ representation and writes TypeScript, Python and language-neutral golden fixture
 `verifySdkSources` runs in `check`, so a stale generated model fails `./gradlew build`; it has
 been observed failing on an edited file, a deleted file and an orphan.
 
-Both packages build, type-check and test in CI. Each one's public surface is currently its
-identity — `VERSION`, `API_VERSION`, `DEFAULT_BASE_URL`, `USER_AGENT` — and a test in each
-language asserts that list **exactly**, so the generated tree cannot leak into the public API by
-accident. Neither package is published: `package.json` is `private`, `pyproject.toml` carries
+**The Node SDK is a working client.** `new PaymentFlow({ apiKey })` gives eleven resource
+namespaces covering every published operation, over a transport that authenticates, generates
+an idempotency key per logical call and reuses it across retries, backs off with full jitter,
+honours `Retry-After`, times out per attempt, and raises one of seven error classes chosen from
+`ApiError.type`. Lists return a page that is also an async iterable, so the ordinary `for await`
+is already the paginating one. 54 tests, all against the built `dist/`.
+
+**Python is deliberately untouched** by M22.2 and M22.3 — the approved sequence finishes Node
+first. Its public surface is still its identity: `VERSION`, `API_VERSION`, `DEFAULT_BASE_URL`,
+`USER_AGENT`.
+
+Neither package is published: `package.json` is `private`, `pyproject.toml` carries
 `Private :: Do Not Upload`.
 
-### What M22.2 needs from here
+### The three rules the SDK does not take from §7.1
 
-Nothing further from the platform. The transport contract is machine-readable, the error
-vocabulary is an enum, every operation has a stable id and a described parameter set, and the
-generator already emits an operation descriptor per endpoint. M22.2 is hand-written client code
-against artefacts that exist.
+The shared design contract was written before M20 and M22.0 settled what the transport headers
+mean, and three of its lines are wrong when read against the platform as built. Each is
+recorded as a decision rather than silently deviated from.
+
+| §7.1 says | What was built | Why |
+|---|---|---|
+| back off on `RateLimit-Reset` **or** `Retry-After` | `Retry-After` only | `RateLimit-Reset` is the *daily* quota window and is on 200s too — backing off against it idles a healthy client until midnight UTC (**D167**) |
+| `Retry-After` wins over the computed backoff | …up to 60s; beyond that the loop stops and raises | an exhausted daily quota returns up to 86 400 seconds, and sleeping that is a hang, not compliance (**D168**) |
+| retry 429, 5xx and network errors | …**and** only if the request is safe to replay | a response that never arrived does not mean a request that never arrived; a `POST` the platform does not deduplicate must not be replayed (**D169**) |
+
+§5/M22 additionally lists request/response hooks. They are not in §7.1's agreed cross-language
+contract, so they were not built — a speculative extension point is public API forever.
+
+### What M22.4 needs from here
+
+Nothing further from the platform. The webhook signing scheme, its header format and its
+tolerance window all exist from M18 and are already exercised by the platform's own tests;
+`constructEvent` is hand-written verification against them.
 
 ## 18. Repository Health
 
 | Signal | Status | Detail |
 |---|---|---|
-| **Build** | ✅ | `./gradlew build --max-workers=2` — BUILD SUCCESSFUL in 20m 02s |
-| **Tests** | ✅ | **991 / 991**, 0 failures, 0 errors, 0 skipped, across 13 modules |
+| **Build** | ✅ | `./gradlew build --max-workers=2` — BUILD SUCCESSFUL in 19m 27s |
+| **Tests** | ✅ | **993 / 993**, 0 failures, 0 errors, 0 skipped, across 13 modules |
 | **Working tree** | ✅ | Clean |
 | **OpenAPI baseline** | ✅ | `verifyOpenApiBaseline` — in sync |
-| **OpenAPI compatibility** | ✅ | 0 breaking, 0 accepted, **1044 additive** — M22.0's transport headers, all of them additions |
+| **OpenAPI compatibility** | ✅ | 0 breaking, 0 accepted, **186 additive** — M22.2's `X-Request-Id`, on every response of every operation |
 | **SDK codegen freshness** | ✅ | `verifySdkSources` — the committed Node, Python and fixture trees match what `docs/openapi.yaml` generates; proven to fail on an edited, a deleted and an orphaned file |
 | **Live-response contract** | ✅ | 41 real calls across six services validated against `docs/openapi.yaml` |
 | **CI** | ✅ | Four jobs; all nine images; cache disabled; the test-execution proof step verified by running the shipped script in both directions, including the recursive-glob fix that covers the first nested module |
@@ -1032,7 +1101,7 @@ derivation CI's proof step performs, so the two cannot disagree.
 | sandbox-service | 107 | audit-service | 42 |
 | gateway-service | 98 | common-dto | 35 |
 | | | merchant-service | 30 |
-| | | `sdks/shared` | 20 |
+| | | `sdks/shared` | 22 |
 | | | identity-service | 12 |
 
 The SDK packages' own suites are **not** in that total and never will be — they run under
@@ -1042,7 +1111,7 @@ D164). They are counted separately:
 
 | Package | Suite | Tests |
 |---|---|---|
-| `sdks/node` | `npm test` (`node --test`) | 11 pass, 0 fail, 0 skipped |
+| `sdks/node` | `npm run verify` — typecheck, dual build, then `node --test` against `dist/` | **54** pass, 0 fail, 0 skipped |
 | `sdks/python` | `python -m pytest` | 32 passed |
 
 ### Warnings a new session must know
