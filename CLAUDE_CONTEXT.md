@@ -24,13 +24,13 @@
 | **Project** | PaymentFlow — Distributed Payment Orchestration Platform |
 | **Purpose** | A payment processor's orchestration layer — payment lifecycle FSM, double-entry ledger, and asynchronous state propagation — built across independently deployable microservices. A portfolio/engineering project, not a production payment system. |
 | **Repository version** | V2 in progress (V1 complete and frozen) |
-| **Development phase** | Phase B complete — *Product surface*; Phase C next (see §3) |
-| **Current milestone** | **M21 complete.** Next: **M22** — Node & Python SDKs |
+| **Development phase** | Phase B complete — *Product surface*; Phase C in progress (see §3) |
+| **Current milestone** | **M22 in progress** — Node & Python SDKs. M22.0 and M22.1 complete; M22.2 next |
 | **Branch** | `main` |
-| **Latest commit** | *fix(docker): copy test-support's build file — the module every service configures and no image contains* |
+| **Latest commit** | *docs(m22): synchronize PROJECT_CONTEXT_2.md and CLAUDE_CONTEXT.md through M22.1* |
 | **Repository health** | Healthy |
-| **Build status** | `./gradlew clean build` — **BUILD SUCCESSFUL** |
-| **Test status** | **935 tests, 0 failures, 0 errors, 0 skipped** |
+| **Build status** | `./gradlew build --max-workers=2` — **BUILD SUCCESSFUL** |
+| **Test status** | **991 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18) |
 | **Working tree** | Clean |
 | **Public API revision** | `2026-08-01` current; `2026-07-27` superseded (sunset 2027-08-01) |
 
@@ -41,8 +41,8 @@
 ## 2. Executive Repository Summary
 
 **What this is.** A Gradle multi-module JVM monorepo containing nine Spring Boot microservices,
-six shared/tooling modules, a Terraform estate, a Docker Compose stack, and an observability
-stack. It implements the orchestration layer of a card-payment platform: creating a payment,
+seven shared/tooling modules, two client SDKs outside the JVM build, a Terraform estate, a
+Docker Compose stack, and an observability stack. It implements the orchestration layer of a card-payment platform: creating a payment,
 authorizing it, capturing funds, refunding or voiding, and propagating every state change to the
 services that need to know.
 
@@ -75,10 +75,13 @@ floating-point currency.
   gated three ways (fresh, compatible, and satisfied by real responses); a catalogued error
   contract; and date-based versioning with per-merchant pinning and an edge transformation layer.
 - **Observability** — Micrometer → Prometheus → Grafana, Loki logs, OpenTelemetry → Tempo traces.
+- **Client SDKs** — a Node and a Python package generated from the published contract by one
+  shared generator, with the generated half gated against drift by the build.
 
 **Current maturity.** V1 (M0–M14) is complete, was deployed to real AWS infrastructure, and is
-frozen. V2 (M15–M30) is in progress: **M15–M21 complete**, M22 next. There is **no
-frontend** — the developer portal is M23/M24. The SDKs are M22/M26. Nothing in V2 has been
+frozen. V2 (M15–M30) is in progress: **M15–M21 complete; M22 under way (M22.0 and M22.1
+done)**. There is **no frontend** — the developer portal is M23/M24. The Node and Python SDKs
+are M22; Java and Go are M26. Nothing in V2 has been
 deployed to AWS; V2 is deliberately local-first, with a single deployment milestone (M29) at the
 end.
 
@@ -87,7 +90,7 @@ end.
 1. **Verify, never assume.** Every completion claim is backed by something actually executed.
    Tests run against real Postgres/Redis/Kafka via Testcontainers, not mocks, wherever the thing
    under test is an interaction with infrastructure.
-2. **Record the trade-off, not just the choice.** 160 numbered decisions (D1–D160) each carry the
+2. **Record the trade-off, not just the choice.** 165 numbered decisions (D1–D165) each carry the
    alternatives that were rejected and why.
 3. **Make invalid states unrepresentable** in preference to remembering not to create them —
    database constraints, entity-level guards, and compiler-enforced interfaces over conventions.
@@ -110,30 +113,24 @@ end.
 |---|---|---|
 | **V1** | M0–M14 | ✅ Complete and frozen. Deployed to AWS and verified end-to-end over a public ALB; the estate has since been torn down. History in `PROJECT_CONTEXT.md`. |
 | **V2 Phase A** | M15 API keys · M16 test/live mode · M17 sandbox · M18 webhooks | ✅ Complete |
-| **V2 Phase B** | M19 read APIs · M20 metering & per-key limits | ✅ Complete |
+| **V2 Phase B** | M19 read APIs · M20 metering & per-key limits · M21 OpenAPI, versioning, errors | ✅ Complete |
 
-### Most recently completed
+### In progress
 
-**M21 — OpenAPI 3.1, Versioning & the Error Contract.** See §17 for full detail.
+**M22 — Node & Python SDKs.** See §17 for full detail. The first milestone to consume
+`docs/openapi.yaml` as an input rather than produce it.
 
 | Sub-milestone | Scope | Status |
 |---|---|---|
-| M21.1 | springdoc verified and integrated into payment-service | ✅ |
-| M21.2 | springdoc on the other five public-API services | ✅ |
-| M21.3 | Merge task; `docs/openapi.yaml` committed as the baseline | ✅ |
-| M21.4 | `ApiError` extended; the error catalogue as one source of truth | ✅ |
-| M21.5 | `PaymentFlow-Version`, per-merchant pinning, transformation layer | ✅ |
-| M21.6 | CI spec-diff gate — additive vs breaking, observed failing | ✅ |
-| M21.7 | Contract tests + the annotation prose (moved here by D154) | ✅ |
-
-**M21 is complete.** The next milestone is **M22 — Node & Python SDKs**, which is the first
-thing to consume `docs/openapi.yaml` as an input rather than produce it.
+| M22.0 | Platform prerequisites — the transport headers, and `ApiError.type` as an enum | ✅ |
+| M22.1 | The SDK foundation — `sdks/`, the shared generator, both skeletons, CI | ✅ |
+| M22.2 | The Node client | ⬜ next |
+| M22.3+ | Python parity, examples, packaging verification, dry-run release | ⬜ |
 
 ### Remaining roadmap
 
 | Milestone | Phase | Summary |
 |---|---|---|
-| M22 | C | Node & Python SDKs |
 | M23 | C | Developer portal part 1 — auth, merchants, keys, payments |
 | M24 | C | Developer portal part 2 — webhooks, logs, analytics, admin |
 | M25 | C | Documentation site & developer experience |
@@ -145,9 +142,9 @@ thing to consume `docs/openapi.yaml` as an input rather than produce it.
 
 ### Implementation status in one line
 
-Every service is bootable and tested; the public API is complete, documented and versioned; the
-CI gate that enforces the contract and the contract tests that prove it are the two things M21
-still owes.
+Every service is bootable and tested; the public API is complete, documented, versioned and now
+machine-readable down to its transport headers; the SDK generation pipeline exists and is gated,
+and what M22 still owes is the hand-written client layer in both languages.
 
 ---
 
@@ -165,6 +162,10 @@ still owes.
 ├── common-lib/                 Spring Boot auto-configuration starter
 ├── openapi-tools/              OpenAPI merge, diff and validation tooling (M21)
 ├── test-support/               Shared contract-test scaffold (M21.7)
+├── sdks/                       Node & Python SDKs + the shared generator (M22)
+│   ├── shared/                 :sdks:shared — the Java generator and the golden fixtures
+│   ├── node/                   npm package (not a Gradle project)
+│   └── python/                 PyPI package (not a Gradle project)
 ├── load-tests/                 Gatling suite (M14)
 ├── gateway-service/            :8080  reactive edge
 ├── identity-service/           :8081
@@ -198,6 +199,7 @@ still owes.
 | `terraform/` | `bootstrap/` (S3 + DynamoDB remote state), `environments/dev/` (the one root), `modules/` (12). | V1's estate. **Not yet extended for V2** — that is M29. |
 | `observability/` | Compose-mounted configuration for the monitoring stack. | Local only; nothing is deployed (D84). |
 | `load-tests/` | 7 Gatling simulations, a seeded merchant pool. | Black-box HTTP against a running platform; deliberately does **not** depend on `common-dto`/`common-lib` so it exercises the real contract. |
+| `sdks/` | The Node and Python client libraries, and the one generator that feeds both. | Only `sdks/shared` is a Gradle project (`:sdks:shared`). `sdks/node` and `sdks/python` have their own toolchains and their own CI job — **neither Node nor Python is a prerequisite for `./gradlew build`** (D164). |
 
 ---
 
@@ -388,6 +390,24 @@ service is individually blind to — reporting every conflict rather than the fi
 The one exception is `OpenApiFragments`, a `testImplementation` dependency of the six public-API
 services.
 
+### `sdks/shared` — the SDK code generator *(build tooling, never deployed)*
+
+Reads `docs/openapi.yaml` into one language-neutral intermediate representation (`SdkSpec`)
+and emits from it three times: TypeScript into `sdks/node/src/generated`, Python into
+`sdks/python/src/paymentflow/_generated`, and language-neutral JSON fixtures into
+`sdks/shared/fixtures` that both SDKs' test suites assert against. Owns `generateSdkSources`
+and `verifySdkSources`; the latter runs in `check`, so a stale generated model fails
+`./gradlew build`.
+
+**One reader, two emitters (D165)** — the two SDKs cannot disagree about what the contract
+says, only about how they spell it. **Java rather than TypeScript (D164)** — the freshness gate
+has to run in the build that owns the spec, and a contributor with no Node must still be able
+to build the monorepo (D136's constraint). Depends on `:openapi-tools` for parsing rather than
+walking the document a third time.
+
+The reader **refuses to guess**: a construct it has no rule for is reported and fails the task,
+never emitted as a permissive type.
+
 ### `load-tests` — Gatling
 
 Seven simulations. Deliberately depends on neither `common-dto` nor `common-lib`, so it exercises
@@ -507,8 +527,8 @@ layered jar onto a JRE-only Alpine base, running as non-root `paymentflow:paymen
 
 **Build-context rule.** Only the target module's `src` plus `common-dto`/`common-lib` are copied —
 but **every** module's `build.gradle.kts` must be present, because Gradle configures all projects
-in `settings.gradle.kts` on every invocation. `load-tests`, `openapi-tools` and `test-support` are
-in `.dockerignore` *except* their build files. Omitting one fails the image build for **all nine**
+in `settings.gradle.kts` on every invocation. `load-tests`, `openapi-tools`, `test-support` and
+`sdks` are in `.dockerignore` *except* their build files. Omitting one fails the image build for **all nine**
 services during Gradle's configuration phase, naming the forgotten module rather than the one being
 built — so the rule is enforced by `DockerBuildContextConsistencyTest` (in `common-lib`) rather than
 remembered: it asserts settings ↔ Dockerfile ↔ `.dockerignore` agreement in both directions.
@@ -545,7 +565,7 @@ stack deployed (D84) · Service Connect for discovery (D70).
 
 | Workflow | Trigger | Does |
 |---|---|---|
-| `ci.yml` | push, PR, dispatch | Three jobs. **build-and-test** — `clean build --no-build-cache` (so a green run cannot mean "restored from cache"), then a step that reads the JUnit XML and fails if any module with test sources produced no results or if anything was skipped. **openapi-contract** — the breaking-change gate against the base branch's baseline, then baseline freshness, then the spec uploaded as an artefact. **docker-build** — a matrix building all **9** service images (`push: false`), verifying non-root user, exposed port and healthcheck |
+| `ci.yml` | push, PR, dispatch | Four jobs. **build-and-test** — `clean build --no-build-cache` (so a green run cannot mean "restored from cache"), then a step that reads the JUnit XML and fails if any module with test sources produced no results or if anything was skipped. Also runs the SDK codegen freshness gate, since `verifySdkSources` is in `check`. **openapi-contract** — the breaking-change gate against the base branch's baseline, then baseline freshness, then the spec uploaded as an artefact. **sdks** — two matrix legs: Node (`npm ci`, type-check, dual build, tests against `dist/`) and Python (`pip install -e .[dev]`, `mypy` strict, `pytest`). **docker-build** — a matrix building all **9** service images (`push: false`), verifying non-root user, exposed port and healthcheck |
 | `cd.yml` | `workflow_dispatch` only | ECR push + ECS rollover. **Has never been run** — it cannot work until M29 applies the Terraform |
 
 ---
@@ -580,9 +600,10 @@ lowercase `snake_case` in `2026-08-01`, `SCREAMING_SNAKE` in `2026-07-27`.
 
 Each of the six public-API services generates its own OpenAPI 3.1 document at `/v3/api-docs`
 (+`.yaml`), unauthenticated and not routed by the gateway (D148). `./gradlew mergeOpenApi` merges
-them into **`docs/openapi.yaml`**: **26 path items, 31 operations, 32 schemas, 13 tags**, 4,400
-lines. Every operation carries a summary, a description and a stable unique `operationId`; every
-parameter and every schema field is described; nullability is declared where it is real.
+them into **`docs/openapi.yaml`**: **26 path items, 31 operations, 32 schemas, 9 header
+components, 13 tags**, 7,066 lines. Every operation carries a summary, a description and a stable
+unique `operationId`; every parameter and every schema field is described; nullability is
+declared where it is real; and every response names the transport headers it can carry.
 
 **Three gates guard it**, and they ask different questions:
 
@@ -600,6 +621,28 @@ which would tell pinned merchants their contract moved when it did not.
 
 `/api/v1` and `/internal/v1` are **deliberately excluded** — documenting them would imply a
 promise the platform does not make.
+
+### Transport headers (M22.0)
+
+Nine headers are declared once each in `components.headers` and referenced by `$ref`. Names
+live in `common-dto`'s `PublicApiHeaders`, which the gateway filters read from, so the document
+and the code cannot disagree (D162).
+
+| Header | Direction | Set by | Present on |
+|---|---|---|---|
+| `X-Correlation-Id` | both | `CorrelationIdWebFilter` (HIGHEST) | **every** response |
+| `PaymentFlow-Version` | both | `ApiVersionWebFilter` (+40) | every response except 401/403/429 |
+| `Deprecation`, `Sunset`, `Link` | response | `ApiVersionWebFilter` (+40) | same, and only on a superseded revision |
+| `RateLimit-Limit`, `-Remaining`, `-Reset` | response | `ApiKeyRateLimitWebFilter` (+30) | every response except 401/403 |
+| `Retry-After` | response | `ApiKeyRateLimitWebFilter` (+30) | **429 only** |
+
+**The per-status split is the filter chain, not a convention (D161).** A rejection written by an
+early filter never reaches the later ones, so a 401 genuinely carries no rate-limit headers and
+a 429 genuinely carries no revision. Documenting all nine uniformly would be shorter and untrue.
+
+`ApiError.type` is a real `enum` in the document, generated from `ErrorType.values()` (D163) —
+it is what an SDK's exception hierarchy maps onto. The Java field stays a `String` so the
+platform cannot fail to deserialize its own error.
 
 ### Idempotency
 
@@ -779,6 +822,8 @@ them (`InternalHeaderStrippingWebFilter`, order +1). Signed by the gateway, veri
 | | Testcontainers | 2.x |
 | | Awaitility | **4.3.0** |
 | Load testing | Gatling | **3.15.1.1** |
+| SDK — Node | TypeScript (dev only; zero runtime deps) | **5.7**, targeting Node **18+** |
+| SDK — Python | `httpx` (the only runtime dep); pytest + mypy for dev | targeting Python **3.9+** |
 | Observability | Micrometer, Prometheus, Grafana, Loki, Tempo, OpenTelemetry | compose-pinned |
 | Containers | Docker multi-stage, `eclipse-temurin:25-jdk-alpine` → JRE Alpine | |
 | IaC | Terraform | AWS provider 5.100.0 |
@@ -802,6 +847,8 @@ See §18 for what that means for trusting a green build.
 | **OpenAPI** | Generated per service from code; document-level contract and shared prose via `common-lib`; merged into a committed `docs/openapi.yaml`; internal tiers excluded. Three gates: baseline freshness, compatibility, and live-response validation. | D147–D151, D157–D160 |
 | **Contract gating** | A breaking change needs a new dated revision to declare it; an unclassified difference counts as breaking; a change that only corrects the description of unchanged behaviour is recorded in a reviewed acceptance file rather than versioned. | D157, D158, D160 |
 | **Shared test code** | A `:test-support` module, not `testFixtures` on `common-lib` — D11 keeps `common-lib` from exporting a servlet stack to anyone who depends on it. | D159 |
+| **Transport contract** | The nine headers are in the published document, named once in `common-dto`, and attached per response status according to what the gateway's filter order can actually produce. `ApiError.type` is a generated enum. | D161–D163 |
+| **SDKs** | Generated models plus a hand-written ergonomic layer. One Java generator in `:sdks:shared` reading `docs/openapi.yaml` into a single IR, emitting both languages and the shared parity fixtures. Generated code is never part of a package's public API. Neither Node nor Python is a prerequisite for `./gradlew build`. | D164, D165, D136 |
 | **Error handling** | One envelope, one assembly point (`ApiErrorFactory`), closed `type` vocabulary plus an open `code` set, catalogue asserted against docs in both directions. Universal error responses applied by one customizer. | D152, D153 |
 | **Webhooks** | Signed with a timestamped HMAC; secrets encrypted (not hashed) because they are keys; explicit retry schedule, DLQ, auto-disable; SSRF egress guard; delivery log and replay. | D131, D137 |
 | **Caching** | Redis three ways: merchant profile cache-aside, idempotency lock, rate-limit buckets. Key-verify results cached at the gateway. No endpoint-list cache (deferred to M28 for measurement). | D24, D145 |
@@ -834,6 +881,11 @@ See §18 for what that means for trusting a green build.
 
 - New shared types go in `common-dto`/`common-lib` **only** when they are a frozen contract several
   services must render identically. Otherwise, schema-per-service.
+- **Neither Node nor Python may become a prerequisite for `./gradlew build`.** The SDK toolchains
+  run in their own CI job; anything the build must be able to check — including SDK codegen
+  freshness — is Java (D136, D164).
+- **Generated SDK code is never part of an SDK's public API.** Each package's entry point names
+  what it exposes, and a test in each language asserts that list exactly.
 - **No duplicated code**: a pattern appearing a third time moves into `common-lib` (§5.0 rule 4).
 - The transformation layer stays generic — no per-endpoint special cases.
 - The root `build.gradle.kts` stays thin; cross-cutting build config belongs in `build-logic`.
@@ -901,73 +953,97 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 | 12 | **`payment.events.retry`/`.dlq` and V1's webhook delivery path are dormant**, retained only to drain pre-M18.6 rows. | Low — dead code with tests | Unowned | Low |
 | 13 | **`failed_count` exists only on hourly buckets**, not the running totals, so lifetime success rate cannot be computed. | Low | Unowned | Low |
 | 14 | **Not every seeded test card is driven through a real authorize call.** 17 seeded, 9 metadata-checked, 4 exercised end-to-end. | Low — a bad seed row would go unnoticed | Unowned | Low |
-| 15 | **Several tests read repository files that are not in the Docker build context** — `../docs/` (`ErrorCatalogueDocumentationConsistencyTest` + M21.7's six contract tests) and `../Dockerfile`/`../.dockerignore` (`DockerBuildContextConsistencyTest`). Latent only: image builds run `-x test`, so nothing executes them there. | Very low | Unowned | Low |
-| 16 | **`README.md`'s "At a glance" is stale**: claims 8 services, 230+ tests, 96 decisions. Actual: **9 services, 826 tests, 156 decisions**. | Low — reader-facing only | **M30** (README rewrite) | Low |
+| 15 | **Several tests read repository files that are not in the Docker build context** — `../docs/` (`ErrorCatalogueDocumentationConsistencyTest`, M21.7's six contract tests, and `SdkCodegenTest`) and `../Dockerfile`/`../.dockerignore` (`DockerBuildContextConsistencyTest`). Latent only: image builds run `-x test`, so nothing executes them there. | Very low | Unowned | Low |
+| 16 | **`README.md`'s "At a glance" is stale**: claims 8 services, 230+ tests, 96 decisions. Actual: **9 services, 991 tests, 165 decisions**. | Low — reader-facing only | **M30** (README rewrite) | Low |
+| 17 | **The Python SDK's 3.9 floor is verified by grammar, not by a 3.9 interpreter.** Current mypy refuses `python_version = "3.9"`, so `tests/test_python_floor.py` parses every shipped module with `ast.parse(feature_version=(3, 9))` and forbids PEP 585/604 outside annotations. That covers syntax and the realistic runtime-API mistake; it does not cover a stdlib behaviour that differs on 3.9. | Low — a genuine 3.9 regression could still ship | M22.3 (add a 3.9 CI leg once the suite is worth running twice) | Medium |
+| 18 | **Neither SDK runs a style linter.** TypeScript's `strict` family and `mypy --strict` cover correctness; formatting and idiom conventions are unenforced, so the first contributor to either package has nothing to conform to. | Low now, Medium once the packages have real code | M22.2 | Low |
 
 ---
 
-## 17. Most Recent Milestone — M21 (complete)
+## 17. Current Milestone — M22 (in progress)
 
-**Objective.** Generate a real OpenAPI 3.1 description of the public API from code, merge the
-per-service fragments into one published spec, implement date-based versioning with a deprecation
-policy, formalise the error-code catalogue, and make CI fail on an undeclared breaking change.
+**Objective.** Two production-quality SDKs — TypeScript/Node and Python — that encapsulate
+authentication, automatic idempotency, safe retries, pagination, typed errors and webhook
+signature verification, so an integrator gets this platform's correctness properties without
+having to know they exist.
 
-### Completed sub-milestones
+**Approved architecture.** Generated models plus a hand-written ergonomic layer; one shared
+generator feeding both languages; `sdks/{shared,node,python}`; Node finished before Python
+starts; near-identical public APIs across languages; generated code never part of a package's
+public API; native `fetch` for Node, `httpx` as Python's only runtime dependency;
+cross-language parity testing against shared golden fixtures; `docs/openapi.yaml` as the one
+contract source.
 
-| # | Delivered |
-|---|---|
-| **M21.1** | springdoc verified against Boot 4.0.2/Jackson 3 and pinned so the platform is provably unchanged (D147); payment-service's document restricted to `/v1` (D148) |
-| **M21.2** | The other five public-API services; document-level contract shared via `PublicApiDocument` (D149); all 26 path items described |
-| **M21.3** | `:openapi-tools`, the `openApiFragment` convention plugin, `mergeOpenApi`/`verifyOpenApiBaseline`, and `docs/openapi.yaml` committed (D151). Also the `object` discriminator on both webhook resources (D150) |
-| **M21.4** | `ApiError` + `type`/`param`/`requestId`/`docUrl`; `ErrorType`; `ErrorCatalogue` + `docs/ERRORS.md`; `ApiErrorFactory`; universal error responses on all 31 operations (D152, D153) |
-| **M21.5** | `PaymentFlow-Version`; pin on first call (D155); registry-driven transformation layer; the `2026-08-01` revision (D156); `docs/VERSIONING.md` |
+### Sub-milestone status
 
-| **M21.6** | The CI spec-diff gate: `OpenApiDiff` classifies every change additive or breaking, CI fails on an undeclared breaking one (D157), unclassified keys default to breaking (D158). Observed failing end to end on a real wire rename and passing once a revision declared it. Closes the cached-green-build and unwired-gate debt, and adds the ninth service to the image matrix |
-| **M21.7** | Live-response contract validation against `docs/openapi.yaml`; the full annotation prose (D154); the shared `:test-support` scaffold (D159); the reviewed-acceptance file (D160). Four real contract defects found and fixed |
+| # | Scope | Status |
+|---|---|---|
+| M22.0 | Platform prerequisites: the transport headers in the published document, named once in `common-dto`, attached per response status; `ApiError.type` as a generated enum | ✅ |
+| M22.1 | The SDK foundation: `sdks/`, the shared generator, both package skeletons, the codegen pipeline, the freshness gate, CI | ✅ |
+| M22.2 | The Node client — config, transport, idempotency, retries, pagination, errors, webhooks | ⬜ next |
+| M22.3+ | Python parity, examples, packaging verification, dry-run release pipelines | ⬜ |
 
-### Exit criteria (from §5/M21) — all met
+### What exists today
 
-- [x] A single merged OpenAPI 3.1 spec covers every public endpoint *(M21.3)*
-- [x] Live responses validate against the spec — verified, not assumed *(M21.7)*
-- [x] Version pinning works; a superseded revision still returns its original shape *(M21.5)*
-- [x] The CI breaking-change gate has been observed failing on a real breaking change *(M21.6)*
-- [x] Every error response carries a catalogued code and a `request_id` *(M21.4)*
+`./gradlew :sdks:shared:generateSdkSources` reads `docs/openapi.yaml` into one intermediate
+representation and writes TypeScript, Python and language-neutral golden fixtures from it.
+`verifySdkSources` runs in `check`, so a stale generated model fails `./gradlew build`; it has
+been observed failing on an edited file, a deleted file and an orphan.
 
-### What M21 leaves for M22
+Both packages build, type-check and test in CI. Each one's public surface is currently its
+identity — `VERSION`, `API_VERSION`, `DEFAULT_BASE_URL`, `USER_AGENT` — and a test in each
+language asserts that list **exactly**, so the generated tree cannot leak into the public API by
+accident. Neither package is published: `package.json` is `private`, `pyproject.toml` carries
+`Private :: Do Not Upload`.
 
-`docs/openapi.yaml` is now an artefact fit to generate from: every operation has a stable,
-unique `operationId`, a summary and a description; every parameter and every schema field is
-described; nullability is declared where it is real; and a test fails if any of that regresses.
-M22's generators consume it — they are the first thing to read the document rather than write it.
+### What M22.2 needs from here
 
----
+Nothing further from the platform. The transport contract is machine-readable, the error
+vocabulary is an enum, every operation has a stable id and a described parameter set, and the
+generator already emits an operation descriptor per endpoint. M22.2 is hand-written client code
+against artefacts that exist.
 
 ## 18. Repository Health
 
 | Signal | Status | Detail |
 |---|---|---|
-| **Build** | ✅ | `./gradlew clean build` — BUILD SUCCESSFUL |
-| **Tests** | ✅ | **935 / 935**, 0 failures, 0 errors, 0 skipped |
+| **Build** | ✅ | `./gradlew build --max-workers=2` — BUILD SUCCESSFUL in 20m 02s |
+| **Tests** | ✅ | **991 / 991**, 0 failures, 0 errors, 0 skipped, across 13 modules |
 | **Working tree** | ✅ | Clean |
 | **OpenAPI baseline** | ✅ | `verifyOpenApiBaseline` — in sync |
-| **OpenAPI compatibility** | ✅ | 0 breaking, 53 accepted (M21.7's corrections), 48 additive |
+| **OpenAPI compatibility** | ✅ | 0 breaking, 0 accepted, **1044 additive** — M22.0's transport headers, all of them additions |
+| **SDK codegen freshness** | ✅ | `verifySdkSources` — the committed Node, Python and fixture trees match what `docs/openapi.yaml` generates; proven to fail on an edited, a deleted and an orphaned file |
 | **Live-response contract** | ✅ | 41 real calls across six services validated against `docs/openapi.yaml` |
-| **CI** | ✅ | All nine images; cache disabled; the test-execution proof step verified by running the shipped script in both directions |
+| **CI** | ✅ | Four jobs; all nine images; cache disabled; the test-execution proof step verified by running the shipped script in both directions, including the recursive-glob fix that covers the first nested module |
 | **CD** | ⚠️ | Exists, never run — blocked on M29 |
 | **Docker images** | ✅ | All nine built from current code and asserted non-root, port-exposed, healthchecked |
-| **TODOs / FIXMEs** | ✅ | **Zero** across `.java`, `.kts`, `.yaml` |
+| **TODOs / FIXMEs** | ✅ | **Zero** across `.java`, `.kts`, `.yaml`, `.ts`, `.py` |
 
 ### Per-module test distribution
 
+Measured from the JUnit XML, not from the build's summary line. This is the same
+derivation CI's proof step performs, so the two cannot disagree.
+
 | Module | Tests | Module | Tests |
 |---|---|---|---|
-| notification-service | 175 | analytics-service | 75 |
-| payment-service | 151 | openapi-tools | 65 |
-| sandbox-service | 103 | transaction-service | 48 |
-| common-lib | 105 | audit-service | 38 |
+| notification-service | 179 | analytics-service | 79 |
+| payment-service | 155 | openapi-tools | 65 |
+| common-lib | 117 | transaction-service | 52 |
+| sandbox-service | 107 | audit-service | 42 |
 | gateway-service | 98 | common-dto | 35 |
 | | | merchant-service | 30 |
+| | | `sdks/shared` | 20 |
 | | | identity-service | 12 |
+
+The SDK packages' own suites are **not** in that total and never will be — they run under
+`node --test` and `pytest`, in CI jobs of their own, because making them part of
+`./gradlew build` would put a Node and a Python prerequisite on every JVM contributor (D136,
+D164). They are counted separately:
+
+| Package | Suite | Tests |
+|---|---|---|
+| `sdks/node` | `npm test` (`node --test`) | 11 pass, 0 fail, 0 skipped |
+| `sdks/python` | `python -m pytest` | 32 passed |
 
 ### Warnings a new session must know
 
@@ -990,7 +1066,8 @@ M22's generators consume it — they are the first thing to read the document ra
    changes** — Gradle infers a test task's inputs from its source set, so `test` reports
    `UP-TO-DATE` and the assertion silently does not run. `common-lib`'s `test` declares
    `Dockerfile`, `.dockerignore`, `settings.gradle.kts` and `docs/ERRORS.md` explicitly for this
-   reason. Any new consistency test that reads a repository file must be added there.
+   reason, and `:sdks:shared`'s declares `docs/openapi.yaml`. Any new consistency test that reads
+   a repository file must do the same.
 7. **An editor holding this repository's markdown open can overwrite it from a stale buffer.**
    `PROJECT_CONTEXT_2.md` was found reverted by 773 lines in the working tree while the committed
    copy was intact. Always check `git status` before concluding that work is missing.
@@ -1017,8 +1094,16 @@ M22's generators consume it — they are the first thing to read the document ra
 git status --short                       # expect empty
 git log -1 --oneline
 docker ps --format '{{.Names}}' | Select-String paymentflow   # expect none before testing
-.\gradlew build --max-workers=2          # expect BUILD SUCCESSFUL
+.\gradlew build --max-workers=2          # expect BUILD SUCCESSFUL (includes verifySdkSources)
 .\gradlew :openapi-tools:verifyOpenApiBaseline --max-workers=2   # expect "is up to date"
+```
+
+**The SDKs are verified separately, with their own toolchains** — deliberately not by Gradle
+(D164), so the commands above work on a machine with neither installed:
+
+```powershell
+cd sdks\node   ; npm ci ; npm run verify
+cd sdks\python ; pip install -e ".[dev]" ; mypy ; pytest
 ```
 
 **`--max-workers=2` on anything that starts Testcontainers.** Six parallel Gradle workers each

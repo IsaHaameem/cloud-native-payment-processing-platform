@@ -86,8 +86,30 @@
 > was wrong rather than the document. The description-only corrections read as 53 breaking
 > changes to the gate and are none to the wire, which is resolved by a reviewed acceptance file
 > rather than a fake revision (**D160**).
+> **M22 (Node & Python SDKs) — in progress** (from 2026-07-30): architecture approved up front
+> (generated models plus a hand-written ergonomic layer, one shared generator feeding both
+> languages, `sdks/shared|node|python`, Node completed before Python begins, native `fetch` and
+> `httpx` as the only runtime dependencies, cross-language parity testing against shared golden
+> fixtures, and `docs/openapi.yaml` as the single contract source).
+> **M22.0 complete** (2026-07-30): the platform prerequisites, and only those. The transport
+> headers the SDKs read — `PaymentFlow-Version`, the `RateLimit-*` trio, `Retry-After`,
+> `Deprecation`/`Sunset`/`Link`, `X-Correlation-Id` — were written by gateway filters and
+> described nowhere machine-readable; they are now `components.headers` in the published
+> document, referenced per response **by what the gateway's filter order can actually produce**
+> (D161), and named once in `common-dto` so the document and the filters cannot disagree (D162).
+> `ApiError.type` is published as a real enum generated from `ErrorType` (D163), which is what
+> §7.1's typed error hierarchy maps onto. All additive: **0 breaking, 0 accepted, 1044 additive**,
+> and no new dated revision.
+> **M22.1 complete** (2026-07-30): the SDK foundation. `sdks/shared` is a Java Gradle module
+> (D164) that reads `docs/openapi.yaml` into one language-neutral intermediate representation
+> and emits TypeScript, Python and shared golden fixtures from it (D165) — so the two SDKs
+> cannot disagree about what the contract says, only about how they spell it. The generated
+> trees are committed and `verifySdkSources` runs in `check`, so `./gradlew build` fails on a
+> stale model; it was observed failing on an edited file, a deleted file and an orphaned file
+> before being trusted. Both packages build, type-check and test in CI. Neither is published,
+> and neither toolchain is a prerequisite for building the monorepo.
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D160**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D165**.
 
 ---
 
@@ -963,7 +985,7 @@ the single place to see where V2 stands; the full entry for every completed mile
 | **M19** — Public read APIs & query surface | B | ✅ complete | 2026-07-25 – 07-26 |
 | **M20** — Request logging, metering, per-key limits | B | ✅ complete | 2026-07-26 |
 | **M21** — OpenAPI 3.1, versioning & the error contract | B | ✅ complete | 2026-07-27 – 07-29 |
-| **M22** — Node & Python SDKs | C | ⬜ not started | — |
+| **M22** — Node & Python SDKs | C | 🟡 in progress — M22.0, M22.1 complete | from 2026-07-30 |
 | **M23** — Developer portal, part 1 | C | ⬜ not started | — |
 | **M24** — Developer portal, part 2 | C | ⬜ not started | — |
 | **M25** — Documentation site | C | ⬜ not started | — |
@@ -2749,6 +2771,11 @@ decisions are appended as milestones are implemented.
 | D160 | (M21.7) A breaking change that corrects the *description* of unchanged behaviour is recorded in a committed **acceptance file** the gate reads, rather than by cutting a dated revision | (a) Cut revision `2026-12-01` so the gate's existing declaration mechanism (D157) covers it; (b) leave CI red on the commit that lands the correction and merge it by hand; (c) weaken the classifier so operation-id renames, nullability corrections and response-code fixes are not breaking; (d) never correct the document, and keep publishing what it already said | The gate compares two *documents* and genuinely cannot tell "the API changed" from "the description was wrong" — and M21.7 is 39 instances of the second: operation ids that were springdoc's Java method names (and *colliding* across services), three `200` responses invented for operations that return `201`/`204`, fields declared non-null that have always been able to be null, and a payload schema built by reflecting Jackson's `JsonNode` class. Not one byte of any request or response moved. (a) is the worst option precisely because it looks the most correct: a dated revision is a promise to merchants that their integration changed, and it would require registering a transformation under D156 that transforms nothing — the versioning machinery would carry a permanent lie. (b) is defensible once and corrosive as a habit; a gate that is routinely merged past stops being a gate. (c) destroys the classifier's value for the cases it exists for — an operation-id rename genuinely does rename every SDK method, and that has to keep failing. (d) is how a document becomes fiction, which §9.5 and R10 exist to prevent. The acceptance file keeps the classifier strict and moves the judgement to a reviewer, with three properties that stop it becoming a rubber stamp: it is committed and appears in the same diff as the change it excuses, every accepted entry is **printed in full on every run** rather than silently swallowed, and entries matching nothing are reported as no longer applicable. Adding a line to it is an explicit claim that the wire contract did not move; if that claim is false, the change needs a revision instead |
 | D157 | (M21.6) A breaking change is acceptable to the CI gate **only when `info.version` has advanced** — the declaration, not the change, is what the gate judges. A revision that moved backwards does not count | (a) Fail on every breaking change, with no escape at all; (b) allow an override via a commit-message trailer or a magic file (`ALLOW_BREAKING`); (c) allow any change to `info.version`, in either direction, as the declaration | The gate has to be compatible with a roadmap that will genuinely break `/v1` again — M22's SDKs and M25's docs both assume the contract can move. (a) makes that impossible and therefore guarantees the gate gets disabled the first time it is inconvenient, which is the failure mode a gate has that a review does not. (b) is the usual answer and is worse than it looks: it puts the declaration somewhere no consumer can see, so a merchant reading the published document learns nothing, and it decouples "we said this is breaking" from "we did anything about it". Tying acceptance to `info.version` means the declaration *is* the mechanism — advancing it is what cuts the dated revision, which is what D156's transformation layer keys off, so a passing gate implies the pinned-merchant path exists rather than merely asserting someone thought about it. On direction: (c) would let anyone satisfy the gate by editing one string to any other string, including an earlier date, which reduces it to a formality. Dated revisions only ever move forward (D108), so requiring the same of the declaration costs nothing legitimate |
 | D158 | (M21.6) Any difference the classifier has **no rule for is reported as breaking**, not ignored; the only exemption is a closed list of prose and illustration keywords (`description`, `summary`, `example`, …) | (a) Ignore unrecognized keys, on the grounds that a rule was not written because the key does not matter; (b) report them as additive; (c) fail the build outright on an unrecognized key, rather than classifying it | §5/M21's risk table names the exact hazard: *"the breaking-change classifier has false negatives"*. The realistic way this gate fails is not a wrong rule but a missing one — springdoc emits a keyword nobody anticipated, no walker looks at it, and the gate reports "no breaking changes" about a document that lost a field. (a) and (b) both produce that outcome silently, and silence from a gate is read as proof rather than as absence of evidence. The asymmetry decides it: a false positive costs one conversation and one new rule, a false negative ships a broken contract to every SDK generated from the document and is discovered by an integrator. (c) is the same instinct taken too far — an unrecognized key is not necessarily a problem, and a gate that cannot be reasoned about is one that gets bypassed; classifying it as breaking keeps it inside the same "declare it or fix it" workflow as everything else. The prose exemption is what keeps this liveable, and it is deliberately a list of things that cannot constrain a payload: M21.7 adds several hundred descriptions, and without the exemption the documentation milestone would read as several hundred breaking changes |
+| D161 | (M22.0) The transport headers are documented **per response status, from the gateway's filter order** — a 401/403 carries only `X-Correlation-Id`, a 429 adds the `RateLimit-*` trio and `Retry-After`, everything else adds the revision headers | (a) Document all eight on every response, which is shorter and reads as more complete; (b) document them once in `info.description` as prose and reference nothing per response; (c) document only the 429 headers, on the grounds that they are the only ones an SDK's retry loop strictly needs | The gateway's filter order is load-bearing (§7) and it decides what a response can carry: a rejection written by an early filter never reaches the later ones. `ApiKeyAuthenticationWebFilter` refuses at order +20, the rate limiter at +30, and the version filter runs at +40 — so a 401 genuinely has no `RateLimit-*` and a 429 genuinely has no `PaymentFlow-Version`. (a) is three lines shorter in the customizer and wrong in the way that costs the most: an integrator only discovers it by reading for a header that is never there, and a contract test that validated headers would fail against the platform rather than against the document. (b) leaves the SDKs generating from prose, which is the whole gap M22.0 exists to close — §7.1's backoff reads `Retry-After` and `RateLimit-Reset`, and a document that mentions them in a paragraph tells a generator nothing. (c) is the minimum that unblocks the retry loop and omits the two things an SDK *also* has to surface: which revision answered, and that the revision is sunsetting. The per-status rule is written down once, in `PublicApiTransport`, and asserted in both directions by the shared contract tests — so what the document says about a status is the filter chain, not someone's recollection of it |
+| D162 | (M22.0) The header **names** move to `common-dto` as `PublicApiHeaders`, and the gateway filters reference them | (a) Leave each name as a literal in the filter that writes it, and repeat it in the OpenAPI customizer; (b) put them in `common-lib` beside `CorrelationConstants`; (c) derive the document's header names from the gateway at build time | A header name that exists in two places is one that can differ in two places, and the failure is silent in the worst way: the document promises `RateLimit-Reset`, the gateway sends something else, and every SDK's backoff quietly falls back to a computed delay forever. (a) is what the code did until M22.0 and was survivable only because nothing else read the names. (b) fails on **D11**: `common-lib`'s springdoc dependency is `compileOnly` precisely so the reactive gateway is never handed a servlet stack, so a class in `common-lib`'s `openapi` package cannot be referenced from gateway-service at compile time without exporting swagger to it. `common-dto` is framework-free by design and is where this platform already puts a frozen public contract several modules must render identically — the same narrow exception D140 records for `CanonicalEventType`. (c) is the right shape and the wrong direction of dependency: it would make the *document* a function of the gateway's compiled classes, which is a build-order coupling for a set of nine constants. `X-Correlation-Id` deliberately stays in `CorrelationConstants` — it already has one home, and it is not a public-tier concern, since every internal hop carries it too |
+| D163 | (M22.0) `ApiError.type` is published as a real `enum` in the document, generated from `ErrorType.values()`, while the Java field stays a `String` | (a) Leave it as `type: string` and let each SDK hand-maintain the vocabulary from the prose, as the description already lists it; (b) change the record field to `ErrorType` so springdoc generates the enum by reflection; (c) publish it as an enum and also make the SDKs reject an unrecognised value | This is the field §7.1's typed error hierarchy branches on, so every one of the four SDKs would otherwise carry a transcribed copy of a list that already exists in `common-dto`, checked against nothing. (a) is the status quo and is exactly the "documentation drifts into fiction" failure R10 names, one indirection further out: the prose and the enum would drift, and the SDKs would drift from both. (b) looks cleaner and is the one option that could actually hurt — a platform that learns a seventh classification would fail to *deserialize its own error response*, which is a strictly worse failure than a slightly stale document, and the field is a `String` for that reason. Generating the enum from `ErrorType.values()` in the customizer gets the contract without the runtime brittleness: adding a classification updates the document in the same commit, and the SDKs' parity fixtures regenerate from it. On (c): §9 requires clients to tolerate enum values they do not know, which is what makes "a new enum value is additive" true rather than aspirational — so both SDKs widen this to their plain string type and expose the documented values beside it, and the enum is a vocabulary to recognise against, never one to validate with |
+| D164 | (M22.1) The shared SDK generator is **Java, in a Gradle module at `sdks/shared`**, not TypeScript run by npm | (a) Write it in TypeScript, in the SDK tree, run by the Node toolchain the SDKs already need; (b) use an off-the-shelf generator (`openapi-generator`, `openapi-typescript`) per language; (c) keep it in `:openapi-tools`, which already parses this document | **D136** settled the shape of this question for the webhook vectors and applies with more force here: making `node` a build prerequisite of a JVM monorepo means a contributor with neither Node nor Python can no longer build at all. This is not a one-off script but a *gate* — the thing that stops a committed model drifting from the spec — and it has to run in the build that owns the spec, or a stale generated file reaches `main` whenever the person who pushed it had no Node. It also reuses rather than reimplements: `:openapi-tools` already reads and diffs this document with 65 tests behind it, so a TypeScript reader would be a third walk over the same tree (§15's no-duplicated-code rule) and the first one untested. (b) was rejected on the blueprint's own terms — fully generated SDKs are out, and every off-the-shelf generator produces the ergonomic layer badly and the models adequately, so the cost of adopting one is a large dependency and a template fight for the half that is already easy. (c) is close and was rejected on ownership: `openapi-tools` exists to *produce and judge* the published document, and a module that also emits Python would make "what is this module for" unanswerable. `sdks/node` and `sdks/python` deliberately stay outside Gradle — wrapping `npm` in a task would reintroduce exactly the prerequisite this decision removes |
+| D165 | (M22.1) Both emitters read **one language-neutral intermediate representation** (`SdkSpec`), which is also serialized as the shared golden fixtures | (a) Two emitters each walking the OpenAPI tree directly; (b) generate one language and translate its output into the other; (c) an IR, but fixtures written by hand as the agreed contract between the SDKs | M22's risk table names divergence between the two SDKs as the risk worth designing against, and (a) is how it happens: each emitter would make its own decision about what a nullable type union means, which enums exist and what they are called, and the day they disagree nothing notices — both still produce a valid package. With one reader, disagreement is impossible by construction; the emitters are handed the same answers and can only differ in idiom. It is also what makes the parity fixtures meaningful, because they are that same representation serialized, so "the two languages describe the same contract" is a test both suites run against one artefact rather than a claim in a design document. (b) makes the second language's output a function of the first's syntax, which is how a Python SDK ends up with TypeScript's naming. (c) puts a third hand-maintained copy of the contract in the repository — the exact artefact that goes stale first, and the one nothing regenerates. The fixtures deliberately carry the *contract's* facts (revision, operations, vocabularies, field lists) rather than a dump of the IR's own shape, so refactoring the reader does not break two test suites for a reason neither can see |
 | D151 | (M21.3) The merge is a **new `:openapi-tools` module** whose fragments are produced by each service's existing `OpenApiDocumentIntegrationTest`, not by `springdoc-openapi-gradle-plugin` and not by Gradle-script logic in `build-logic` | (a) `org.springdoc.openapi-gradle-plugin`, the tool built for exactly this job — it `bootRun`s the service and fetches `/v3/api-docs`; (b) merge logic written directly in the root build file or as a `build-logic` task class; (c) commit six per-service documents and skip the merge until M25 needs one | (a) is the obvious choice and fails on this platform's shape: it starts each service for real, so producing the document would require Postgres, Redis **and** Kafka reachable at build time for six services. The pre-M21.3 audit had just finished demonstrating what that dependency costs — 18 spurious test failures from Docker exhaustion, and a compose stack whose stale images answered `/v3/api-docs` with 401 (§14). Worse, it would be a *second* path to the published contract, one that asserts nothing: the fragment it produced could differ from the one the document tests approved and no test would notice. Reusing the integration test makes the fragment a by-product of an assertion — the path set, the tier exclusion and the shared contract are all checked before the bytes are written. (b) keeps the wiring together but makes the interesting part — deduplicating shared components, refusing to merge fragments that disagree — reachable only through a Gradle invocation, when it is ordinary logic with ordinary failure modes; §10's standing position is that logic like that gets unit tests, and `OpenApiMergerTest`'s hand-written *disagreeing* fragments could not be written at all against the real six, which agree. (c) defers the one artefact everything downstream consumes and leaves nothing to diff, which is precisely the "documentation drifts into fiction" failure §9.5 and R10 exist to prevent. The module also has to exist for M21.6, which diffs this same document for breaking changes |
 
 ---
@@ -7645,6 +7672,173 @@ carried the same blind spot silently since M21.4 and is covered by the same decl
 | `Dockerfile` | `COPY test-support/build.gradle.kts` — the module Gradle configures and no image contains |
 | `common-lib/…/DockerBuildContextConsistencyTest.java` | *(new)* the settings ↔ Dockerfile ↔ `.dockerignore` invariant, asserted |
 | `common-lib/build.gradle.kts` | `test` declares the four repository files its consistency tests read, so a change to one of them actually re-runs them |
+
+---
+
+### M22 — Node & Python SDKs 🟡 (in progress, from 2026-07-30)
+
+**Objective.** Two production-quality SDKs that encapsulate the correctness properties this
+platform spent five milestones building — idempotency keys that survive a retry, backoff that
+reads the interval the platform named, signature verification, forward-compatible
+deserialization — so an integrator gets them without having to know they exist.
+
+**Approved architecture** (settled before any code was written): generated models plus a
+hand-written ergonomic layer; one shared generator feeding both languages; the layout
+`sdks/{shared,node,python}`; Node finished before Python starts; near-identical public APIs
+across languages; generated code never part of the public SDK API; native `fetch` for Node and
+`httpx` as Python's only runtime dependency; cross-language parity testing against shared
+golden fixtures; `docs/openapi.yaml` as the one contract source; and M22.0 kept strictly
+additive.
+
+#### M22.1 — the SDK foundation ✅ (2026-07-30)
+
+Preceded by **M22.0**, below, which did only what the SDKs were blocked on.
+
+**What was built.**
+
+`sdks/shared` is a Gradle module (**D164**) holding a Java code generator. It reads
+`docs/openapi.yaml` into one language-neutral intermediate representation, `SdkSpec`, and three
+emitters write from it (**D165**): TypeScript into `sdks/node/src/generated`, Python into
+`sdks/python/src/paymentflow/_generated`, and language-neutral JSON into
+`sdks/shared/fixtures`. Two Gradle tasks over one implementation, in the shape M21.3
+established: `generateSdkSources` writes, `verifySdkSources` judges, and they are separate
+because a verification step that repaired what it verifies could never fail twice.
+
+The reader refuses to guess. A construct it has no rule for produces an `UNKNOWN` type *and* a
+finding, and a non-empty findings list fails the task — the same fail-safe direction D158 takes
+for the contract diff, for the same reason: the realistic failure of a generator is a missing
+rule, and a permissive fallback ships an SDK whose types quietly say `unknown` about a field
+the contract describes precisely.
+
+Both languages get the contract's data shapes, its enum vocabularies, and an operation
+descriptor per published operation — enough for M22.2's hand-written client to address every
+endpoint by the operation id M21.7 made unique. Enums are emitted **open** in both:
+TypeScript's `'created' | … | (string & {})` keeps editor completions without closing the
+union, Python widens the alias to `str`, and both export the documented values as a companion
+constant. That is §9's "clients must tolerate unknown enum values" implemented rather than
+asserted.
+
+**The packages.** `sdks/node` is TypeScript with zero runtime dependencies, a dual ESM/CJS
+build from plain `tsc` twice plus a ten-line marker script, and tests that run against `dist/`
+rather than `src/` — what a user installs is the built output, and a wrong `exports` map or a
+missing declaration file is invisible from the source tree. `sdks/python` targets 3.9+, ships
+`py.typed`, and models are `TypedDict`s rather than dataclasses: a dataclass constructor
+rejecting an unknown keyword would break every integrator the first time the platform added a
+field, which is exactly the change §9 promises is safe.
+
+Each package's public surface is currently its identity — `VERSION`, `API_VERSION`,
+`DEFAULT_BASE_URL`, `USER_AGENT` — and **a test in each language asserts that list exactly**,
+so the generated tree cannot leak into the public API by accident. Neither package is
+published: `package.json` is `private`, `pyproject.toml` carries `Private :: Do Not Upload`.
+
+**Three real defects, all found by running things rather than reading them.**
+
+`from` is a Python keyword, and both the analytics and usage summaries publish their window as
+`from`/`to`. The first generated `models.py` was a syntax error — the module would not import
+at all. Renaming the field was not an option, because the wire name is what the response
+actually contains, so models with a non-identifier field are emitted in TypedDict's functional
+form and their field descriptions move into the type's docstring.
+
+The `RateLimit-*` headers rendered with a `format` and **no `type`**. swagger's 3.1 serializer
+reads the `types` set, and a schema built with `setType` alone loses it — §18 warning 4's exact
+trap, met from a new direction. The fix is two calls; the durable part is that the shared
+contract test now reads the *served* document and fails when a declared header does not say
+what kind of value it carries.
+
+The four JSON fixtures came out **CRLF while the TypeScript and Python trees written by the
+same run came out LF** — Jackson's default pretty printer indents with the *system* linefeed,
+and the other two emitters build their output line by line from `"\n"`. `.gitattributes`
+declares `* text=auto eol=lf`, so a checkout puts LF on disk on every platform: a Windows
+contributor running `generateSdkSources` on a clean tree would have been left with four
+modified files whose diff shows no change. Caught by `git add` warning about it, on the way to
+the commit. The printer is now pinned, and a test asserts every generated file uses LF and ends
+with one — the property, not the one emitter that got it wrong.
+
+**A third thing that was quietly broken and is not any more.** CI's test-execution proof step
+derived "every module with test sources must have produced results" from `glob("*/src/test/java")`
+— one level deep. `:sdks:shared` is the first module in this repository whose Gradle path is
+nested, so the derivation that exists precisely so a new module cannot be forgotten had
+silently stopped covering one. It still matched twelve modules and reported no problem, which
+is what that class of gap always looks like.
+
+**Verification.** The freshness gate was observed failing in all three directions before being
+trusted: a hand-edited generated file, a deleted one, and an orphan left behind by a model that
+no longer exists — then passing again after `generateSdkSources`.
+
+| Check | Result |
+|---|---|
+| `./gradlew build --max-workers=2` | BUILD SUCCESSFUL in 20m 02s — **991 tests**, 0 failures, 0 errors, 0 skipped, across 13 modules (935 before) |
+| CI's test-execution proof step, run locally against the real results | 991 across 13 modules, exit 0; with `sdks/shared`'s results moved aside, exit 1 naming `sdks/shared` — the recursive-glob fix proven in both directions |
+| `:sdks:shared:test` | 20 tests, 0 failures |
+| `verifySdkSources` on a clean tree | up to date, 11 files |
+| `verifySdkSources` with a generated file edited / deleted / orphaned | fails, naming the file, in all three cases |
+| `npm run verify` (type-check, dual build, tests against `dist/`) | 11 tests, 0 failures |
+| `mypy` (strict, package + tests) | no issues, 8 source files |
+| `pytest` | 32 tests, 0 failures |
+
+#### M22.0 — the platform prerequisites ✅ (2026-07-30)
+
+Deliberately narrow: additive OpenAPI improvements, transport-header documentation, and
+specification gaps that block SDK implementation. No unrelated platform work.
+
+**What was blocking.** M21 made the *payloads* of `/v1` machine-readable and left the transport
+around them in prose. That was survivable while the only readers were human. The single most
+important behaviour either SDK implements — retry a 429 after waiting the interval the platform
+named, rather than after a delay it guessed — reads `Retry-After` and `RateLimit-Reset`, and
+the published contract mentioned neither. An SDK written against that document is an SDK whose
+backoff is folklore.
+
+**What changed.** Nine transport headers are now `components.headers` in the published
+document, defined once each and referenced by `$ref` — so M21.3's merge deduplicates them and
+`OpenApiDiff` judges a change to one as the single shared change it is. They are attached per
+response status **according to what the gateway's filter order can actually produce** (**D161**),
+which makes the document say something true about a 401 rather than something uniform. Every
+operation now documents the two request headers that are not operation-specific:
+`PaymentFlow-Version` and `X-Correlation-Id`. The names live once in `common-dto`, and the
+gateway filters read them from there (**D162**). `ApiError.type` is published as a real enum
+generated from `ErrorType.values()` (**D163**).
+
+**It stayed additive.** `verifyOpenApiCompatibility` against the previous baseline: **0
+breaking, 0 accepted, 1044 additive**, no new dated revision, no new acceptance-file entries.
+`docs/openapi.yaml` grew from 4,448 to 7,066 lines, which is the price of describing the
+transport rather than alluding to it.
+
+**One test needed narrowing, and it was a real brittleness.**
+`theUsageEndpointTakesDatesRatherThanInstants` asserted that `/v1/usage` has exactly two
+parameters and that all of them are dates. Its intent was always about the *window* the
+endpoint accepts; it counted every parameter, so two new header parameters broke it. It now
+filters to `in: query`, which is what it meant.
+
+**Files created**
+
+| File | Purpose |
+|---|---|
+| `common-dto/…/dto/http/PublicApiHeaders.java` | eight of the nine transport header names, declared once. The ninth, `X-Correlation-Id`, stays in `CorrelationConstants`, where the internal propagation path already reads it |
+| `common-lib/…/openapi/PublicApiTransport.java` | the per-status rule, applied as an `OpenApiCustomizer` |
+| `common-lib/…/openapi/PublicApiTransportTest.java` | 12 tests over that rule, including both refusal paths |
+| `sdks/shared/**` | the generator, its 20 tests, and the golden fixtures |
+| `sdks/node/**`, `sdks/python/**` | the two package skeletons, their toolchains and their suites |
+| `sdks/README.md` | the layout, the rules, and how to regenerate |
+
+**Files modified**
+
+| File | Change |
+|---|---|
+| `common-lib/…/PublicApiDocument.java` | `sharedSchemaCustomizer` also applies the transport contract — document level, so it runs after the error responses exist |
+| `common-lib/…/PublicApiSchemas.java` | `ApiError.type` gains its enum, generated from `ErrorType` |
+| `gateway-service/…/ApiKeyRateLimitWebFilter.java`, `…/ApiVersionWebFilter.java` | header names read from `PublicApiHeaders` |
+| `test-support/…/PublicApiDocumentContract.java` | four new shared assertions — fourteen inherited tests become eighteen |
+| `common-lib/…/DockerBuildContextConsistencyTest.java` | understands nested Gradle paths, and an exclusion that comes from an ancestor directory |
+| `Dockerfile`, `.dockerignore`, `settings.gradle.kts` | `sdks/shared` added, under the same rule the previous three tooling modules needed |
+| `.github/workflows/ci.yml` | a fourth job for the two SDK toolchains; the proof step's module glob made recursive |
+| `analytics-service/…/OpenApiDocumentIntegrationTest.java` | the usage-window assertion narrowed to query parameters |
+
+**Remaining for M22.2 onwards.** The Node client itself — configuration, transport, automatic
+idempotency, retries with a preserved key, `RateLimit-Reset`-aware backoff, auto-paginating
+iterators, the typed error hierarchy, and `webhooks.constructEvent`. Then the same in Python,
+then examples, packaging verification from a clean project, and the dry-run release pipelines.
+
+---
 
 *(Populated by M28. V1's benchmarks remain in `PROJECT_CONTEXT.md` §14 and are the
 regression baseline for the original payment hot path.)*
