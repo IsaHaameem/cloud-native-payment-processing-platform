@@ -16,6 +16,21 @@ public final class InternalContextHeaders {
     public static final String MODE = "X-PF-Internal-Mode";
     public static final String KEY_ID = "X-PF-Internal-Key-Id";
     public static final String SCOPES = "X-PF-Internal-Scopes";
+
+    /**
+     * Which credential the gateway authenticated (M23.0, D185) — {@code api_key} or
+     * {@code session}. Absent means {@code api_key}: every caller that predates the
+     * developer portal omits it, and {@link InternalPrincipal#fromWireValue} defaults
+     * accordingly, so no existing signer had to change.
+     */
+    public static final String PRINCIPAL = "X-PF-Internal-Principal";
+
+    /**
+     * The identity-service user behind a dashboard session (M23.0, D185). Present only
+     * when {@link #PRINCIPAL} is {@code session}; a key has no user. This is the field
+     * that makes a portal-initiated mutation attributable to a person.
+     */
+    public static final String USER_ID = "X-PF-Internal-User-Id";
     public static final String CONTACT_EMAIL = "X-PF-Internal-Contact-Email";
     public static final String WEBHOOK_URL = "X-PF-Internal-Webhook-Url";
     public static final String ISSUED_AT = "X-PF-Internal-Issued-At";

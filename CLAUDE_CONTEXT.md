@@ -24,13 +24,13 @@
 | **Project** | PaymentFlow — Distributed Payment Orchestration Platform |
 | **Purpose** | A payment processor's orchestration layer — payment lifecycle FSM, double-entry ledger, and asynchronous state propagation — built across independently deployable microservices. A portfolio/engineering project, not a production payment system. |
 | **Repository version** | V2 in progress (V1 complete and frozen) |
-| **Development phase** | Phase B complete — *Product surface*; Phase C in progress: M22 done, M23 next (see §3) |
-| **Current milestone** | **M22 complete** — Node & Python SDKs, both feature-complete and neither published. Next: **M23** — developer portal, part 1 |
+| **Development phase** | Phase B complete — *Product surface*; Phase C in progress: M22 done, **M23 under way (M23.0 complete)** (see §3) |
+| **Current milestone** | **M23 — developer portal, part 1.** M23.0 (backend enablement) complete; M23.1 next. The portal itself does not exist yet |
 | **Branch** | `main` |
-| **Latest commit** | *fix(ci): run the Node suite by file list, so it runs on the Node CI pins* |
+| **Latest commit** | *feat(m23.0): a dashboard session is a first-class credential on the public tier* |
 | **Repository health** | Healthy |
 | **Build status** | `./gradlew build --max-workers=2` — **BUILD SUCCESSFUL** |
-| **Test status** | **1002 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18), plus 108 Node and 193 Python |
+| **Test status** | **1081 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18), plus 108 Node and 193 Python |
 | **Working tree** | Clean |
 | **Public API revision** | `2026-08-01` current; `2026-07-27` superseded (sunset 2027-08-01) |
 
@@ -117,7 +117,21 @@ end.
 
 ### In progress
 
-**M23 — developer portal, part 1.** Not started. M22 finished 2026-07-31.
+**M23 — developer portal, part 1.** M23.0 complete (2026-08-02). Ten sub-milestones; only
+M23.0 touches the backend.
+
+| Sub-milestone | Scope | Status |
+|---|---|---|
+| M23.0 | Backend enablement — the session-derived internal context | ✅ |
+| M23.1 | Portal foundation — scaffold, tokens, Docker, CI, generated types | ⬜ |
+| M23.2 | Authentication — session cookie, auth flows, middleware, CSRF | ⬜ |
+| M23.3 | Shell and data layer — chrome, mode toggle, transport, query keys | ⬜ |
+| M23.4 | Onboarding and merchant settings | ⬜ |
+| M23.5 | API keys — create, reveal-once, rotate, revoke | ⬜ |
+| M23.6 | Payments list — filters, saved views, cursor pagination, CSV | ⬜ |
+| M23.7 | Payment detail, capture/refund/void, refunds | ⬜ |
+| M23.8 | Overview | ⬜ |
+| M23.9 | Hardening — Playwright, axe, visual regression, CSP | ⬜ |
 
 **M22 — Node & Python SDKs. ✅ Complete.** See §17. The first milestone to consume
 `docs/openapi.yaml` as an input rather than produce it.
@@ -222,14 +236,14 @@ schema, `common-lib` auto-configuration, Micrometer metrics, and `/actuator/heal
 | | |
 |---|---|
 | **Purpose** | The only externally reachable service. Authenticates, authorizes, rate-limits, versions, and routes. |
-| **Responsibilities** | JWT validation against identity-service JWKS; API-key verification and caching; scope enforcement; per-key rate limits and daily quotas; API version resolution and the transformation layer; internal-context signing; request logging; CORS; correlation IDs. |
+| **Responsibilities** | JWT validation against identity-service JWKS; API-key verification and caching; **developer-portal session context minting**; scope enforcement; per-key rate limits and daily quotas; API version resolution and the transformation layer; internal-context signing; request logging; CORS; correlation IDs. |
 | **Database** | **None.** The only stateless service. |
 | **Outbound events** | `api.request.events` (M20 request logging) |
 | **Inbound events** | None |
 | **External deps** | Redis (key-verify cache, rate-limit buckets), Kafka (request-log producer, `max.block.ms=1000`) |
-| **Internal deps** | identity-service (JWKS), merchant-service (`/internal/v1/api-keys/verify`) — all other routing is proxying, not calling |
+| **Internal deps** | identity-service (JWKS), merchant-service (`/internal/v1/api-keys/verify` and `/internal/v1/merchants/by-owner/{ownerUserId}`) — all other routing is proxying, not calling |
 | **Public endpoints** | Routes only — it owns no `/v1` path of its own |
-| **Notes** | Filter order is load-bearing: `CorrelationIdWebFilter` (HIGHEST) → `InternalHeaderStrippingWebFilter` (+1) → `ApiRequestLoggingFilter` (+10) → `ApiKeyAuthenticationWebFilter` (+20) → `ApiKeyRateLimitWebFilter` (+30) → `ApiVersionWebFilter` (+40) → `ApiVersionResponseBodyFilter` (+41). The stripping filter removes client-supplied `X-PF-Internal-*` headers before anything trusts them. |
+| **Notes** | Filter order is load-bearing: `CorrelationIdWebFilter` (HIGHEST) → `InternalHeaderStrippingWebFilter` (+1) → `ApiRequestLoggingFilter` (+10) → `ApiKeyAuthenticationWebFilter` (+20) → **`SessionContextWebFilter` (+21)** → `ApiKeyRateLimitWebFilter` (+30) → `ApiVersionWebFilter` (+40) → `ApiVersionResponseBodyFilter` (+41). The stripping filter removes client-supplied `X-PF-Internal-*` headers before anything trusts them. The two credential filters are mutually exclusive by construction: +20 ignores anything not `sk_`/`pk_`-shaped, +21 ignores anything that is not a JWT. |
 
 ### identity-service `:8081`
 
@@ -251,8 +265,8 @@ schema, `common-lib` auto-configuration, Micrometer metrics, and `/actuator/heal
 | **Database** | schema `merchant` — V1–V6. `merchants` carries rate-limit overrides (V5) and `pinned_api_version` (V6). |
 | **Outbound events** | Outbox table exists (V4) |
 | **External deps** | Redis (merchant profile cache-aside) |
-| **Public endpoints** | `/api/v1/merchants/**` (JWT); `/internal/v1/api-keys/verify` (service-to-service) |
-| **Notes** | `/internal/v1/api-keys/verify` **performs a write** — it pins the merchant's API version on their first call. At most once per merchant, in a `REQUIRES_NEW` transaction that can never fail the request. There is **no `merchant_settings` table**; per-merchant settings live on `merchants` (D145/D155). |
+| **Public endpoints** | `/api/v1/merchants/**` (JWT); `/internal/v1/api-keys/verify` and `/internal/v1/merchants/by-owner/{ownerUserId}` (service-to-service) |
+| **Notes** | `/internal/v1/merchants/by-owner/{ownerUserId}` is the developer portal's resolution step (M23.0) and is deliberately read-only — it does **not** pin. `/internal/v1/api-keys/verify` **performs a write** — it pins the merchant's API version on their first call. At most once per merchant, in a `REQUIRES_NEW` transaction that can never fail the request. There is **no `merchant_settings` table**; per-merchant settings live on `merchants` (D145/D155). |
 
 ### payment-service `:8083`
 
@@ -359,7 +373,7 @@ stack is never forced onto the reactive gateway; SERVLET-conditional auto-config
 | Area | Types |
 |---|---|
 | Errors | `GlobalExceptionHandler`, `ErrorCode`, `CommonErrorCode` (13 codes), `ErrorCatalogue`, `ApiErrorFactory` |
-| Security | `InternalContextFilter`, `InternalContextSigner`, `OpaqueTokenGenerator` |
+| Security | `InternalContextFilter`, `InternalContextSigner`, `InternalPrincipal`, `MerchantContext`, `OpaqueTokenGenerator` |
 | Correlation | `CorrelationIdFilter`, `CorrelationConstants` |
 | Query | `CursorCodec`, `ListQuery`, `MetadataFilterParams` |
 | OpenAPI | `PublicApiDocument` (D149), `PublicApiErrorResponses` (D153) |
@@ -502,8 +516,14 @@ context was consulted.
 | Tier | Path | Credential | Authorization |
 |---|---|---|---|
 | Public | `/v1/**` | API key (`sk_`/`pk_`) | Scopes, checked at the gateway |
-| Dashboard | `/api/v1/**` | JWT (identity-service) | RBAC, re-checked downstream (D23) |
+| Public | `/v1/**` | **Session JWT** (developer portal, M23.0) | The full scope set, synthesised at the gateway; merchant resolved from the JWT subject |
+| Account | `/api/v1/**` | JWT (identity-service) | RBAC, re-checked downstream (D23) |
 | Internal | `/internal/v1/**` | Signed internal headers | Not routed by the gateway at all |
+
+Both `/v1` credentials produce the **same** signed `X-PF-Internal-*` context, so no service
+downstream knows there are two (D182/D183). `/api/v1` is the **account plane** — auth, users,
+merchant profile, API keys — and is not a mirror of `/v1`; the mirror D133 deferred to M23 is
+never built.
 
 **Scope → route mapping** (gateway-owned, `ApiKeyAuthenticationWebFilter`):
 
@@ -627,8 +647,10 @@ stack deployed (D84) · Service Connect for discovery (D70).
 ### Authentication
 
 `Authorization: Bearer sk_test_…` / `sk_live_…` (secret) or `pk_…` (publishable, read-only).
-**Mode is bound to the key** — no header, parameter or body field can change it. The gateway
-strips any attempt.
+**Mode is bound to the credential.** For an API key it is the key's own mode and nothing can
+change it — the gateway strips any attempt. For a developer-portal session the owner selects it
+(`X-PF-Mode`, validated, defaulted to `test`, and consumed rather than forwarded), because a
+merchant is entitled to both modes of their own data (D184).
 
 ### Versioning
 
@@ -849,10 +871,15 @@ internal headers are HMAC-signed and verified.
 
 ### Internal headers
 
-`X-PF-Internal-Merchant-Id`, `-Mode`, `-Key-Id`, `-Scopes`, `-Contact-Email`, `-Webhook-Url`,
-`-Issued-At`, `-Signature`. **Stripped from every inbound client request** before anything trusts
-them (`InternalHeaderStrippingWebFilter`, order +1). Signed by the gateway, verified by
-`InternalContextFilter` in `common-lib`.
+`X-PF-Internal-Merchant-Id`, `-Mode`, `-Principal`, `-User-Id`, `-Key-Id`, `-Scopes`,
+`-Contact-Email`, `-Webhook-Url`, `-Issued-At`, `-Signature`. **Stripped from every inbound client
+request** before anything trusts them (`InternalHeaderStrippingWebFilter`, order +1 — it matches on
+the `X-PF-Internal-` prefix, so M23.0's two new headers needed no change there). Signed by the
+gateway, verified by `InternalContextFilter` in `common-lib`.
+
+`-Principal` is `api_key` or `session` (M23.0, D185). **Absent means `api_key`**, which is what
+lets every pre-M23 signer stay unchanged; an unrecognised value is rejected rather than defaulted.
+Exactly one of `-Key-Id` / `-User-Id` is present, and `MerchantContext` refuses to hold both.
 
 ### Other properties
 
@@ -906,7 +933,7 @@ See §18 for what that means for trusting a green build.
 
 | Area | Decision in force | Ref |
 |---|---|---|
-| **Authentication** | Two tiers: JWT for `/api/v1`, API keys for `/v1`. Key verification happens at the gateway and is Redis-cached. Mode is bound to the key. | D98–D100, D118 |
+| **Authentication** | Two credentials on `/v1` — API keys, and developer-portal session JWTs converted to the same signed context at the gateway. JWT for `/api/v1`, the account plane. Both merchant lookups are Redis-cached. Mode is bound to the credential. | D98–D100, D118, D182–D185 |
 | **Authorization** | Scopes enforced at the gateway for the key path; RBAC re-checked downstream for the JWT path. Publishable keys read-only by construction. | D23, §16 |
 | **Versioning** | Date-based revisions, `/v1` permanent, header → pin → current, pinned on first call, transformation at the edge, one superseded revision at a time. | D108, D155, D156 |
 | **Transformation** | Generic and registry-driven — a revision is one bean, no per-endpoint special cases. Requests oldest-first, responses newest-first. Structural rewrites, not lookup tables. | D156 |
@@ -924,6 +951,8 @@ See §18 for what that means for trusting a green build.
 | **Pagination** | Cursor for public lists; two legacy offset endpoints deliberately not retrofitted. | D107, D139 |
 | **Data** | Schema per service, no cross-service joins, integer minor units, no floating-point money. | D4, D36 |
 | **Documentation** | Anything that can be asserted against the code, is. Docs live beside the code that implements them. | D115 |
+| **Developer portal** | One Next.js app consuming the public `/v1` API, not a mirrored tier. The browser holds no token; Next.js route handlers own an encrypted `httpOnly` session cookie and all platform traffic is server-side. Typed models come from a third emitter target on M22's generator. Money-moving actions are never optimistic. | D182, D187–D191 |
+| **Request logging** | Dashboard traffic is deliberately absent from `api_request_log` and consumes no per-key quota — a merchant's request log is a tool for debugging their own integration. | D186 |
 
 ---
 
@@ -938,7 +967,10 @@ See §18 for what that means for trusting a green build.
    schema.
 4. **payment-service is the sole producer on `payment.events`.**
 5. **The gateway is the only trust boundary.** Nothing downstream trusts an unsigned header.
-6. **Mode is bound to the key.** No request-scoped mechanism may override it.
+6. **Mode is bound to the credential.** For an API key: the key's own mode, and no request-scoped
+   mechanism may override it. For a developer-portal session: the session's owner selects it, since
+   they are entitled to both modes of their own merchant (D184). The selected value is validated at
+   the gateway and never forwarded — only the signed context is trusted.
 7. **Money is integer minor units.** No floating-point amounts anywhere.
 8. **Secrets are never echoed.** Shown once at issue, prefix thereafter; never in an error body.
 9. **Cross-tenant and cross-mode access is 404**, never 403.
@@ -1025,121 +1057,94 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 | 20 | **The Python SDK has no async client.** §7.2's plan is "sync client first with an async variant"; M22.5 delivered the first half. `async` colours every function it touches, so the variant needs its own transport, retry loop and copy of all eleven namespaces. Named in the package's README so no integrator discovers it by looking for it. | Low — the sync client is complete and most Python integrators are synchronous | Unowned; a natural M26 companion | Low |
 | 19 | **`CreatePaymentRequest.amountMinor` is required in practice and optional in the document.** The Java field is a primitive `long` with `@Positive`, so a body omitting it is rejected with a 400 every time — but `required` lists only `currency`. The SDK's hand-written type states the truth (D170); the published document still understates it, so a caller generating from the spec can write the one request the API always refuses. Not fixed in M22 because adding to a `required` list is classified **breaking**, and the milestone was additive-only. | Medium — the same class as M21.7's `Idempotency-Key` defect | Unowned (needs a dated revision or a reviewed acceptance entry, plus a sweep for the same pattern) | **High** |
 | 21 | **The Node SDK declares `engines.node >= 18` and nothing runs it on 18.** CI pins 20; development is on 24. The advertised floor is exercised by neither. Same shape as item 17, and the cause of the 2026-07-31 CI defect — a Node-version disagreement invisible for all of M22 because only one environment ever ran the suite. A CI matrix over 18/20/latest is the cheap answer. | Medium — a floor-only regression can ship | Unowned (pairs with item 17's 3.9 leg) | Medium |
+| 22 | **The `session:merchant:v1:` lookup cache is not evicted on a merchant profile change.** `ApiKeyService` evicts `apikey:v1:` directly on revoke/rotate; M23.0's session cache has no equivalent, so `contactEmail`/`webhookUrl` can be up to five minutes stale on the session path. The merchant id itself cannot change, and the API-key path already carries the same staleness on the same two fields — so this is an accepted asymmetry, recorded so it does not read as an oversight. | Low | M23.4 (merchant settings) is the natural moment | Low |
 | 18 | **Neither SDK runs a style linter.** TypeScript's `strict` family and `mypy --strict` cover correctness; formatting and idiom conventions are unenforced, so the first contributor to either package has nothing to conform to. | Low now, Medium once the packages have real code | M22.2 | Low |
 
 ---
 
-## 17. Last Milestone — M22 (complete)
+## 17. Current Milestone — M23.0 (complete); M23.1 next
 
-**Objective.** Two production-quality SDKs — TypeScript/Node and Python — that encapsulate
-authentication, automatic idempotency, safe retries, pagination, typed errors and webhook
-signature verification, so an integrator gets this platform's correctness properties without
-having to know they exist.
+**Objective (M23).** The Merchant Developer Portal: one Next.js App Router application that
+turns this platform into something a merchant can use — sign up, onboard, manage API keys, and
+operate payments, with a global test/live toggle.
 
-**Approved architecture.** Generated models plus a hand-written ergonomic layer; one shared
-generator feeding both languages; `sdks/{shared,node,python}`; Node finished before Python
-starts; near-identical public APIs across languages; generated code never part of a package's
-public API; native `fetch` for Node, `httpx` as Python's only runtime dependency;
-cross-language parity testing against shared golden fixtures; `docs/openapi.yaml` as the one
-contract source.
+**Approved architecture.** The portal consumes the **public `/v1` API**, the same contract the
+M22 SDKs consume (D182); `/api/v1` is the account plane (auth, users, merchant profile, keys)
+and is never mirrored. The browser holds no token of any kind — Next.js route handlers own an
+encrypted `httpOnly` session cookie and all platform traffic is server-side (D187). Typed models
+come from a third emitter target on M22's generator (D189), so they cannot drift from
+`docs/openapi.yaml` and the freshness gate still runs in the Java build. Ten sub-milestones.
 
-### Sub-milestone status
+### M23.0 — the session-derived internal context ✅
 
-| # | Scope | Status |
-|---|---|---|
-| M22.0 | Platform prerequisites: the transport headers in the published document, named once in `common-dto`, attached per response status; `ApiError.type` as a generated enum | ✅ |
-| M22.1 | The SDK foundation: `sdks/`, the shared generator, both package skeletons, the codegen pipeline, the freshness gate, CI | ✅ |
-| M22.2 | The Node SDK core: the client, native-`fetch` transport, auth, automatic idempotency keys, the retry engine, timeouts, trace-id propagation, the typed error hierarchy | ✅ |
-| M22.3 | The Node resources: eleven namespaces covering **all 31** published operations, with transparent pagination in both page shapes | ✅ |
-| M22.4 | Node completion: `webhooks.constructEvent` against M18's shared vectors, packaging verification, the README and six examples — all compiled | ✅ |
-| M22.5 | The Python SDK core: the same client, in Python, with the same constants and the same guarantees | ✅ |
-| M22.6 | The Python resources: eleven namespaces, `snake_case`, iterable pages, the field mapping checked both ways | ✅ |
-| M22.7 | Cross-language parity as a Java test; wheel and sdist verification; dry-run only | ✅ |
+**What it does.** `SessionContextWebFilter` (gateway, order `HIGHEST_PRECEDENCE + 21`) validates
+an identity-service session JWT, resolves the caller's merchant through
+`GET /internal/v1/merchants/by-owner/{ownerUserId}`, and asserts the **same** signed
+`X-PF-Internal-*` context the API-key path has asserted since M15. Nothing downstream changed:
+same signer, same headers, same `InternalContextFilter`. That is what makes all 31 published
+operations reachable by the portal — including every endpoint M24 needs — without a second
+controller tier.
 
-### What exists today
+**Why it exists.** Five of the six services behind `/v1` have no OAuth2 resource server at all
+(D100/D133), so a browser session could not reach them by any route. The alternative — D133's
+deferred `/api/v1` mirror — meant a resource server, a JWKS dependency and ~20 duplicated
+controller methods in each of five services, plus a second response contract none of M21's three
+gates cover. That mirror is now **never built** (D182).
 
-`./gradlew :sdks:shared:generateSdkSources` reads `docs/openapi.yaml` into one intermediate
-representation and writes TypeScript, Python and language-neutral golden fixtures from it.
-`verifySdkSources` runs in `check`, so a stale generated model fails `./gradlew build`; it has
-been observed failing on an edited file, a deleted file and an orphan.
+**The pieces.**
 
-**The Node SDK is a working client.** `new PaymentFlow({ apiKey })` gives eleven resource
-namespaces covering every published operation, over a transport that authenticates, generates
-an idempotency key per logical call and reuses it across retries, backs off with full jitter,
-honours `Retry-After`, times out per attempt, and raises one of seven error classes chosen from
-`ApiError.type`. Lists return a page that is also an async iterable, so the ordinary `for await`
-is already the paginating one. 54 tests, all against the built `dist/`.
+| Piece | Note |
+|---|---|
+| `SessionContextWebFilter` | +21, immediately after the API-key filter. The two are mutually exclusive: +20 ignores anything not `sk_`/`pk_`-shaped, +21 ignores anything that is not a JWT |
+| `SessionMerchantResolver` | Redis `session:merchant:v1:<userId>`, positive TTL only, wrapped in D49's Retry → CircuitBreaker → TimeLimiter chain |
+| `GET /internal/v1/merchants/by-owner/{id}` | merchant-service, internal tier, read-only — deliberately does **not** pin the API version, unlike `/internal/v1/api-keys/verify` |
+| `principal` + `userId` in the signed context | D185. Absent principal means `api_key`, which keeps every pre-M23 signer unchanged; unrecognised is rejected. `MerchantContext` refuses to hold a session with a key or a key with a user |
+| `ApiScopes` | The one declaration of the scope vocabulary, now that a session must synthesise a set and the route map must check one |
+| Session rate-limit branch | Per-user bucket in D24's limiter, sharing the `user:` namespace with `/api/v1` dashboard traffic |
 
-**The Python SDK is the same client** (M22.5–M22.6): same options, same defaults, same retry
-rules, same backoff constants, same tolerance window, same error classification, same page
-shapes. 193 tests, `mypy --strict` over the package, its tests and its examples.
+**Failure modes, all fail-closed.** Bad token → 401. Subject that is not a UUID → 401. User with
+no merchant → **403** (the session authenticated; it has nothing to act for yet). Unrecognised
+mode → 400. merchant-service unreachable → **503**, never 401, so a backend blip does not read to
+the portal as an expired session.
 
-**Three names differ**, each forced by Python and each asserted by `SdkParityTest`:
-`PermissionDeniedError` (`PermissionError` is a builtin, and shadowing it would silently stop a
-module catching filesystem errors — D178), `delete()` (`del` is a keyword), and seconds rather
-than milliseconds. `from_` is a fourth, inside one method signature.
+**Mode (D184).** Read from `X-PF-Mode`, validated, defaulted to `test`, and **removed from the
+forwarded request**. The API-key path is untouched — still stripped, still key-bound — and a test
+proves it: deleting the route-level `RemoveRequestHeader=X-PF-Mode` fails
+`anApiKeyStillCannotSelectItsOwnMode`.
 
-**Parity is a Java test** in `sdks/shared` (D180), because that is the only place a comparison
-can run without making Node or Python a prerequisite of `./gradlew build` (D136). It compares
-operation coverage, namespace grouping, error hierarchies, published models, retry constants,
-README topics, and whether either package has quietly lost its do-not-publish marker. Behavioural
-parity is separate and older: both suites assert against the same golden fixtures, and both
-webhook suites against the platform's own five signature vectors.
+**Deliberately absent.** Dashboard traffic is not written to `api_request_log` and consumes no
+per-key quota (D186), so a merchant's request log stays a tool for debugging their own
+integration. Recorded as a decision precisely because not writing code leaves no trace.
 
-Neither package is published: `package.json` is `private`, `pyproject.toml` carries
-`Private :: Do Not Upload`. Both are *packaging-verified* — `npm pack` and a real wheel plus
-sdist, the wheel installed into a clean interpreter and imported.
+**Closed.** V1 known issue #8 — the deployed gateway's CORS allow-list was pinned to the local
+dev origin because `application-local.yaml` hard-coded it and the deployed gateway runs with
+`SPRING_PROFILES_ACTIVE=local`. Both files now read one env var.
 
-### The three rules the SDK does not take from §7.1
+**Proven, not assumed.** Two gates were observed failing on a bad input before being trusted:
+removing a scope from `ApiScopes.ALL` fails `RouteScopeCoverageTest`, and removing the session
+branch from `rateLimitKeyResolver` fails `oneUserExhaustingTheirBucketDoesNotRefuseAnother`.
 
-The shared design contract was written before M20 and M22.0 settled what the transport headers
-mean, and three of its lines are wrong when read against the platform as built. Each is
-recorded as a decision rather than silently deviated from.
+**Contract impact: none.** `verifyOpenApiCompatibility` reports **0 breaking, 0 accepted, 0
+additive**. `verifyOpenApiBaseline` is in sync. `verifySdkSources` is fresh.
 
-| §7.1 says | What was built | Why |
-|---|---|---|
-| back off on `RateLimit-Reset` **or** `Retry-After` | `Retry-After` only | `RateLimit-Reset` is the *daily* quota window and is on 200s too — backing off against it idles a healthy client until midnight UTC (**D167**) |
-| `Retry-After` wins over the computed backoff | …up to 60s; beyond that the loop stops and raises | an exhausted daily quota returns up to 86 400 seconds, and sleeping that is a hang, not compliance (**D168**) |
-| retry 429, 5xx and network errors | …**and** only if the request is safe to replay | a response that never arrived does not mean a request that never arrived; a `POST` the platform does not deduplicate must not be replayed (**D169**) |
+### What M23.1 needs from here
 
-§5/M22 additionally lists request/response hooks. They are not in §7.1's agreed cross-language
-contract, so they were not built — a speculative extension point is public API forever.
+Nothing further from the backend. M23.1 creates `developer-portal/` — and its **first** commit
+must update `.dockerignore` and `DockerBuildContextConsistencyTest`, which asserts
+settings ↔ Dockerfile ↔ `.dockerignore` agreement in both directions. A new top-level directory
+reds all nine image builds until that test is taught about it.
 
-### Webhook verification (M22.4)
-
-`constructEvent(payload, signature, secret, tolerance)` implements M18.4's specification —
-`v1 = hex(HMAC-SHA256(secret, "{t}.{body}"))`, the `whsec_` prefix included in the key, several
-`v1` values accepted for the rotation window — and is checked against the **same five shared
-vectors** as `WebhookSigner`, `verify.js` and `verify.py`. Nothing was reimplemented from
-memory, and a divergence fails a test rather than reaching a merchant.
-
-Three error classes: signature, timestamp, payload. The signature is verified **before** the
-window (D176), so a `WebhookTimestampError` only ever describes a delivery that really came
-from PaymentFlow — which is what makes it actionable as "a replay, or a clock" rather than
-ambiguous with a forgery. Verification takes no client and no API key (D174).
-
-### What M22 did not deliver
-
-One thing, deliberately and on the record: **the async Python client** §7.2 lists
-(D181, §16 item 20). `async`/`await` colours every function it touches, so it needs a second
-transport, a second retry loop and a second copy of all eleven namespaces. Delivering it inside
-M22.5 would have produced two clients of which one was well tested. It is named in
-`sdks/python/README.md`, so no integrator discovers it by looking for it.
-
-### What M23 needs from here
-
-Nothing from the SDKs. M23 is the developer portal, and the contract it consumes is the same
-`docs/openapi.yaml` these two are generated from.
+---
 
 ## 18. Repository Health
 
 | Signal | Status | Detail |
 |---|---|---|
-| **Build** | ✅ | `./gradlew build --max-workers=2` — BUILD SUCCESSFUL in 19m 27s |
-| **Tests** | ✅ | **1002 / 1002**, 0 failures, 0 errors, 0 skipped, across 13 modules |
+| **Build** | ✅ | `./gradlew build --max-workers=2` — BUILD SUCCESSFUL |
+| **Tests** | ✅ | **1081 / 1081**, 0 failures, 0 errors, 0 skipped, across 13 modules |
 | **Working tree** | ✅ | Clean |
 | **OpenAPI baseline** | ✅ | `verifyOpenApiBaseline` — in sync |
-| **OpenAPI compatibility** | ✅ | 0 breaking, 0 accepted, **0 additive** — M22.5–M22.7 touched no platform contract at all |
+| **OpenAPI compatibility** | ✅ | 0 breaking, 0 accepted, **0 additive** — M23.0 touched no platform contract at all |
 | **SDK codegen freshness** | ✅ | `verifySdkSources` — the committed Node, Python and fixture trees match what `docs/openapi.yaml` generates; proven to fail on an edited, a deleted and an orphaned file |
 | **Live-response contract** | ✅ | 41 real calls across six services validated against `docs/openapi.yaml` |
 | **CI** | ✅ | Four jobs; all nine images; cache disabled; the test-execution proof step verified by running the shipped script in both directions, including the recursive-glob fix that covers the first nested module. The `sdks (node)` leg genuinely executes its 108 tests on the pinned Node 20 — until 2026-07-31 it executed none of them and failed on the invocation (§17 of the journal, and warning 7 below) |
@@ -1156,10 +1161,10 @@ derivation CI's proof step performs, so the two cannot disagree.
 |---|---|---|---|
 | notification-service | 179 | analytics-service | 79 |
 | payment-service | 155 | openapi-tools | 65 |
-| common-lib | 117 | transaction-service | 52 |
-| sandbox-service | 107 | audit-service | 42 |
-| gateway-service | 98 | common-dto | 35 |
-| | | merchant-service | 30 |
+| gateway-service | 147 | transaction-service | 52 |
+| common-lib | 143 | audit-service | 42 |
+| sandbox-service | 107 | common-dto | 35 |
+| | | merchant-service | 34 |
 | | | `sdks/shared` | 31 |
 | | | identity-service | 12 |
 
@@ -1178,7 +1183,12 @@ D164). They are counted separately:
 
 1. **Stop the `paymentflow-*` compose stack before a full verification run.** Nineteen containers
    competing with Testcontainers has caused 18 spurious suite failures with a
-   `ContainerFetchException` for an image that was present locally.
+   `ContainerFetchException` for an image that was present locally. **It restarts itself**:
+   the compose services carry `restart: unless-stopped`, so starting Docker Desktop starts the
+   whole stack, and a test that assumes nothing is listening on a service port will quietly talk
+   to the real service instead. That happened during M23.0 and produced a failure with no
+   relationship to the code under test. `docker compose down` first, and check with
+   `docker ps` rather than assuming.
 2. **Never run two Gradle builds against this repository at once.** They compete for the same
    Docker daemon and the same build directories.
 3. **Killing a build mid-test corrupts `build/test-results`**, and the *next* build fails with a

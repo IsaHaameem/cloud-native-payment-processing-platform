@@ -166,8 +166,33 @@
 > touches, so it means a second transport and a second copy of all eleven namespaces, and it is
 > recorded in §14 rather than silently omitted. **0 breaking, 0 accepted, 0 additive**: none of
 > M22.5-M22.7 touched a platform contract.
+> **M23 (Developer Portal, Part 1) — in progress** (from 2026-08-02): architecture approved up
+> front — the portal consumes the **public `/v1` API**, the same contract the SDKs consume, and
+> `/api/v1` shrinks to the account plane it actually is (D182); the browser holds no token of any
+> kind (D187); the M22 generator gains a third emitter target rather than the portal forking a
+> client (D188/D189); ten sub-milestones, M23.0–M23.9.
+> **M23.0 complete** (2026-08-02): the backend enablement, and only that. `SessionContextWebFilter`
+> turns a validated identity-service session JWT into the same HMAC-signed internal merchant
+> context the API-key path has asserted since M15 (D183), so the portal can reach every one of the
+> 31 published `/v1` operations without a single service downstream learning that sessions exist.
+> This is what replaces D133's deferred `/api/v1` dashboard mirror, which is now **never built**:
+> five of the six services behind `/v1` have no OAuth2 resource server at all, and mirroring the
+> tier would have meant a resource server, a JWKS dependency and roughly twenty duplicated
+> controller methods in each, plus a second response contract that none of M21's three gates
+> cover. The signed context gains a `principal` and a nullable `userId`, with `keyId` nullable in
+> its turn (D185) — a portal-initiated refund is now attributable to a person rather than
+> indistinguishable from a merchant's own server. Mode is restated as bound to the **credential**
+> rather than to the key specifically (D184), which is a wording change and not a relaxation:
+> the API-key path still strips `X-PF-Mode` and still takes mode from the key, and the session
+> path validates it, consumes it, and never forwards it. Dashboard traffic is deliberately absent
+> from `api_request_log` (D186) so a merchant's request log stays a tool for debugging their own
+> integration. Closes V1 known issue #8 (the deployed gateway's CORS allow-list was pinned to the
+> local dev origin by an active profile, not by a misconfigured base file). Two defects found:
+> §5.0's M22 row still read "in progress", and this milestone's own first test silently borrowed
+> the developer's running compose stack — known issue #3, observed rather than theorised.
+> **0 breaking, 0 accepted, 0 additive**: M23.0 touched no published contract at all.
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D181**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D191**.
 
 ---
 
@@ -618,7 +643,7 @@ lingering note:
 | 5 | `springdoc` is in the tech-stack table but is not a dependency of any module | **M21 ✅ closed** (2026-07-27 – 07-28, M21.1–M21.3 — springdoc on all six services exposing a public `/v1` tier, each generating an OpenAPI 3.1 document, merged by `openapi-tools` into the committed `docs/openapi.yaml`, which covers all 26 public path items) |
 | 6 | No README badge target, no diagrams, no frontend | **M23/M24/M30** |
 | 7 | Gateway does not honour `X-Forwarded-*` behind the ALB | **M15** (edge work) |
-| 8 | Deployed gateway runs `SPRING_PROFILES_ACTIVE=local`, so CORS allows only `localhost:3000` | **M23** |
+| 8 | Deployed gateway runs `SPRING_PROFILES_ACTIVE=local`, so CORS allows only `localhost:3000` | **M23.0 ✅ closed** (2026-08-02 — both `application.yaml` and `application-local.yaml` read one env var, so the active profile no longer decides the allow-list) |
 | 9 | Resilience4j meters are absent from `/actuator/prometheus` despite the dependency being present (V1 §11, re-confirmed during M14) | **M20 ✅ closed** (2026-07-26, M20.7 — a Spring Boot 4 package relocation; 58 meter lines now, measured at 0 before) |
 | 10 | Email delivery is simulated only (D45) | **Remains open** — a real provider is still not chosen; see §13-Q5 |
 | 11 | The async event pipeline was never *directly* confirmed end-to-end on AWS (no `psql`/ECS Exec access) | **M29** (enable ECS Exec during the V2 deploy) |
@@ -1043,8 +1068,8 @@ the single place to see where V2 stands; the full entry for every completed mile
 | **M19** — Public read APIs & query surface | B | ✅ complete | 2026-07-25 – 07-26 |
 | **M20** — Request logging, metering, per-key limits | B | ✅ complete | 2026-07-26 |
 | **M21** — OpenAPI 3.1, versioning & the error contract | B | ✅ complete | 2026-07-27 – 07-29 |
-| **M22** — Node & Python SDKs | C | 🟡 in progress — M22.0, M22.1 complete | from 2026-07-30 |
-| **M23** — Developer portal, part 1 | C | ⬜ not started | — |
+| **M22** — Node & Python SDKs | C | ✅ complete | 2026-07-30 – 07-31 |
+| **M23** — Developer portal, part 1 | C | 🟡 in progress — M23.0 complete | from 2026-08-02 |
 | **M24** — Developer portal, part 2 | C | ⬜ not started | — |
 | **M25** — Documentation site | C | ⬜ not started | — |
 | **M26** — Java & Go SDKs | C | ⬜ not started | — |
@@ -2851,6 +2876,16 @@ decisions are appended as milestones are implemented.
 | D180 | (M22.7) Cross-language parity is asserted by a **Java test in `sdks/shared`**, not by either SDK's own suite | (a) A Node test that shells out to Python, or the reverse; (b) a third artefact both SDKs assert against, listing every method; (c) review, since the two files sit next to each other | Each SDK's own suite can only say that it is self-consistent - Node's passes whether or not Python exists - so something has to compare them, and D136 keeps both toolchains out of `./gradlew build`. (a) would make the parity check the one test a contributor without both languages never runs, and CI's two SDK jobs run in parallel and cannot see each other, so it would run nowhere. (b) is a third hand-maintained copy of the API surface: the artefact that goes stale first, and the one nothing regenerates. A Java test reads both source trees as text, which is cruder than importing them and is the point - it costs nothing, runs everywhere `./gradlew build` runs, and the properties worth checking are all visible in the source: which operations each SDK covers, which namespace groups them, which error classes exist, which constants the retry loops use, and whether either package has quietly lost its do-not-publish marker. Behavioural parity is a separate question and already has an answer: both suites assert against the same golden fixtures, and both webhook suites against the same signature vectors |
 | D181 | (M22.7) The Python SDK ships **synchronous only**; the async variant §7.2 lists is deferred rather than delivered | (a) Ship both now; (b) ship async only, since it is the newer idiom; (c) generate the async client from the sync one at build time | §7.2 says "sync client first with an async variant", and this delivers the first half of that sentence. `async`/`await` colours every function it touches: an async client needs its own transport, its own retry loop, and its own copy of all eleven resource namespaces, because a coroutine cannot be called from a synchronous method or vice versa. (a) roughly doubles the Python package inside a sub-milestone that was already the larger half of M22, and the realistic result is two clients of which one is well tested. (b) would exclude every synchronous integrator, which is still most of them, and diverge from the sync-first sequence the roadmap approved. (c) is how some SDKs do it and is a code generator producing the *ergonomic* layer - precisely what the blueprint rejected for these SDKs, and doubly wrong for the layer that owns retries and idempotency. Recorded in §14 and named in the package's own README rather than left as a silent omission |
 | D151 | (M21.3) The merge is a **new `:openapi-tools` module** whose fragments are produced by each service's existing `OpenApiDocumentIntegrationTest`, not by `springdoc-openapi-gradle-plugin` and not by Gradle-script logic in `build-logic` | (a) `org.springdoc.openapi-gradle-plugin`, the tool built for exactly this job — it `bootRun`s the service and fetches `/v3/api-docs`; (b) merge logic written directly in the root build file or as a `build-logic` task class; (c) commit six per-service documents and skip the merge until M25 needs one | (a) is the obvious choice and fails on this platform's shape: it starts each service for real, so producing the document would require Postgres, Redis **and** Kafka reachable at build time for six services. The pre-M21.3 audit had just finished demonstrating what that dependency costs — 18 spurious test failures from Docker exhaustion, and a compose stack whose stale images answered `/v3/api-docs` with 401 (§14). Worse, it would be a *second* path to the published contract, one that asserts nothing: the fragment it produced could differ from the one the document tests approved and no test would notice. Reusing the integration test makes the fragment a by-product of an assertion — the path set, the tier exclusion and the shared contract are all checked before the bytes are written. (b) keeps the wiring together but makes the interesting part — deduplicating shared components, refusing to merge fragments that disagree — reachable only through a Gradle invocation, when it is ordinary logic with ordinary failure modes; §10's standing position is that logic like that gets unit tests, and `OpenApiMergerTest`'s hand-written *disagreeing* fragments could not be written at all against the real six, which agree. (c) defers the one artefact everything downstream consumes and leaves nothing to diff, which is precisely the "documentation drifts into fiction" failure §9.5 and R10 exist to prevent. The module also has to exist for M21.6, which diffs this same document for breaking changes |
+| D182 | (M23.0) The developer portal consumes the **public `/v1` API**; `/api/v1` stays the account plane (auth, users, merchant profile, API keys) and the `/api/v1` dashboard mirror D133 deferred to M23 is **never built** | (a) Build the mirror as D133 and §5/M18 task 2 planned — roughly twenty `/v1` operations duplicated onto `/api/v1` across five services; (b) let the portal's server hold a per-merchant API key and call `/v1` with it | (a) is what the roadmap literally says, and is the expensive answer to a question that turned out to have a cheap one. `transaction`, `audit`, `notification`, `analytics` and `sandbox` have **no OAuth2 resource server at all** — `InternalContextFilter` is their sole authentication (D100/D133) — so the mirror means a `SecurityFilterChain`, a `JwtDecoder` and a JWKS dependency in each, per-service merchant resolution from a JWT subject those services currently never see, a second set of DTOs and mappers, and a second response contract that **none of M21's three OpenAPI gates cover**, so it would drift silently. It also violates §15's own rule that a pattern appearing a third time moves into `common-lib` rather than being written a fourth. (b) is worse than it looks: keys are SHA-256 hashed and revealed once (§4.9), so the portal cannot retrieve an existing one and would have to mint and store its own — a live secret key at rest, in both modes, per merchant, which is D114's prohibition moved one hop rather than honoured; it would also spend the merchant's own rate-limit budget and fill their `/v1/request_logs` with their own dashboard's reads. Consuming `/v1` instead makes the portal the platform's first-party consumer of its published contract: every screen dogfoods `docs/openapi.yaml`, and a contract defect an SDK would tolerate shows up as a broken screen |
+| D183 | (M23.0) The gateway mints the signed internal merchant context from a dashboard session, in one new `WebFilter` at `HIGHEST_PRECEDENCE + 21`, resolving the merchant through one new internal endpoint (`GET /internal/v1/merchants/by-owner/{ownerUserId}`) | (a) A tenth deployable backend-for-frontend service; (b) put `merchantId` in the identity-service JWT so no lookup is needed | The gateway is already the platform's only trust boundary (§4.9) and already signs this exact context; the missing piece was one filter doing for a session what `ApiKeyAuthenticationWebFilter` does for a key. Downstream, **nothing changes at all** — same signer, same headers, same verifier — which is the property that makes the whole of `/v1`, including every endpoint M24 needs and nobody has written a screen for, reachable the moment this merges. (a) was already answered by §13-Q10 before the portal existed: no capability gain, one more thing to build, deploy and monitor. (b) is tempting and wrong on lifecycle — a merchant is created *after* signup, so the claim would be absent on the token a new user holds and stale on every token issued before onboarding, and it would couple identity-service to merchant-service for a fact that is not identity's to know. The lookup is Redis-cached and resilience-wrapped exactly as the key-verify call is |
+| D184 | (M23.0) Mode is restated as bound to the **credential** — key-bound and unoverridable for an API key, session-bound and owner-selected for a session | (a) Keep the rule literal and give the portal two API keys, one per mode; (b) put the selected mode in a JWT claim, so it is bound to a token identity-service issued | Not a relaxation, and not new: `gateway-service/application.yaml`'s own M16.2 comment already states that the `/api/v1` routes *deliberately* keep `X-PF-Mode` because "the dashboard's mode toggle legitimately sets it (JWT path)". M23.0 extends an already-blessed rule to session-authenticated `/v1`. The rule exists to stop a **key holder** — possibly a third party handed a test key — from reaching live data; a session's owner is entitled to both modes of their own merchant by definition, and there is no privilege boundary between a merchant and their own test data. The API-key path is untouched: the header is still stripped and mode still comes from the key, asserted by a test proved to fail when either protection is removed. On the session path the value is validated against the two legal spellings, defaults to `test` when absent, and is **removed from the forwarded request**, so the only thing any service ever trusts is the signed context. (a) reintroduces exactly the stored-secret-key problem D182 rejected. (b) would put a per-request UI toggle into a token lifecycle measured in minutes, so switching mode would mean re-authenticating |
+| D185 | (M23.0) The signed internal context gains `principal` (`api_key` or `session`) and a nullable `userId`; `keyId` becomes nullable in its turn, and `MerchantContext` enforces that exactly one of the pair is present | (a) Sign the session context with a reserved sentinel key id (the nil UUID) and add no fields; (b) infer the principal from which identity field happens to be populated | (a) is the cheapest change and lies to the audit trail: `api_request_log.key_id` and every downstream consumer would record a key that does not exist, and M24's admin console — whose own acceptance criterion is "who did what" — would have nothing to read. The two fields are confined to `common-dto`'s header names, one signer, one verifier and one record, so the honest version costs a handful of lines. (b) makes "no key id" mean "session" permanently, which stops being true the first time any third credential appears, and it is unsigned inference over signed data — the one place inference should never be used. Both fields are inside the HMAC payload, so a session context cannot be relabelled as a key's, nor its user swapped, without invalidating the signature. An *absent* principal header means `api_key`, which is what keeps every pre-M23 signer correct without changing a line of it; an *unrecognised* one is rejected rather than defaulted, so a future credential can never inherit the privileges of the one this build happens to know |
+| D186 | (M23.0) Developer-portal traffic is **not** written to `api_request_log`, and does not consume the merchant's per-key rate limit or daily quota | (a) Log it, tagged as dashboard-origin, and filter it out of M24's request-log screen by default; (b) log it untagged, as ordinary API traffic | A merchant's `GET /v1/request_logs` exists to debug **their integration**. Filling it with their own dashboard's reads destroys the one signal it carries — every page view of the log itself would appear in the log — and the quota is the merchant's budget for their own software, not for looking at a screen. (a) is what a larger platform might do; it buys a filter toggle at the cost of growing the highest-write-volume table in the platform (§14 already records that it has no retention policy) with UI traffic. (b) is (a) without the mitigation. This costs nothing to implement — `ApiRequestLoggingFilter` and `ApiKeyRateLimitWebFilter` both key on the resolved *API-key* attribute, so the session filter simply publishes a different one — and is recorded here precisely because "we did not write code" leaves no trace a later reader could interpret, and someone would eventually "fix" the apparent gap. Portal traffic is still rate-limited, per user, by D24's bucket |
+| D187 | (M23) The browser holds **no token of any kind** — not in `localStorage`, not in memory, not in a readable cookie. Next.js route handlers own an encrypted `httpOnly` `SameSite=Lax` session cookie, and all platform traffic is server-side | §5/M23's own plan: access token in memory, refresh token in an `httpOnly` cookie | The original plan is a 2020-era SPA answer, and the App Router makes a strictly better one free because the Next.js server is already in the request path. An access token in memory is readable by any script on the page, which is the XSS token-theft class entire; it needs cross-tab refresh coordination whose races produce spurious logouts; and it is the recurring source of credentials in error-reporting payloads. Server-side sessions also let Server Components render authenticated data natively, make CORS irrelevant because the browser only ever talks to its own origin, and are what makes a `connect-src 'self'` CSP affordable — a direct-to-gateway design would have to widen it. D114 ("the browser never holds a secret API key") is strengthened rather than reinterpreted |
+| D188 | (M23) The portal's server-side transport is hand-written over M22's **generated operation descriptors**; it does not depend on the `sdks/node` package | (a) Depend on `sdks/node` and add a session-auth mode to it; (b) reimplement the descriptors in the portal | (a) would put an option in a **public** package that no integrator can ever use — §17/M22 already recorded that a speculative extension point is public API forever — and the SDK's retry semantics are right for a program calling across the internet and wrong for a server adjacent to the gateway acting for a human who clicked once: retrying a dashboard mutation is wrong behaviour, not a missing feature. `sdks/node` is also `private` and unpublished, so consuming it means a `file:` dependency crossing the portal's own Docker build context — the class of problem `DockerBuildContextConsistencyTest` exists to police. (b) is the duplication D165 exists to prevent |
+| D189 | (M23) `:sdks:shared` gains a **third emitter target**, writing the generated TypeScript into `developer-portal/src/generated`, covered by the existing `verifySdkSources` freshness gate | (a) A TypeScript codegen step in the portal's own toolchain; (b) a `tsconfig` path alias into `sdks/node/src/generated` | D164's constraint is unchanged: the freshness gate has to run in the build that owns the spec, and a contributor with no Node must still be able to build the monorepo. (a) moves the gate into a toolchain `./gradlew build` cannot run. (b) avoids the copy and crosses a Docker build context to do it. One reader, now three emitters — the same trade already accepted between Node and Python |
+| D190 | (M23) Capture, refund and void are **never** optimistic in the portal UI | Optimistic updates everywhere, for consistency with list edits and metadata | An optimistic "Refunded" that rolls back is a false statement about a financial event, shown to the person least able to verify it independently. The rollback is technically clean and the damage is done before it runs. Metadata edits and saved views stay optimistic because their rollback costs nothing and asserts nothing |
+| D191 | (M23) Filter, sort and pagination state lives in the **URL**; the portal has no global client store | Zustand or Redux for cross-component state | Every candidate for global state turned out to be server state (TanStack Query), URL state, or cookie state. A store would add a fourth place the truth could live, and the first bug it produces is the one it was added to prevent — two components disagreeing about the current filter. URL state is additionally shareable, bookmarkable and back-button-correct, which a store is not |
 
 ---
 
@@ -2920,7 +2955,7 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **`webhook_endpoints.metadata` is not indexed** (D144). Correct today, because the endpoint list exposes no containment filter and is hard-capped at 16 rows per merchant per mode, so a GIN index would be paid for on every write to serve a query that does not exist. Recorded because the *first* milestone to add a filter on that column must add the index with it — the absence is a considered deferral, not an oversight to be rediscovered under a sequential scan.
 - **`idx_ledger_entries_account_id` is now redundant for lookups but is deliberately retained** (M19.8, Defect 3). `idx_ledger_entries_account_created (account_id, created_at desc, id desc)` supersedes it for every query the balance API issues, and M19.2 dropped `idx_payments_merchant_mode` in exactly this situation. It is kept here because it also backs the `account_id` foreign key, and dropping the only index on an FK column makes every delete on `accounts` scan `ledger_entries`. The cost is one redundant index's write maintenance; the alternative is a table scan on a path nothing exercises today but a future account lifecycle would. Flagged so the asymmetry with M19.2 is not read as an inconsistency.
 - **notification-service's Kafka producer sets no `max.block.ms`, so a broker outage becomes a database outage.** Found during the M20 CI investigation, with evidence rather than by inspection. `WebhookRetryRelay.relay()` is `@Scheduled(fixedDelay=1s)` **and** `@Transactional`, and it calls `kafkaTemplate.send`. With no reachable broker each `send` blocks for the 60-second default while the relay holds a JDBC connection, and the observed result is `HikariPool-7 - Connection is not available, request timed out` — a Kafka outage escalating into connection-pool exhaustion in a service that would otherwise be merely degraded. The same default makes `POST /v1/webhook_deliveries/{id}/replay` hang a servlet thread for 60 seconds before returning 500, which under a broker outage exhausts the servlet pool. The gateway's M20.2 producer sets `max.block.ms=1000` for exactly this reason. **Not fixed here deliberately**: failing fast changes delivery semantics, and whether an undispatched `PENDING` delivery is recoverable by the retry relay or silently lost must be established first — that analysis does not belong inside a CI fix. No milestone owns it yet; it is a genuine production robustness defect, not a test artefact.
-- **Integration tests can depend on the developer's docker-compose stack without declaring it, and the failure mode is invisible locally.** `WebhookDeliveryLogAndReplayIntegrationTest` passed for two milestones only because `application.yaml`'s default `localhost:59092` happened to reach a running compose broker; in CI it failed. Fixed for that class (M20's CI investigation), but the underlying hazard is structural: every service's `application.yaml` carries a working localhost default for Kafka, Redis and Postgres, so *any* test that omits a container silently borrows the developer's stack. The cost is not only red CI — the same gap made `WebhookEndpointApiIntegrationTest` take **1063.9s** instead of **10.7s**, ~18 minutes of CI time attributable to blocked producer calls that were swallowed rather than failed. A structural guard (a test-profile Kafka/Redis/datasource pointing at an unroutable address, so an undeclared dependency fails loudly and immediately instead of blocking for 60 seconds) would prevent the next one. Not owned by any milestone; M27 or a dedicated stability pass is the natural home.
+- **Integration tests can depend on the developer's docker-compose stack without declaring it, and the failure mode is invisible locally.** `WebhookDeliveryLogAndReplayIntegrationTest` passed for two milestones only because `application.yaml`'s default `localhost:59092` happened to reach a running compose broker; in CI it failed. Fixed for that class (M20's CI investigation), but the underlying hazard is structural: every service's `application.yaml` carries a working localhost default for Kafka, Redis and Postgres, so *any* test that omits a container silently borrows the developer's stack. The cost is not only red CI — the same gap made `WebhookEndpointApiIntegrationTest` take **1063.9s** instead of **10.7s**, ~18 minutes of CI time attributable to blocked producer calls that were swallowed rather than failed. A structural guard (a test-profile Kafka/Redis/datasource pointing at an unroutable address, so an undeclared dependency fails loudly and immediately instead of blocking for 60 seconds) would prevent the next one. Not owned by any milestone; M27 or a dedicated stability pass is the natural home. **Recurred in M23.0** (2026-08-02), this time in a brand-new test rather than an old one: `SessionContextIntegrationTest`'s test-card assertion expected a connection failure from `localhost:8094` and got a 200, because Docker Desktop had started the compose stack on launch (`restart: unless-stopped`) and the real sandbox-service answered. The test was rewritten to bind its own stub, but the significant part is that the hazard caught a test written *by an author who had just read this entry* — which is the strongest available argument that the structural guard described above is worth more than the discipline it substitutes for.
 - ~~**The six `OpenApiDocumentIntegrationTest` classes duplicate their scaffold, and this breaks §5.0 standing rule 4**~~ — **closed by M21.7** (2026-07-29). The scaffold now lives once in `:test-support`'s `PublicApiDocumentContract`, which the six document tests extend; each subclass supplies its module name, its path set and its tag list and inherits fourteen assertions, keeping only what is genuinely its own. The entry's own prediction is what forced the fix: *"M21.7's contract tests would either copy it a seventh time or fix it under pressure"* — M21.7 adds six new assertions to that scaffold and a second base class for live-response validation, so a seventh copy would have been fourteen. A separate module rather than `testFixtures` on `common-lib`, for D11's reason, recorded as **D159**. Kept struck through rather than deleted because the reason it was deferred — the monorepo had nowhere to put shared test code — is exactly what the fix had to create.
 - **The six `OpenApiDocumentIntegrationTest` classes duplicated their scaffold** *(historical detail, retained)* ("no duplicated code — if a pattern appears a third time, it moves into `common-lib`"). Found by the pre-M21.3 audit, not during M21.2. Each of the six files independently re-implements the cached `document()` fetch, the `tagsOf`/`usedTags` helpers, and five assertions that are identical in intent and near-identical in text: the document is 3.1, the path set matches in both directions, the internal tiers are absent, the fragment carries the shared contract, and the YAML sibling is served. Roughly 70 lines × 6. It was written this way because the monorepo has **no shared test-fixtures artifact** — there is no module the six could inherit from, and D149's `PublicApiDocument` is main-source, not test-source. The cost is not the line count but the drift: a seventh service, or M21.7's contract tests, would either copy it a seventh time or fix it under pressure. **Not fixed during the audit** because the remedy is a cross-module change (a `testFixtures` source set on `common-lib`, or a small `test-support` module, consumed by six services) and that is implementation rather than a documentation correction. The natural moment is immediately before **M21.7**, which adds a second round of per-service document assertions on exactly this scaffold — or before M21.3 if the merge task's verification wants to reuse it.
 - ~~**The two webhook resources carry no `object` discriminator, unlike every other public object**~~ — **closed by M21.3** (2026-07-28, D150). Found in M21.2 by generating notification-service's document and reading its schemas: `PaymentResponse`, `RefundResponse`, `EventResponse`, `BalanceTransactionResponse`, `RequestLogResponse` and `AnalyticsSummaryResponse` all published a constant `object` field (`"payment"`, `"event"`, `"balance_transaction"`, …) — it is how a caller identifies a bare object out of context, and §7.1's SDK contract leans on it — while `WebhookEndpointResponse` and `WebhookDeliveryResponse` did not have the field at all. The inconsistency dated from M18 and was invisible until the schemas were written down side by side, which is a fair argument for the document having been worth generating. Deliberately not fixed in M21.2, because adding a field to a shipped public response is an API change and M21.2's remit was to describe the API rather than alter it; fixed as M21.3's first step instead, since M21.3 is the sub-milestone that freezes the `openapi.yaml` baseline and a gap left open past that point becomes a documented promise. Kept as a struck-through entry rather than deleted, because it is the clearest example V2 has of a contract defect that only became visible once the contract was written down.
@@ -2940,6 +2975,7 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **Two bullets in §5/M22's feature list and one line in §7.1 describe SDK behaviour that was not built, and should not have been.** "`RateLimit-Reset`-aware backoff rather than blind sleeping" and "Request/response hooks for logging" both predate M20 and M22.0, which settled what the transport headers actually mean and what the shared design contract actually specifies. `RateLimit-Reset` is the *daily* quota window and appears on successful responses, so backing off against it would idle a healthy client until midnight UTC (D167); hooks appear in §5's wish-list but not in §7.1's agreed cross-language contract, so building them would have added public API to one of four SDKs on no authority. Left in place deliberately rather than edited, following the same convention as §4.9/D137: §5 and §7 are the *plan*, and the decision log is where a plan is corrected by implementation. Flagged here so nobody reads either section in isolation and reintroduces them.
 - **The Python SDK has no async client.** §7.2's plan is "sync client first with an async variant", and M22.5 delivered the first half. `async`/`await` colours every function it touches, so the variant needs its own transport, its own retry loop and its own copy of all eleven resource namespaces — a coroutine cannot be called from a synchronous method or the reverse. Delivering it inside M22.5 would have produced two clients of which one was well tested. Named in `sdks/python/README.md` so no integrator discovers it by looking for it. Unowned; a natural M26 companion when the Java and Go SDKs are written.
 - **The Node SDK declares `engines.node >= 18`, and nothing executes it on 18.** CI runs the suite on Node 20 (pinned deliberately, `ci.yml`); development happens on whatever the contributor has, currently 24. Node 18 — the floor the package advertises to integrators — is exercised by neither. This is the same shape as the Python-3.9 item above, and it is not hypothetical: the CI defect recorded in §17 (2026-07-31) was exactly a Node-version disagreement, invisible for the whole of M22 because only one of the two environments ever ran the suite. The cheap partial answer is a CI matrix over 18/20/latest, which costs one `strategy.matrix` entry and would have caught that defect on the commit that introduced it. Unowned; the natural companion to the Python 3.9 leg, and worth doing together.
+- **The `session:merchant:v1:` lookup cache is not evicted when a merchant's profile changes.** `ApiKeyService` evicts the `apikey:v1:` namespace directly on revoke and rotate, so a revoked key stops authenticating within one call rather than one TTL. M23.0's session cache has no equivalent: updating `contactEmail` or `webhookUrl` through `PATCH /api/v1/merchants/me` leaves the gateway asserting the old values on the session path for up to the five-minute positive TTL. The blast radius is genuinely small — the merchant id itself cannot change (a user owns at most one merchant, and merchant-service refuses a second), and those two fields already carry exactly this staleness on the API-key path, for the same consumers (D43/D118) — which is why it was accepted rather than solved. It is recorded because the asymmetry with the key cache is deliberate and would otherwise read as an oversight: the fix, if a reason appears, is one `@CacheEvict`-adjacent eviction in `MerchantService.updateMine`/`updateMyWebhook` writing to the same Redis namespace the gateway owns, exactly as `ApiKeyService` already does. No milestone owns it; M23.4 (merchant settings) is the natural moment, since that is when a human first edits these fields from the portal and would notice.
 
 ---
 
@@ -8266,6 +8302,181 @@ filters to `in: query`, which is what it meant.
 idempotency, retries with a preserved key, `RateLimit-Reset`-aware backoff, auto-paginating
 iterators, the typed error hierarchy, and `webhooks.constructEvent`. Then the same in Python,
 then examples, packaging verification from a clean project, and the dry-run release pipelines.
+
+---
+
+### M23 — Developer Portal, Part 1 (in progress, from 2026-08-02)
+
+**Approved architecture.** One Next.js (App Router) application, `developer-portal/`,
+consuming the **public `/v1` API** — the same contract the M22 SDKs consume — rather than a
+mirrored `/api/v1` tier (D182). `/api/v1` shrinks to the account plane it actually is: auth,
+users, merchant profile, API keys, the things that have no API-key equivalent and never will.
+The browser holds no token of any kind; Next.js route handlers own an encrypted `httpOnly`
+session cookie and all platform traffic is server-side (D187). The portal's typed models come
+from a third emitter target on M22's existing generator (D189), so they cannot drift from
+`docs/openapi.yaml` and the gate still runs in the Java build. Ten sub-milestones,
+M23.0–M23.9, with M23.0 the only one that touches the backend at all.
+
+| # | Scope | Status |
+|---|---|---|
+| M23.0 | Backend enablement — the session-derived internal context | ✅ |
+| M23.1 | Portal foundation — scaffold, tokens, Docker, CI, generated types | ⬜ |
+| M23.2 | Authentication — session cookie, login/signup/verify/reset, middleware, CSRF | ⬜ |
+| M23.3 | Shell and data layer — sidebar, header, mode toggle, transport, query keys | ⬜ |
+| M23.4 | Onboarding and merchant settings | ⬜ |
+| M23.5 | API keys — create, reveal-once, rotate, revoke | ⬜ |
+| M23.6 | Payments list — filters, saved views, cursor pagination, CSV | ⬜ |
+| M23.7 | Payment detail, capture/refund/void, refunds list and detail | ⬜ |
+| M23.8 | Overview | ⬜ |
+| M23.9 | Hardening — Playwright, axe, visual regression, CSP, bundle-secret scan | ⬜ |
+
+---
+
+#### M23.0 — the session-derived internal context ✅ (2026-08-02)
+
+**The problem.** Everything the portal must render — payments, refunds, balance, events,
+webhooks, request logs, usage, analytics, sandbox — lives on `/v1`, and `/v1` accepted exactly
+one credential: an API key, turned by `ApiKeyAuthenticationWebFilter` into a signed
+`X-PF-Internal-*` context. A browser session cannot produce that credential and must not
+(D114). Five of the six services behind `/v1` have **no OAuth2 resource server at all** — a
+JWT cannot reach them by any route, by construction (D100/D133).
+
+**What was built.** One filter, one internal endpoint, two signed fields, one rate-limit
+branch, one configuration fix. `SessionContextWebFilter` (order `HIGHEST_PRECEDENCE + 21`,
+immediately after the API-key filter) validates an identity-service JWT, resolves the caller's
+merchant, and asserts the same signed context the API-key path has asserted since M15.
+Downstream, **nothing changed**: same signer, same headers, same `InternalContextFilter`. That
+is the property that makes every one of the 31 published operations reachable by the portal
+the moment this merges, including the ones M24 needs and nobody has written a screen for.
+
+**The two credential paths cannot both claim a request.** `ApiKeyAuthenticationWebFilter`
+returns the exchange untouched for anything that is not `sk_`/`pk_`-shaped; this one returns
+it untouched for anything that is not a JWT. Every failure here is fail-closed and named: an
+unparseable or wrongly-issued token is 401, a subject that is not a UUID is 401 (identity-service
+issues UUID subjects; anything else is not a token this platform minted for a portal user), a
+user with no merchant is **403** rather than 401 (the session authenticated fine — it simply
+has nothing to act for yet), an unrecognised mode is 400, and merchant-service being
+unreachable is 503 rather than 401, so a backend blip never reads to the portal as "your
+session expired".
+
+**Mode (D184).** The session path reads `X-PF-Mode`, validates it against the two legal
+spellings, defaults to `test` when absent, and **removes it from the forwarded request**. This
+is not a relaxation of "mode is bound to the key": `application.yaml`'s own M16.2 comment
+already recorded that the `/api/v1` routes deliberately honour that header on the JWT path,
+and the rule exists to stop a *key holder* from reaching live data, not to stop a merchant
+reaching their own. The API-key path is untouched, and a test proves it — deleting the
+route-level `RemoveRequestHeader=X-PF-Mode` fails `anApiKeyStillCannotSelectItsOwnMode`.
+
+**Principal and user (D185).** `X-PF-Internal-Principal` and `X-PF-Internal-User-Id` join the
+signed payload; `keyId` becomes nullable, and `MerchantContext` now refuses to hold a session
+with a key or a key with a user. An *absent* principal header means `api_key`, which is what
+lets payment-service's sandbox advisor, notification-service's scenario client and every
+hand-signing test keep the M15 overload unchanged. An *unrecognised* one is rejected rather
+than defaulted. Both fields are inside the HMAC, so a session context cannot be relabelled as
+a key's, nor its user swapped, without invalidating the signature.
+
+**One scope vocabulary (`ApiScopes`).** There are now two producers of a scope set — a key's
+own grant, and the set a session is synthesised with — and one consumer, the route map. Two
+copies would drift the first time a route gained a scope, and the symptom would be a 403 on
+one dashboard screen, milestones after the change that caused it. `RouteScopeCoverageTest`
+asserts every scope the route map can require is one a session holds, and was observed failing
+when a scope was removed from `ApiScopes.ALL`. A session is granted the enumerated seven and
+never the `*` wildcard, which would make the gateway's scope check stop running on exactly the
+traffic a human drives.
+
+**Rate limiting.** Portal traffic gets a per-user bucket in D24's existing limiter. It needed
+its own branch because neither existing one can see it: the credential has already been
+replaced by the time the resolver runs, so the shape check finds nothing, and the reactive
+security context holds a `MerchantContextAuthenticationToken` rather than a
+`JwtAuthenticationToken`. Without it the portal would fall into the shared `ip:` bucket — one
+office, one address, every user competing for an allowance sized for anonymous browsers, which
+is the same failure D146 fixed for API keys. It shares the `user:` namespace with `/api/v1`
+dashboard traffic deliberately: same human, same screen.
+
+**Deliberately not built.** Dashboard traffic is absent from `api_request_log` and consumes no
+per-key quota (D186) — recorded as a decision precisely because not writing code leaves no
+trace a later reader could interpret. The internal lookup does **not** pin the merchant's API
+version, unlike `/internal/v1/api-keys/verify`: a pin records the revision a merchant first
+actually *called*, and pinning them because a dashboard page rendered would freeze a promise
+they never made. The lookup cache has a positive TTL and no negative one — reaching it already
+requires a valid JWT, so there is no enumeration to blunt, and caching the negative answer
+would tell a user who had just finished onboarding that they have no merchant, on the first
+screen they ever see.
+
+**V1 known issue #8, closed.** The deployed gateway runs with `SPRING_PROFILES_ACTIVE=local`,
+so `application-local.yaml`'s hard-coded `http://localhost:3000` won whatever the base config
+said and the CORS allow-list was permanently the local dev origin. Both files now read one env
+var, so the active profile stops deciding the answer — the bug was that the value was a
+literal, not that it was in the wrong file. The portal itself does not depend on this: under
+D187 the browser only ever talks to the Next.js server, so CORS is defence in depth here
+rather than part of the data path.
+
+**Two defects found.**
+
+1. §5.0's progress table still recorded M22 as "in progress — M22.0, M22.1 complete" while
+   §17 and `CLAUDE_CONTEXT.md` both recorded it complete. Corrected.
+2. **This milestone's own first integration test silently borrowed the developer's running
+   compose stack** — §14's known issue #3, observed rather than theorised.
+   `theUnauthenticatedTestCardCatalogueStaysUnauthenticated` asserted a 5xx on the assumption
+   that nothing was listening on `localhost:8094`; Docker Desktop started the compose stack on
+   launch (`restart: unless-stopped`), the real sandbox-service answered 200, and the test
+   failed for a reason that had nothing to do with the code. It now binds its own stub and
+   asserts the property it actually cares about: the request reaches the service carrying **no
+   asserted context at all**, which is a stronger claim than the one it replaced and cannot be
+   satisfied by an ambient service.
+
+**Verification.**
+
+| Gate | Result |
+|---|---|
+| `./gradlew build --max-workers=2` | BUILD SUCCESSFUL |
+| Tests | 1002 → 1046, 0 failures, 0 errors, 0 skipped |
+| `verifyOpenApiBaseline` | in sync |
+| `verifyOpenApiCompatibility` | **0 breaking, 0 accepted, 0 additive** |
+| `verifySdkSources` | fresh — the generator's inputs were untouched |
+| Docker image matrix | all nine unchanged; no module added or removed |
+| Mutation proofs | dropping a scope from `ApiScopes.ALL` fails `RouteScopeCoverageTest`; dropping the route-level mode strip fails `anApiKeyStillCannotSelectItsOwnMode` |
+
+**Files created**
+
+| File | Purpose |
+|---|---|
+| `common-lib/…/security/InternalPrincipal.java` | the two-value principal vocabulary and its absent-means-api_key parsing rule |
+| `merchant-service/…/dto/MerchantOwnerLookupResponse.java` | the internal lookup contract — three fields, deliberately not a superset of `ApiKeyVerifyResponse` |
+| `merchant-service/…/web/MerchantInternalController.java` | `GET /internal/v1/merchants/by-owner/{ownerUserId}` |
+| `gateway-service/…/security/ApiScopes.java` | the one declaration of the scope vocabulary |
+| `gateway-service/…/security/session/SessionContextWebFilter.java` | the milestone |
+| `gateway-service/…/security/session/SessionMerchantResolver.java` | Redis cache + Retry → CircuitBreaker → TimeLimiter over the lookup |
+| `gateway-service/…/security/session/SessionMerchantLookupClient.java` | the `WebClient` call |
+| `gateway-service/…/security/session/SessionMerchantResult.java` | the gateway's local copy of the response shape (D36) |
+| `gateway-service/…/security/session/MerchantNotOnboardedException.java` | a correct answer, not a health signal — ignored by the resilience instances (D51) |
+| `gateway-service/…/config/SessionMerchantCacheProperties.java` | one TTL, and why there is no second one |
+| `common-lib/…/security/MerchantContextTest.java` | the identity rules, as executable rules |
+| `common-lib/…/security/InternalPrincipalTest.java` | parsing, defaulting, and refusal to guess |
+| `gateway-service/…/security/apikey/RouteScopeCoverageTest.java` | the drift gate between the route map and the session scope set |
+| `gateway-service/…/security/session/SessionContextIntegrationTest.java` | 19 black-box tests over the whole path |
+
+**Files modified**
+
+| File | Change |
+|---|---|
+| `common-lib/…/security/InternalContextHeaders.java` | two header names added; the `X-PF-Internal-` prefix rule already covers them, so the stripping filter needed no change (asserted) |
+| `common-lib/…/security/InternalContextSigner.java` | `principal` and `userId` appended to the canonical string, behind an API-key-shaped overload every existing caller keeps using |
+| `common-lib/…/security/MerchantContext.java` | `principal`/`userId` added, `keyId` nullable, the pairing enforced in the compact constructor, named factories added, the six-arg shape retained |
+| `common-lib/…/security/InternalContextFilter.java` | verifies the principal, requires the identity field that principal implies, rejects an unrecognised one |
+| `gateway-service/…/security/apikey/ApiKeyAuthenticationWebFilter.java` | scope constants now alias `ApiScopes`; `requiredScopeFor` package-private for the coverage gate; constructs its context through `MerchantContext.forApiKey` |
+| `gateway-service/…/config/RateLimiterConfig.java` | a session branch keyed per user |
+| `gateway-service/src/main/resources/application.yaml` | CORS via env var; the session cache TTL; `sessionMerchantLookup` resilience instances |
+| `gateway-service/src/main/resources/application-local.yaml` | the same env var, so the active profile stops deciding the CORS answer |
+| `common-lib/…/security/InternalContextSignerTest.java` | five tests: the overload equivalence, session round trip, relabelling, user swap, principal-sensitivity |
+| `common-lib/…/security/InternalContextFilterTest.java` | seven tests over the second principal, including the pre-M23 context still authenticating unchanged |
+| `merchant-service/…/MerchantIntegrationTest.java` | four tests over the internal lookup, including that it does not pin |
+
+**What M23.1 needs from here.** Nothing further from the backend. The next sub-milestone is
+`developer-portal/` itself, and its first commit is the `.dockerignore` and
+`DockerBuildContextConsistencyTest` update — that test asserts settings ↔ Dockerfile ↔
+`.dockerignore` agreement in both directions, so a new top-level directory reds all nine image
+builds until it is taught about it.
 
 ---
 

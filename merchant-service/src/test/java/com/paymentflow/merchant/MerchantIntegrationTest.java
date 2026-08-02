@@ -8,6 +8,7 @@ import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.paymentflow.merchant.repository.ApiKeyRepository;
+import com.paymentflow.merchant.repository.MerchantRepository;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -77,6 +78,8 @@ class MerchantIntegrationTest {
     private ObjectMapper objectMapper;
     @Autowired
     private ApiKeyRepository apiKeyRepository;
+    @Autowired
+    private MerchantRepository merchantRepository;
 
     @BeforeAll
     static void startJwksStub() throws Exception {
@@ -311,6 +314,62 @@ class MerchantIntegrationTest {
                                 new com.paymentflow.merchant.dto.OnboardMerchantRequest("", "billing@acme.test"))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    // ---------------------------------------------------------------------------------
+    // M23.0 — /internal/v1/merchants/by-owner/{ownerUserId}, the gateway's session path.
+    // ---------------------------------------------------------------------------------
+
+    @Test
+    void internalOwnerLookupReturnsTheMerchantAndTheFieldsTheSignedContextCarries() throws Exception {
+        String subject = UUID.randomUUID().toString();
+        String token = signedJwt(subject, List.of("USER"));
+        String onboarded = onboardRaw(token, "Portal Co", "portal@example.test");
+        String merchantId = objectMapper.readTree(onboarded).get("merchant").get("id").asString();
+
+        mockMvc.perform(get("/internal/v1/merchants/by-owner/{ownerUserId}", subject))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.merchantId").value(merchantId))
+                .andExpect(jsonPath("$.contactEmail").value("portal@example.test"));
+    }
+
+    @Test
+    void internalOwnerLookupNeedsNoJwt() throws Exception {
+        // The gateway is this endpoint's only legitimate caller and has none to present —
+        // the same rule /internal/v1/api-keys/verify has followed since M15 (D98). Asserted
+        // rather than assumed, because SecurityConfig permitting /internal/v1/** is the one
+        // line standing between this and a 401 for the gateway.
+        String subject = UUID.randomUUID().toString();
+        onboardRaw(signedJwt(subject, List.of("USER")), "No Token Co", "notoken@example.test");
+
+        mockMvc.perform(get("/internal/v1/merchants/by-owner/{ownerUserId}", subject))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void internalOwnerLookupReturns404ForAUserWithNoMerchant() throws Exception {
+        // The internal contract's own "not found" semantics. The gateway turns this into a
+        // 403 for the browser — the session authenticated fine, it simply has no merchant to
+        // act for yet — so the two must not be conflated here.
+        mockMvc.perform(get("/internal/v1/merchants/by-owner/{ownerUserId}", UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
+    @Test
+    void internalOwnerLookupDoesNotPinTheMerchantsApiVersion() throws Exception {
+        // Unlike /internal/v1/api-keys/verify (M21.5). A pin records the revision a merchant
+        // first actually *called*; pinning them because a dashboard page rendered would
+        // freeze a promise they never made.
+        String subject = UUID.randomUUID().toString();
+        String token = signedJwt(subject, List.of("USER"));
+        String onboarded = onboardRaw(token, "Unpinned Co", "unpinned@example.test");
+        UUID merchantId = UUID.fromString(objectMapper.readTree(onboarded).get("merchant").get("id").asString());
+
+        mockMvc.perform(get("/internal/v1/merchants/by-owner/{ownerUserId}", subject))
+                .andExpect(status().isOk());
+
+        assertThat(merchantRepository.findById(merchantId).orElseThrow().getPinnedApiVersion()).isNull();
     }
 
     /** Returns the raw value of the first secret-test key ({@code apiKeys[1]} — issueDefaultSet's order). */

@@ -6,6 +6,7 @@ import com.paymentflow.common.security.InternalContextProperties;
 import com.paymentflow.common.security.InternalContextSigner;
 import com.paymentflow.common.security.MerchantContext;
 import com.paymentflow.common.security.MerchantContextAuthenticationToken;
+import com.paymentflow.gateway.security.ApiScopes;
 import com.paymentflow.gateway.security.GatewayErrorResponseWriter;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpHeaders;
@@ -59,17 +60,24 @@ public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
     private static final String ANALYTICS_PATH_PREFIX = "/v1/analytics";
     private static final String REQUEST_LOGS_PATH_PREFIX = "/v1/request_logs";
     private static final String USAGE_PATH_PREFIX = "/v1/usage";
-    private static final String SCOPE_PAYMENTS_READ = "payments:read";
-    private static final String SCOPE_PAYMENTS_WRITE = "payments:write";
-    private static final String SCOPE_WEBHOOKS_MANAGE = "webhooks:manage";
-    private static final String SCOPE_BALANCE_READ = "balance:read";
-    private static final String SCOPE_EVENTS_READ = "events:read";
-    private static final String SCOPE_ANALYTICS_READ = "analytics:read";
+    /*
+     * M23.0: the seven names moved to ApiScopes, which is now the single declaration of the
+     * scope vocabulary. The developer portal's session path has to synthesise a scope set
+     * and this route map has to check one; two copies of the list would drift the first time
+     * a route gained a scope, and the symptom would be a 403 on one dashboard screen with
+     * nothing pointing at the cause. The aliases below keep this method reading as it did.
+     */
+    private static final String SCOPE_PAYMENTS_READ = ApiScopes.PAYMENTS_READ;
+    private static final String SCOPE_PAYMENTS_WRITE = ApiScopes.PAYMENTS_WRITE;
+    private static final String SCOPE_WEBHOOKS_MANAGE = ApiScopes.WEBHOOKS_MANAGE;
+    private static final String SCOPE_BALANCE_READ = ApiScopes.BALANCE_READ;
+    private static final String SCOPE_EVENTS_READ = ApiScopes.EVENTS_READ;
+    private static final String SCOPE_ANALYTICS_READ = ApiScopes.ANALYTICS_READ;
     /**
      * M20.6. The last name in §4.9's original vocabulary to gain a real route — §14 recorded it
      * as still unattached after M19 attached the other four.
      */
-    private static final String SCOPE_LOGS_READ = "logs:read";
+    private static final String SCOPE_LOGS_READ = ApiScopes.LOGS_READ;
 
     private final ApiKeyCacheService cacheService;
     private final ResilientApiKeyVerifier verifier;
@@ -142,7 +150,7 @@ public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
         String requiredScope = requiredScopeFor(method, path);
         Set<String> scopes = new LinkedHashSet<>(result.scopes());
 
-        if (requiredScope != null && !scopes.contains("*") && !scopes.contains(requiredScope)) {
+        if (requiredScope != null && !scopes.contains(ApiScopes.WILDCARD) && !scopes.contains(requiredScope)) {
             return errorWriter.write(exchange, CommonErrorCode.INSUFFICIENT_SCOPE,
                     "This API key does not have the required scope: " + requiredScope);
         }
@@ -180,7 +188,7 @@ public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
         }
 
         Authentication authentication = new MerchantContextAuthenticationToken(
-                new MerchantContext(result.merchantId(), result.mode(), result.keyId(), scopes,
+                MerchantContext.forApiKey(result.merchantId(), result.mode(), result.keyId(), scopes,
                         result.contactEmail(), result.webhookUrl()));
 
         return chain.filter(exchange.mutate().request(requestBuilder.build()).build())
@@ -201,7 +209,7 @@ public class ApiKeyAuthenticationWebFilter implements WebFilter, Ordered {
      * data, and §4.9's scope vocabulary deliberately has no {@code webhooks:read} to
      * split it with.
      */
-    private static String requiredScopeFor(HttpMethod method, String path) {
+    static String requiredScopeFor(HttpMethod method, String path) {
         if (path.startsWith(WEBHOOK_ENDPOINTS_PATH_PREFIX) || path.startsWith(WEBHOOK_DELIVERIES_PATH_PREFIX)) {
             return SCOPE_WEBHOOKS_MANAGE;
         }

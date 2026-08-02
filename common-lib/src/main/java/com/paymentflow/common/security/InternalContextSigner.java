@@ -20,15 +20,44 @@ import java.util.HexFormat;
  * identity, but also the contact email and webhook URL a consumer needs — see D118)
  * is included in the signed payload, so a partial tamper of any single header is
  * caught, not only tampering with the identity fields.
+ *
+ * <p>M23.0 adds {@code principal} and {@code userId} (D185). Both are signed, which is the
+ * point: without them in the payload, a dashboard session's context could be relabelled as
+ * an API key's — or the user attributed to it swapped — by editing a header the signature
+ * did not cover. Each method has an API-key-shaped overload that omits them, because that is
+ * what every caller written before the portal genuinely is.
  */
 public final class InternalContextSigner {
 
     private static final String ALGORITHM = "HmacSHA256";
 
-    /** Computes the hex-encoded HMAC-SHA256 signature over the canonical context string. */
+    /**
+     * The API-key form (M15): principal {@link InternalPrincipal#API_KEY}, no user.
+     *
+     * <p>Retained as the shape every pre-M23 caller already uses — the gateway's API-key
+     * filter, payment-service's sandbox advisor, notification-service's scenario client and
+     * every test that signs a context by hand. They are all genuinely API-key callers, so
+     * this is the correct call for them rather than a compatibility shim.
+     */
     public String sign(String secret, String merchantId, String mode, String keyId, String scopesCsv,
                        String contactEmail, String webhookUrl, long issuedAtEpochSecond) {
-        String canonical = canonical(merchantId, mode, keyId, scopesCsv, contactEmail, webhookUrl, issuedAtEpochSecond);
+        return sign(secret, merchantId, mode, InternalPrincipal.API_KEY, null, keyId, scopesCsv,
+                contactEmail, webhookUrl, issuedAtEpochSecond);
+    }
+
+    /**
+     * Computes the hex-encoded HMAC-SHA256 signature over the canonical context string
+     * (M23.0: {@code principal} and {@code userId} added, D185).
+     *
+     * <p>{@code keyId} is null for a session and {@code userId} is null for an API key —
+     * both are part of the signed payload either way, so a context cannot be re-labelled as
+     * the other kind without invalidating its signature.
+     */
+    public String sign(String secret, String merchantId, String mode, InternalPrincipal principal, String userId,
+                       String keyId, String scopesCsv, String contactEmail, String webhookUrl,
+                       long issuedAtEpochSecond) {
+        String canonical = canonical(merchantId, mode, principal, userId, keyId, scopesCsv,
+                contactEmail, webhookUrl, issuedAtEpochSecond);
         return hmacHex(secret, canonical);
     }
 
@@ -36,18 +65,35 @@ public final class InternalContextSigner {
     public boolean matches(String secret, String merchantId, String mode, String keyId, String scopesCsv,
                            String contactEmail, String webhookUrl, long issuedAtEpochSecond,
                            String candidateSignatureHex) {
+        return matches(secret, merchantId, mode, InternalPrincipal.API_KEY, null, keyId, scopesCsv,
+                contactEmail, webhookUrl, issuedAtEpochSecond, candidateSignatureHex);
+    }
+
+    /** Constant-time comparison against a freshly computed signature — never short-circuiting on mismatch. */
+    public boolean matches(String secret, String merchantId, String mode, InternalPrincipal principal, String userId,
+                           String keyId, String scopesCsv, String contactEmail, String webhookUrl,
+                           long issuedAtEpochSecond, String candidateSignatureHex) {
         if (candidateSignatureHex == null) {
             return false;
         }
-        String expected = sign(secret, merchantId, mode, keyId, scopesCsv, contactEmail, webhookUrl, issuedAtEpochSecond);
+        String expected = sign(secret, merchantId, mode, principal, userId, keyId, scopesCsv,
+                contactEmail, webhookUrl, issuedAtEpochSecond);
         return MessageDigest.isEqual(
                 expected.getBytes(StandardCharsets.UTF_8), candidateSignatureHex.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static String canonical(String merchantId, String mode, String keyId, String scopesCsv,
-                                    String contactEmail, String webhookUrl, long issuedAtEpochSecond) {
-        return merchantId + '|' + mode + '|' + keyId + '|' + scopesCsv + '|'
-                + nullToEmpty(contactEmail) + '|' + nullToEmpty(webhookUrl) + '|' + issuedAtEpochSecond;
+    /**
+     * The two M23.0 fields are <b>appended</b> rather than inserted, so the change is
+     * confined to the tail of the string. Where they sit does not affect security — the whole
+     * string is signed — but it keeps the field order the same one a reader of M15's code
+     * already knows, and makes the diff between the two forms visible at a glance.
+     */
+    private static String canonical(String merchantId, String mode, InternalPrincipal principal, String userId,
+                                    String keyId, String scopesCsv, String contactEmail, String webhookUrl,
+                                    long issuedAtEpochSecond) {
+        return merchantId + '|' + mode + '|' + nullToEmpty(keyId) + '|' + scopesCsv + '|'
+                + nullToEmpty(contactEmail) + '|' + nullToEmpty(webhookUrl) + '|' + issuedAtEpochSecond
+                + '|' + principal.wireValue() + '|' + nullToEmpty(userId);
     }
 
     private static String nullToEmpty(String value) {

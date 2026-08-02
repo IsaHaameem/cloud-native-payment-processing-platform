@@ -1,7 +1,12 @@
 # Activated with SPRING_PROFILES_ACTIVE=local. Same as the defaults in application.yaml
-# today — kept as an explicit profile so per-environment local overrides (e.g. a wider
-# CORS allow-list for frontend dev) have a home without touching the base config.
+# today — kept as an explicit profile so per-environment local overrides have a home
+# without touching the base config.
+#
+# V1 known issue #8 (closed in M23.0): this file used to hard-code http://localhost:3000,
+# and the deployed gateway runs with SPRING_PROFILES_ACTIVE=local — so the deployed CORS
+# allow-list was permanently the local dev origin and no base-config change could reach it.
+# Both files now read the same env var, so the active profile stops deciding the answer.
 paymentflow:
   gateway:
     cors:
-      allowed-origins: http://localhost:3000
+      allowed-origins: ${PAYMENTFLOW_GATEWAY_CORS_ALLOWED_ORIGINS:http://localhost:3000}

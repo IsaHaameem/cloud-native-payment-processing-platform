@@ -22,11 +22,16 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Verifies the HMAC-signed internal merchant context the gateway asserts for an
- * API-key-authenticated request (M15, D100) and, when present and valid, populates
- * both {@link MerchantContextHolder} and {@link SecurityContextHolder} so every
- * downstream check — business logic and {@code anyRequest().authenticated()} alike —
- * sees an authenticated request without needing a JWT.
+ * Verifies the HMAC-signed internal merchant context the gateway asserts (M15, D100)
+ * and, when present and valid, populates both {@link MerchantContextHolder} and
+ * {@link SecurityContextHolder} so every downstream check — business logic and
+ * {@code anyRequest().authenticated()} alike — sees an authenticated request without
+ * needing a JWT.
+ *
+ * <p>Since M23.0 the context can describe either of two principals (D185): an API key,
+ * or a developer-portal session. Which one it is arrives in the signed payload, and the
+ * identity fields it must carry follow from it. This service does not care which — that
+ * is the point of the change. It only has to be true.
  *
  * <p>Fail-closed by construction: a request carrying no {@code X-PF-Internal-*}
  * headers at all is untouched (the existing JWT path decides its fate, exactly as
@@ -91,20 +96,48 @@ public class InternalContextFilter extends OncePerRequestFilter {
         String webhookUrl = request.getHeader(InternalContextHeaders.WEBHOOK_URL);
         String issuedAtHeader = request.getHeader(InternalContextHeaders.ISSUED_AT);
         String signature = request.getHeader(InternalContextHeaders.SIGNATURE);
+        String principalHeader = request.getHeader(InternalContextHeaders.PRINCIPAL);
+        String userIdHeader = request.getHeader(InternalContextHeaders.USER_ID);
 
-        if (!StringUtils.hasText(mode) || !StringUtils.hasText(keyIdHeader) || !StringUtils.hasText(scopesCsv)
+        if (!StringUtils.hasText(mode) || !StringUtils.hasText(scopesCsv)
                 || !StringUtils.hasText(issuedAtHeader) || !StringUtils.hasText(signature)) {
             log.warn("Internal context header present but incomplete; rejecting.");
+            return null;
+        }
+
+        // Absent means api_key (M23.0): every caller written before the developer portal
+        // omits the header, and each of them genuinely is an API-key caller. An
+        // *unrecognised* value is null, not a default — a principal this build has no rule
+        // for must never be silently treated as the most privileged one it does know.
+        InternalPrincipal principal = InternalPrincipal.fromWireValue(principalHeader);
+        if (principal == null) {
+            log.warn("Internal context names an unrecognised principal; rejecting.");
+            return null;
+        }
+
+        // Which identity field is mandatory depends on the principal, and exactly one of
+        // them may be present. MerchantContext enforces the same rule at construction; this
+        // check exists so the failure is a clean 401 rather than an IllegalArgumentException
+        // escaping a filter that runs before any exception handler.
+        boolean apiKey = principal == InternalPrincipal.API_KEY;
+        if (apiKey && (!StringUtils.hasText(keyIdHeader) || StringUtils.hasText(userIdHeader))) {
+            log.warn("Internal context claims an API key but its identity fields do not match; rejecting.");
+            return null;
+        }
+        if (!apiKey && (!StringUtils.hasText(userIdHeader) || StringUtils.hasText(keyIdHeader))) {
+            log.warn("Internal context claims a session but its identity fields do not match; rejecting.");
             return null;
         }
 
         long issuedAtEpochSecond;
         UUID merchantId;
         UUID keyId;
+        UUID userId;
         try {
             issuedAtEpochSecond = Long.parseLong(issuedAtHeader);
             merchantId = UUID.fromString(merchantIdHeader);
-            keyId = UUID.fromString(keyIdHeader);
+            keyId = apiKey ? UUID.fromString(keyIdHeader) : null;
+            userId = apiKey ? null : UUID.fromString(userIdHeader);
         } catch (IllegalArgumentException e) {
             log.warn("Internal context header malformed; rejecting.");
             return null;
@@ -116,15 +149,15 @@ public class InternalContextFilter extends OncePerRequestFilter {
             return null;
         }
 
-        boolean valid = signer.matches(properties.secret(), merchantIdHeader, mode, keyIdHeader, scopesCsv,
-                contactEmail, webhookUrl, issuedAtEpochSecond, signature);
+        boolean valid = signer.matches(properties.secret(), merchantIdHeader, mode, principal, userIdHeader,
+                keyIdHeader, scopesCsv, contactEmail, webhookUrl, issuedAtEpochSecond, signature);
         if (!valid) {
             log.warn("Internal context signature invalid; rejecting.");
             return null;
         }
 
         Set<String> scopes = Set.of(scopesCsv.split(InternalContextHeaders.SCOPES_DELIMITER));
-        return new MerchantContext(merchantId, mode, keyId, scopes, contactEmail, webhookUrl);
+        return new MerchantContext(merchantId, mode, principal, userId, keyId, scopes, contactEmail, webhookUrl);
     }
 
     private void writeUnauthorized(HttpServletRequest request, HttpServletResponse response) throws IOException {

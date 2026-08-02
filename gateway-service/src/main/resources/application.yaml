@@ -197,7 +197,16 @@ paymentflow:
       base-uri: http://localhost:8093
   gateway:
     cors:
-      allowed-origins: http://localhost:3000
+      # V1 known issue #8, closed in M23.0. The deployed gateway runs with
+      # SPRING_PROFILES_ACTIVE=local, so application-local.yaml's value won whatever this
+      # said and the allow-list was permanently the local dev origin. Sourcing both from
+      # one env var fixes it regardless of which profile is active — the bug was that the
+      # value was a literal, not that it was in the wrong file.
+      #
+      # The developer portal itself does not depend on this: the browser only ever talks to
+      # the Next.js server, which calls the gateway server-side and same-origin-free (D187).
+      # CORS is defence in depth here, not a load-bearing part of the portal's data path.
+      allowed-origins: ${PAYMENTFLOW_GATEWAY_CORS_ALLOWED_ORIGINS:http://localhost:3000}
     rate-limit:
       # D24's IP/JWT bucket, unchanged. It now protects dashboard and unauthenticated
       # traffic only — API-key traffic moved to api-key-rate-limit below (M20.5/D146) —
@@ -236,6 +245,12 @@ paymentflow:
       # fixed after a typo) isn't stuck failing.
       positive-ttl: 5m
       negative-ttl: 30s
+    session-merchant-cache:
+      # M23.0. Matches the key cache's positive TTL because it caches the same two mutable
+      # fields (contactEmail, webhookUrl) for the same downstream consumers — the merchant
+      # id itself cannot change, since a user owns at most one merchant and merchant-service
+      # refuses a second. No negative TTL on purpose: see SessionMerchantCacheProperties.
+      positive-ttl: 5m
   internal-context:
     # The HMAC secret every service uses to verify a gateway-asserted merchant context
     # (M15, D100/D118) — the gateway signs with this same value. Sourced from Secrets
@@ -262,6 +277,23 @@ resilience4j:
         # merchantService instance ignoring MerchantNotOnboardedException.
         ignoreExceptions:
           - com.paymentflow.gateway.security.apikey.InvalidApiKeyException
+      # M23.0. Same shape and same budgets as apiKeyVerify — it is the same service, over
+      # the same hop, on the same request path. A user who owns no merchant is a correct
+      # answer rather than a health signal, so it is ignored here for the same reason an
+      # invalid key is (D51).
+      sessionMerchantLookup:
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        slowCallDurationThreshold: 1s
+        slowCallRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        ignoreExceptions:
+          - com.paymentflow.gateway.security.session.MerchantNotOnboardedException
   retry:
     instances:
       apiKeyVerify:
@@ -269,9 +301,17 @@ resilience4j:
         waitDuration: 100ms
         ignoreExceptions:
           - com.paymentflow.gateway.security.apikey.InvalidApiKeyException
+      sessionMerchantLookup:
+        maxAttempts: 3
+        waitDuration: 100ms
+        ignoreExceptions:
+          - com.paymentflow.gateway.security.session.MerchantNotOnboardedException
   timelimiter:
     instances:
       apiKeyVerify:
+        timeoutDuration: 800ms
+        cancelRunningFuture: true
+      sessionMerchantLookup:
         timeoutDuration: 800ms
         cancelRunningFuture: true
 
