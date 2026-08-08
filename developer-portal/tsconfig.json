@@ -1,0 +1,43 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "ES2022"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "incremental": true,
+    "noEmit": true,
+
+    /*
+     * `strict` is the floor, not the ceiling. The four flags below are the ones a Next.js
+     * template leaves off and that a data-heavy dashboard needs most:
+     *
+     * - noUncheckedIndexedAccess: `page.data[0]` is `Payment | undefined`, which is the truth
+     *   for a cursor page that may be empty. Without it every list render is one silent
+     *   undefined away from a blank screen.
+     * - exactOptionalPropertyTypes: distinguishes "absent" from "explicitly undefined", which
+     *   is exactly the distinction the platform's own error envelope makes — absent fields are
+     *   omitted, never null (D143 made the same choice for the SDK's response types).
+     * - noImplicitOverride / noFallthroughCasesInSwitch: cheap, and both catch a class of edit
+     *   that type-checks and does the wrong thing.
+     */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules", ".next", "out"]
+}

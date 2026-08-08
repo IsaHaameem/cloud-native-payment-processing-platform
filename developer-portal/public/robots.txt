@@ -1,0 +1,5 @@
+# The portal is a merchant's private dashboard, not a public site. `metadata.robots` in the
+# root layout says the same thing per-page; this says it once for anything that never renders
+# through it. M25's documentation site is the surface that will want indexing.
+User-agent: *
+Disallow: /

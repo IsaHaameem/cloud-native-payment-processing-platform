@@ -25,12 +25,12 @@
 | **Purpose** | A payment processor's orchestration layer — payment lifecycle FSM, double-entry ledger, and asynchronous state propagation — built across independently deployable microservices. A portfolio/engineering project, not a production payment system. |
 | **Repository version** | V2 in progress (V1 complete and frozen) |
 | **Development phase** | Phase B complete — *Product surface*; Phase C in progress: M22 done, **M23 under way (M23.0 complete)** (see §3) |
-| **Current milestone** | **M23 — developer portal, part 1.** M23.0 (backend enablement) complete; M23.1 next. The portal itself does not exist yet |
+| **Current milestone** | **M23 — developer portal, part 1.** M23.0 (backend enablement) and M23.1 (portal foundation) complete; M23.2 (authentication) next |
 | **Branch** | `main` |
-| **Latest commit** | *feat(m23.0): a dashboard session is a first-class credential on the public tier* |
+| **Latest commit** | *feat(m23.1): the portal, its design system, and the contract it reads* |
 | **Repository health** | Healthy |
 | **Build status** | `./gradlew build --max-workers=2` — **BUILD SUCCESSFUL** |
-| **Test status** | **1081 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18), plus 108 Node and 193 Python |
+| **Test status** | **1082 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18), plus 108 Node and 193 Python |
 | **Working tree** | Clean |
 | **Public API revision** | `2026-08-01` current; `2026-07-27` superseded (sunset 2027-08-01) |
 
@@ -79,11 +79,12 @@ floating-point currency.
   shared generator, with the generated half gated against drift by the build.
 
 **Current maturity.** V1 (M0–M14) is complete, was deployed to real AWS infrastructure, and is
-frozen. V2 (M15–M30) is in progress: **M15–M21 complete; M22 under way (M22.0 and M22.1
-done)**. There is **no frontend** — the developer portal is M23/M24. The Node and Python SDKs
-are M22; Java and Go are M26. Nothing in V2 has been
-deployed to AWS; V2 is deliberately local-first, with a single deployment milestone (M29) at the
-end.
+frozen. V2 (M15–M30) is in progress: **M15–M22 complete; M23 under way (M23.0 and M23.1
+done)**. The developer portal now **exists** — `developer-portal/` is a Next.js application with
+its shell, design system and build in place — but it authenticates nobody and fetches nothing
+yet; that is M23.2 and M23.3. The Node and Python SDKs are M22; Java and Go are M26. Nothing in
+V2 has been deployed to AWS; V2 is deliberately local-first, with a single deployment milestone
+(M29) at the end.
 
 **Architectural philosophy, as actually practised in this repository.**
 
@@ -123,7 +124,7 @@ M23.0 touches the backend.
 | Sub-milestone | Scope | Status |
 |---|---|---|
 | M23.0 | Backend enablement — the session-derived internal context | ✅ |
-| M23.1 | Portal foundation — scaffold, tokens, Docker, CI, generated types | ⬜ |
+| M23.1 | Portal foundation — scaffold, tokens, Docker, CI, generated types | ✅ |
 | M23.2 | Authentication — session cookie, auth flows, middleware, CSRF | ⬜ |
 | M23.3 | Shell and data layer — chrome, mode toggle, transport, query keys | ⬜ |
 | M23.4 | Onboarding and merchant settings | ⬜ |
@@ -185,6 +186,7 @@ deliver is the async Python client (D181, §16).
 ├── common-lib/                 Spring Boot auto-configuration starter
 ├── openapi-tools/              OpenAPI merge, diff and validation tooling (M21)
 ├── test-support/               Shared contract-test scaffold (M21.7)
+├── developer-portal/           The merchant developer portal — Next.js (M23.1)
 ├── sdks/                       Node & Python SDKs + the shared generator (M22)
 │   ├── shared/                 :sdks:shared — the Java generator and the golden fixtures
 │   ├── node/                   npm package (not a Gradle project)
@@ -222,6 +224,7 @@ deliver is the async Python client (D181, §16).
 | `terraform/` | `bootstrap/` (S3 + DynamoDB remote state), `environments/dev/` (the one root), `modules/` (12). | V1's estate. **Not yet extended for V2** — that is M29. |
 | `observability/` | Compose-mounted configuration for the monitoring stack. | Local only; nothing is deployed (D84). |
 | `load-tests/` | 7 Gatling simulations, a seeded merchant pool. | Black-box HTTP against a running platform; deliberately does **not** depend on `common-dto`/`common-lib` so it exercises the real contract. |
+| `developer-portal/` | The portal: Next.js 15 / React 19 / TypeScript strict / Tailwind v4. **Not a Gradle module** and not in `settings.gradle.kts` — its own toolchain, its own Dockerfile, its own CI job, exactly like `sdks/node`. Excluded from the root Docker build context; `src/generated` is emitted by `:sdks:shared` (D189). |
 | `sdks/` | The Node and Python client libraries, and the one generator that feeds both. | Only `sdks/shared` is a Gradle project (`:sdks:shared`). `sdks/node` and `sdks/python` have their own toolchains and their own CI job — **neither Node nor Python is a prerequisite for `./gradlew build`** (D164). |
 
 ---
@@ -416,9 +419,12 @@ services.
 ### `sdks/shared` — the SDK code generator *(build tooling, never deployed)*
 
 Reads `docs/openapi.yaml` into one language-neutral intermediate representation (`SdkSpec`)
-and emits from it three times: TypeScript into `sdks/node/src/generated`, Python into
+and emits from it four times: TypeScript into `sdks/node/src/generated` **and into
+`developer-portal/src/generated` (M23.1, D189)**, Python into
 `sdks/python/src/paymentflow/_generated`, and language-neutral JSON fixtures into
-`sdks/shared/fixtures` that both SDKs' test suites assert against. Owns `generateSdkSources`
+`sdks/shared/fixtures` that both SDKs' test suites assert against. The two TypeScript trees are
+asserted byte-identical — a property neither tree's own freshness check could see, since a
+generator emitting two renderings from one spec would satisfy both. Owns `generateSdkSources`
 and `verifySdkSources`; the latter runs in `check`, so a stale generated model fails
 `./gradlew build`.
 
@@ -605,6 +611,29 @@ services during Gradle's configuration phase, naming the forgotten module rather
 built — so the rule is enforced by `DockerBuildContextConsistencyTest` (in `common-lib`) rather than
 remembered: it asserts settings ↔ Dockerfile ↔ `.dockerignore` agreement in both directions.
 
+Since M23.1 that test asks a fourth question, which is not about Gradle modules at all: every
+**Node toolchain tree** (`sdks/`, `developer-portal/`) must be excluded from the context, because
+the whole context is sent to the daemon once per image and the matrix builds nine. The set is
+**discovered** by walking the repository for a `package.json`, not listed — so a second portal or
+a docs site fails the build until it is excluded too (D195).
+
+**The portal has its own Dockerfile** — the shared one is parameterized over Gradle modules and
+builds Spring Boot jars. Built from `developer-portal/` rather than the repository root, with its
+own `.dockerignore` (the root one does not apply to a context rooted elsewhere, so without it the
+whole `node_modules` tree would be sent). Node 22 Alpine, `output: 'standalone'`, non-root
+`paymentflow`, port 3000, healthcheck on `/api/health`.
+
+Since M23.1 it asks a fourth question that is not about Gradle modules at all: every **Node
+toolchain tree** (`sdks/`, `developer-portal/`) must be excluded from the context, since the
+whole context is sent to the daemon once per image and the matrix builds nine. The set is
+*discovered* by walking the repository for `package.json`, not listed — so a second portal or a
+docs site fails the build until it is excluded (D195).
+
+**The portal has its own Dockerfile**, built from `developer-portal/` rather than the repository
+root, with its own `.dockerignore` (the root one does not apply to a context rooted elsewhere).
+Node 22 Alpine, `output: ’standalone’`, non-root `paymentflow`, port 3000, healthcheck on
+`/api/health`.
+
 ### Docker Compose
 
 Three files: `docker-compose.yml` (9 services + Postgres, Redis, Kafka, Kafka-UI),
@@ -637,7 +666,7 @@ stack deployed (D84) · Service Connect for discovery (D70).
 
 | Workflow | Trigger | Does |
 |---|---|---|
-| `ci.yml` | push, PR, dispatch | Four jobs. **build-and-test** — `clean build --no-build-cache` (so a green run cannot mean "restored from cache"), then a step that reads the JUnit XML and fails if any module with test sources produced no results or if anything was skipped. Also runs the SDK codegen freshness gate, since `verifySdkSources` is in `check`. **openapi-contract** — the breaking-change gate against the base branch's baseline, then baseline freshness, then the spec uploaded as an artefact. **sdks** — two matrix legs: Node (`npm ci`, type-check, dual build, tests against `dist/`) and Python (`pip install -e .[dev]`, `mypy` strict, `pytest`). **docker-build** — a matrix building all **9** service images (`push: false`), verifying non-root user, exposed port and healthcheck |
+| `ci.yml` | push, PR, dispatch | Five jobs. **build-and-test** — `clean build --no-build-cache` (so a green run cannot mean "restored from cache"), then a step that reads the JUnit XML and fails if any module with test sources produced no results or if anything was skipped. Also runs the SDK codegen freshness gate, since `verifySdkSources` is in `check`. **openapi-contract** — the breaking-change gate against the base branch's baseline, then baseline freshness, then the spec uploaded as an artefact. **sdks** — two matrix legs: Node (`npm ci`, type-check, dual build, tests against `dist/`) and Python (`pip install -e .[dev]`, `mypy` strict, `pytest`). **developer-portal** (M23.1) — `npm ci`, then typecheck/lint/format/build, a `diff` asserting the portal’s generated tree is byte-identical to the SDK’s, and its image built and checked for the same three properties. **docker-build** — a matrix building all **9** service images (`push: false`), verifying non-root user, exposed port and healthcheck |
 | `cd.yml` | `workflow_dispatch` only | ECR push + ECS rollover. **Has never been run** — it cannot work until M29 applies the Terraform |
 
 ---
@@ -915,6 +944,8 @@ Exactly one of `-Key-Id` / `-User-Id` is present, and `MerchantContext` refuses 
 | | Testcontainers | 2.x |
 | | Awaitility | **4.3.0** |
 | Load testing | Gatling | **3.15.1.1** |
+| Portal | Next.js (App Router) · React · TypeScript strict · Tailwind | **15.5** · **19.2** · **5.9** · **4.3**, on Node **22** |
+| | Radix primitives (dialog, dropdown, tooltip), `next-themes`, `lucide-react`, `cva` | vendored shadcn components over them |
 | SDK — Node | TypeScript (dev only; zero runtime deps) | **5.7**, targeting Node **18+** |
 | SDK — Python | `httpx` (the only runtime dep); pytest + mypy for dev | targeting Python **3.9+** |
 | Observability | Micrometer, Prometheus, Grafana, Loki, Tempo, OpenTelemetry | compose-pinned |
@@ -952,6 +983,7 @@ See §18 for what that means for trusting a green build.
 | **Data** | Schema per service, no cross-service joins, integer minor units, no floating-point money. | D4, D36 |
 | **Documentation** | Anything that can be asserted against the code, is. Docs live beside the code that implements them. | D115 |
 | **Developer portal** | One Next.js app consuming the public `/v1` API, not a mirrored tier. The browser holds no token; Next.js route handlers own an encrypted `httpOnly` session cookie and all platform traffic is server-side. Typed models come from a third emitter target on M22's generator. Money-moving actions are never optimistic. | D182, D187–D191 |
+| **Portal UI** | shadcn primitives vendored into the repository, with Radix underneath the three that need real behaviour (dialog, dropdown, tooltip). The full information architecture is rendered from the start, with destinations later milestones build marked unavailable rather than hidden. TypeScript runs `strict` plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`, and component props are written `T \| undefined`. | D192–D194 |
 | **Request logging** | Dashboard traffic is deliberately absent from `api_request_log` and consumes no per-key quota — a merchant's request log is a tool for debugging their own integration. | D186 |
 
 ---
@@ -979,7 +1011,11 @@ See §18 for what that means for trusting a green build.
 
 - New shared types go in `common-dto`/`common-lib` **only** when they are a frozen contract several
   services must render identically. Otherwise, schema-per-service.
-- **Neither Node nor Python may become a prerequisite for `./gradlew build`.** The SDK toolchains
+- **Neither Node nor Python may become a prerequisite for `./gradlew build`.** This now covers the
+  portal as well: it is not a Gradle module, and everything about it the JVM build must be able to
+  check — including the freshness of its generated contract types — is Java.
+- **The portal names semantic design tokens, never a raw colour ramp**, and every semantic token
+  is defined for both themes. The SDK toolchains
   run in their own CI job; anything the build must be able to check — including SDK codegen
   freshness — is Java (D136, D164).
 - **Generated SDK code is never part of an SDK's public API.** Each package's entry point names
@@ -1058,11 +1094,13 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 | 19 | **`CreatePaymentRequest.amountMinor` is required in practice and optional in the document.** The Java field is a primitive `long` with `@Positive`, so a body omitting it is rejected with a 400 every time — but `required` lists only `currency`. The SDK's hand-written type states the truth (D170); the published document still understates it, so a caller generating from the spec can write the one request the API always refuses. Not fixed in M22 because adding to a `required` list is classified **breaking**, and the milestone was additive-only. | Medium — the same class as M21.7's `Idempotency-Key` defect | Unowned (needs a dated revision or a reviewed acceptance entry, plus a sweep for the same pattern) | **High** |
 | 21 | **The Node SDK declares `engines.node >= 18` and nothing runs it on 18.** CI pins 20; development is on 24. The advertised floor is exercised by neither. Same shape as item 17, and the cause of the 2026-07-31 CI defect — a Node-version disagreement invisible for all of M22 because only one environment ever ran the suite. A CI matrix over 18/20/latest is the cheap answer. | Medium — a floor-only regression can ship | Unowned (pairs with item 17's 3.9 leg) | Medium |
 | 22 | **The `session:merchant:v1:` lookup cache is not evicted on a merchant profile change.** `ApiKeyService` evicts `apikey:v1:` directly on revoke/rotate; M23.0's session cache has no equivalent, so `contactEmail`/`webhookUrl` can be up to five minutes stale on the session path. The merchant id itself cannot change, and the API-key path already carries the same staleness on the same two fields — so this is an accepted asymmetry, recorded so it does not read as an oversight. | Low | M23.4 (merchant settings) is the natural moment | Low |
+| 23 | **The portal's refresh coordination and login throttle are per-process (M23.2, D197/D200).** Both are module state. With more than one replica, two can rotate the same refresh token concurrently — both succeed, because `RefreshToken` has no `@Version` — and the losing replica's next request finds its token revoked and ends that session. The throttle degrades more gently: the allowance multiplies by the replica count. Fix is shared state (the Redis already deployed) or sticky sessions. **The portal must not be scaled out before one of the two exists.** | Medium | M29, or whichever milestone first runs more than one replica | Medium |
+| 24 | **`RefreshTokenService` does not invalidate a token family on reuse (identity-service, surfaced by M23.2).** A replayed refresh token throws and nothing else happens. So a thief who rotates a stolen token first gets a working pair, and the **owner** is the one signed out. Detecting reuse is exactly what a lineage column is for. Found by reading the rotation semantics, not by an incident. | Medium | Next identity-service work | Medium |
 | 18 | **Neither SDK runs a style linter.** TypeScript's `strict` family and `mypy --strict` cover correctness; formatting and idiom conventions are unenforced, so the first contributor to either package has nothing to conform to. | Low now, Medium once the packages have real code | M22.2 | Low |
 
 ---
 
-## 17. Current Milestone — M23.0 (complete); M23.1 next
+## 17. Current Milestone — M23.0, M23.1 and M23.2 (complete); M23.3 next
 
 **Objective (M23).** The Merchant Developer Portal: one Next.js App Router application that
 turns this platform into something a merchant can use — sign up, onboard, manage API keys, and
@@ -1127,12 +1165,92 @@ branch from `rateLimitKeyResolver` fails `oneUserExhaustingTheirBucketDoesNotRef
 **Contract impact: none.** `verifyOpenApiCompatibility` reports **0 breaking, 0 accepted, 0
 additive**. `verifyOpenApiBaseline` is in sync. `verifySdkSources` is fresh.
 
-### What M23.1 needs from here
+### M23.1 — the portal foundation ✅
 
-Nothing further from the backend. M23.1 creates `developer-portal/` — and its **first** commit
-must update `.dockerignore` and `DockerBuildContextConsistencyTest`, which asserts
-settings ↔ Dockerfile ↔ `.dockerignore` agreement in both directions. A new top-level directory
-reds all nine image builds until that test is taught about it.
+**What exists.** `developer-portal/`: Next.js 15 (App Router), React 19, TypeScript strict,
+Tailwind v4, ESLint and Prettier. The navigation shell (collapsible desktop rail, mobile drawer,
+sticky header, test-mode banner), route groups, loading UI, error boundaries, route guards, a
+server-only API transport over M22's generated descriptors, its own Dockerfile, a compose entry
+and a CI job.
+
+**What it does not do.** Authenticate anyone, or fetch anything. `readSession()` returns `null`,
+every guard therefore redirects, and `src/lib/api/transport.ts` has no callers. That is the
+correct state for a portal with no login — closed, not open — and it is the one function M23.2
+replaces.
+
+| Piece | Note |
+|---|---|
+| Design system | `src/styles/tokens.css`. Derived from `Design/`, not copied: blue-violet neutrals so surfaces and accent share one temperature, 14px base, six-step scale, one radius family, two motion durations. Both themes designed; neither an inversion. |
+| Vendored primitives | shadcn components copied into `components/ui`, Radix under dialog/dropdown/tooltip only (D192). Compositions live in `components/patterns`. |
+| Generated contract | `src/generated` comes from `:sdks:shared` (D189), asserted byte-identical to the SDK's copy, gated by `verifySdkSources` in `./gradlew build`. |
+| Navigation | Renders §6.1's whole IA; unbuilt destinations are inert, labelled, and tooltipped with the milestone that turns them on (D193). |
+| Docker | Own Dockerfile and own `.dockerignore`, built from `developer-portal/`; excluded from the root context, which `DockerBuildContextConsistencyTest` now discovers-and-asserts (D195). |
+
+**Two defects found by verifying rather than looking.** Three text tokens missed WCAG AA —
+light `fg-subtle` at 2.71:1 — and the cause was structural: one ramp step cannot serve both
+themes for a de-emphasised role, since 4.5:1 needs L ≥ 0.565 on dark and L ≤ 0.553 on light. The
+ramp gained a `450` step and the themes resolve `fg-subtle` differently. A full sweep of both
+themes now reports zero failures. Separately, the image build failed on a missing `public/`.
+
+**The strictness is deliberate and it bit immediately.** `exactOptionalPropertyTypes` rejects
+`requestId={error.digest}` against a `requestId?: string` prop, so props are written
+`T | undefined` throughout — the same conclusion D173 reached for the SDK's input options.
+
+### M23.2 — real authentication ✅
+
+**What exists.** Sign-in, sign-out, an encrypted session cookie, a middleware gate, coordinated
+refresh, CSRF, and the one authenticated path to the platform. The browser holds no token of any
+kind, and that is asserted rather than intended.
+
+**The constraint that shaped everything.** Next.js allows a cookie to be written only where a
+response is being constructed — a Route Handler, a Server Action, or middleware. **A Server
+Component cannot.** Since rotation at identity-service is single-use and irreversible, a refresh
+during a render would rotate the token and then be unable to store the result, and the next
+request would present a revoked one. So refresh happens in exactly one place.
+
+| Piece | Note |
+|---|---|
+| `lib/session/seal.ts` | AES-256-GCM via Web Crypto, HKDF-derived key, version bound as GCM additional-authenticated-data so a rewritten prefix fails the tag rather than selecting weaker rules (D196). Every failure returns `null` — indistinguishable by design, so it cannot become an oracle |
+| `lib/session/session.ts` | The session shape and the cookie attributes in one place. `httpOnly`, `SameSite=Strict`, `Secure` in production, `maxAge` = the refresh TTL, plus a 30-day absolute ceiling so rotation cannot extend a session forever. `PublicSession` is the only thing that crosses into the React tree, and it structurally cannot carry a token |
+| `lib/session/refresh.ts` | The mutex **and** the replay cache (D197). The cache is keyed by the *old* token, which is what makes a rotation whose cookie write was impossible recoverable rather than terminal |
+| `middleware.ts` | The gate and the only refresh point (D198). Node runtime, because the Edge runtime's separate module registry would give a second, uncoordinated copy of the coordinator. Matcher written as an exclusion, so a new route is covered until deliberately excluded |
+| `lib/api/client.ts` | `callAs()` — the single authenticated path. Retries once after a coordinated refresh, which is safe even for mutations because a 401 is refused *at the gateway*, before any downstream service sees it |
+| `lib/security/` | Origin assertion, synchronizer CSRF token, open-redirect validation, per-account login throttle |
+
+**Refresh-token semantics, read from the code rather than assumed.** Rotation is single-use;
+revocation is immediate; reuse does **not** invalidate the family; and `RefreshToken` has **no
+`@Version`**, so two concurrent rotations both succeed and mint two live tokens — after which any
+third request presents a revoked one and gets 401. That is the logout D197 exists to prevent.
+
+**CSRF is three layers because they cover different things (D199).** `SameSite=Strict`, a
+server-side `Origin`/`Sec-Fetch-Site` check that also refuses a sibling subdomain, and a
+synchronizer token in an `httpOnly` cookie echoed into the form by the server. The login form
+justifies the third: it is submitted before any session cookie exists.
+
+**A platform gap found and closed at the portal (D200).** `RateLimiterConfig.clientIp` reads the
+socket address and does not trust `X-Forwarded-For`, so every portal login shares one bucket
+keyed by the portal's address, and `AuthService.login` has no per-account lockout. Per-account
+throttling now lives in the portal.
+
+**Two defects only a browser could find.** A menu item that submits a form does nothing — Radix
+unmounts the menu content as part of selecting an item, cancelling the click's default action —
+so sign-out and the mode switch submit their forms explicitly. And navigating away before the
+sign-in redirect is consumed aborts it and discards its `Set-Cookie`: a successful login at the
+platform, `ECONNRESET` at the server, and a browser still sitting on `/login` with no error.
+
+**Testing.** 75 unit tests (`vitest`), 47 browser authentication checks and 25 interaction checks
+(`playwright-core` against installed Chrome, with `scripts/stub-platform.mjs` standing in for the
+gateway). Both browser suites assert their own instrument — visibility and frame delivery —
+before anything else, and both now run in CI. Proven to fail on bad input: removing the refresh
+coordination fails three tests; removing the CSRF comparison fails `the session survived a forged
+CSRF token`.
+
+### What M23.3 needs from here
+
+`callAs()` and nothing else. It is the only function in the portal that puts a token on a
+request, and the guards in `lib/session/require.ts` are the only source of a credential — so a
+page that forgets to ask for a session has nothing to fetch merchant data with. The CSP is still
+`Report-Only`; turning it on and adding the nonce plumbing remains M23.9's.
 
 ---
 
@@ -1141,16 +1259,16 @@ reds all nine image builds until that test is taught about it.
 | Signal | Status | Detail |
 |---|---|---|
 | **Build** | ✅ | `./gradlew build --max-workers=2` — BUILD SUCCESSFUL |
-| **Tests** | ✅ | **1081 / 1081**, 0 failures, 0 errors, 0 skipped, across 13 modules |
+| **Tests** | ✅ | **1082 / 1082** Gradle, 0 failures, 0 errors, 0 skipped, across 13 modules. Plus the portal: **75** unit (vitest), **47** browser authentication checks, **25** interaction checks |
 | **Working tree** | ✅ | Clean |
 | **OpenAPI baseline** | ✅ | `verifyOpenApiBaseline` — in sync |
-| **OpenAPI compatibility** | ✅ | 0 breaking, 0 accepted, **0 additive** — M23.0 touched no platform contract at all |
-| **SDK codegen freshness** | ✅ | `verifySdkSources` — the committed Node, Python and fixture trees match what `docs/openapi.yaml` generates; proven to fail on an edited, a deleted and an orphaned file |
+| **OpenAPI compatibility** | ✅ | 0 breaking, 0 accepted, **0 additive** — no M23 sub-milestone has touched a platform contract |
+| **SDK codegen freshness** | ✅ | `verifySdkSources` — the committed Node, **portal**, Python and fixture trees match what `docs/openapi.yaml` generates; proven to fail on an edited, a deleted and an orphaned file |
 | **Live-response contract** | ✅ | 41 real calls across six services validated against `docs/openapi.yaml` |
-| **CI** | ✅ | Four jobs; all nine images; cache disabled; the test-execution proof step verified by running the shipped script in both directions, including the recursive-glob fix that covers the first nested module. The `sdks (node)` leg genuinely executes its 108 tests on the pinned Node 20 — until 2026-07-31 it executed none of them and failed on the invocation (§17 of the journal, and warning 7 below) |
+| **CI** | ✅ | Five jobs; all nine images; cache disabled; the test-execution proof step verified by running the shipped script in both directions, including the recursive-glob fix that covers the first nested module. The `sdks (node)` leg genuinely executes its 108 tests on the pinned Node 20 — until 2026-07-31 it executed none of them and failed on the invocation (§17 of the journal, and warning 7 below) |
 | **CD** | ⚠️ | Exists, never run — blocked on M29 |
-| **Docker images** | ✅ | All nine built from current code and asserted non-root, port-exposed, healthchecked |
-| **TODOs / FIXMEs** | ✅ | **Zero** across `.java`, `.kts`, `.yaml`, `.ts`, `.py` |
+| **Docker images** | ✅ | All nine built from current code and asserted non-root, port-exposed, healthchecked. The portal image is a tenth, with the same three assertions, built from its own context |
+| **TODOs / FIXMEs** | ✅ | **Zero** across `.java`, `.kts`, `.yaml`, `.ts`, `.tsx`, `.py`. The portal enforces it with an ESLint rule rather than a habit |
 
 ### Per-module test distribution
 
@@ -1165,7 +1283,7 @@ derivation CI's proof step performs, so the two cannot disagree.
 | common-lib | 143 | audit-service | 42 |
 | sandbox-service | 107 | common-dto | 35 |
 | | | merchant-service | 34 |
-| | | `sdks/shared` | 31 |
+| | | `sdks/shared` | 32 |
 | | | identity-service | 12 |
 
 The SDK packages' own suites are **not** in that total and never will be — they run under

@@ -32,4 +32,9 @@ test-support/
 # configuration-phase reason as the three above.
 sdks/
 !sdks/shared/build.gradle.kts
+# M23.1: the developer portal. Not a Gradle module and not consumed by any service image,
+# so no COPY line re-admits anything from it — unlike sdks/shared above, which settings.gradle.kts
+# names and Gradle therefore configures on every invocation. Excluded because the context is sent
+# to the daemon nine times per matrix run and this tree is a Node application, not a JVM one.
+developer-portal/
 README*.md

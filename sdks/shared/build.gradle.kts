@@ -70,13 +70,18 @@ val repositoryRoot: File = rootProject.layout.projectDirectory.asFile
  */
 val generatedRoots = listOf(
     rootProject.layout.projectDirectory.dir("sdks/node/src/generated").asFile,
+    // M23.1 (D189): the developer portal's copy of the same TypeScript. Listed here, not just
+    // emitted, because these declarations are what make verifySdkSources fail on a stale or
+    // hand-edited portal model — without it Gradle would report the task UP-TO-DATE after the
+    // one edit the gate exists to catch.
+    rootProject.layout.projectDirectory.dir("developer-portal/src/generated").asFile,
     rootProject.layout.projectDirectory.dir("sdks/python/src/paymentflow/_generated").asFile,
     rootProject.layout.projectDirectory.dir("sdks/shared/fixtures").asFile,
 )
 
 tasks.register<JavaExec>("generateSdkSources") {
     group = "documentation"
-    description = "Regenerates the Node and Python SDK models and the shared fixtures from docs/openapi.yaml (M22.1)."
+    description = "Regenerates the Node, portal and Python models and the shared fixtures from docs/openapi.yaml (M22.1, M23.1)."
 
     inputs.file(openApiBaseline)
         .withPropertyName("openApiBaseline")
@@ -91,7 +96,7 @@ tasks.register<JavaExec>("generateSdkSources") {
 
 tasks.register<JavaExec>("verifySdkSources") {
     group = "verification"
-    description = "Fails if the committed SDK sources no longer match what docs/openapi.yaml generates (M22.1)."
+    description = "Fails if the committed generated sources no longer match what docs/openapi.yaml generates (M22.1, M23.1)."
 
     // Both the spec and the generated files are inputs: this task's answer changes when
     // either side moves, and a task that declared only the spec would report UP-TO-DATE

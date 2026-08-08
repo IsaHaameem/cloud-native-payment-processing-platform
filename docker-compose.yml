@@ -342,6 +342,34 @@ services:
     networks:
       - paymentflow
 
+  # ── Developer portal (M23.1) ───────────────────────────────────────────────────────────
+  #
+  # Built from its own directory with its own Dockerfile, not the shared parameterised one:
+  # that file builds Gradle modules into Spring Boot images and this is a Node application.
+  # The root build context excludes developer-portal/ (.dockerignore) so the nine service
+  # images do not carry it, which is also why this entry cannot use `context: .` like they do.
+  developer-portal:
+    build:
+      context: ./developer-portal
+      dockerfile: Dockerfile
+    image: paymentflow/developer-portal:0.0.1-snapshot
+    container_name: paymentflow-developer-portal
+    restart: unless-stopped
+    environment:
+      # The portal is the only client of the gateway (D187); the browser only ever talks to
+      # the portal. In-cluster name and port, exactly as the services address each other.
+      PF_GATEWAY_URL: http://gateway-service:8080
+      PORTAL_PUBLIC_ORIGIN: http://localhost:3000
+      # Local-dev default in the same shape as every other secret here (D18/D73). Production
+      # supplies a real one and env.ts refuses to start without it.
+      PORTAL_SESSION_SECRET: ${PORTAL_SESSION_SECRET:-dev-only-insecure-portal-session-secret-change-me}
+    ports:
+      - "3000:3000"
+    depends_on:
+      gateway-service:
+        condition: service_healthy
+    networks:
+      - paymentflow
 networks:
   paymentflow:
     name: paymentflow-network

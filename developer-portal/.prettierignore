@@ -1,0 +1,7 @@
+.next/
+node_modules/
+out/
+# Generated from docs/openapi.yaml by :sdks:shared. Formatting it here would put a second
+# opinion about its bytes next to the generator's, and `verifySdkSources` would fail on the
+# difference — which is the gate working, reporting a problem this file created.
+src/generated/

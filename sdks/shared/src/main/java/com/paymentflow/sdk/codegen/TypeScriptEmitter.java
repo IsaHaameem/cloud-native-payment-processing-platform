@@ -25,8 +25,26 @@ import java.util.stream.Collectors;
  */
 final class TypeScriptEmitter {
 
-    /** Where the generated files land, relative to the repository root. */
+    /** Where the Node SDK's generated files land, relative to the repository root. */
     static final String DIRECTORY = "sdks/node/src/generated";
+
+    /**
+     * And where the developer portal's copy lands (M23.1, D189).
+     *
+     * <p>The same bytes, written twice, deliberately. The portal needs the contract's types
+     * and its operation descriptors exactly as much as the SDK does, and the alternatives were
+     * worse: a TypeScript codegen step in the portal's own toolchain moves the freshness gate
+     * into a build a contributor without Node never runs (D164), and a {@code tsconfig} path
+     * alias into {@code sdks/node/src/generated} makes the portal's Docker build context reach
+     * across a directory {@code .dockerignore} excludes.
+     *
+     * <p>This is the same trade already accepted between Node and Python: one reader, several
+     * emitters, and no shared artefact that could go stale between them. The duplication is
+     * bytes on disk, not a second source of truth — both copies come from one
+     * {@link SdkSpec} in one pass, and {@code verifySdkSources} fails the build if either
+     * drifts.
+     */
+    static final String PORTAL_DIRECTORY = "developer-portal/src/generated";
 
     private static final String HEADER = """
             /*
@@ -44,9 +62,11 @@ final class TypeScriptEmitter {
 
     static Map<String, String> emit(SdkSpec spec) {
         Map<String, String> files = new LinkedHashMap<>();
-        files.put(DIRECTORY + "/contract.ts", contract(spec));
-        files.put(DIRECTORY + "/models.ts", models(spec));
-        files.put(DIRECTORY + "/operations.ts", operations(spec));
+        for (String directory : List.of(DIRECTORY, PORTAL_DIRECTORY)) {
+            files.put(directory + "/contract.ts", contract(spec));
+            files.put(directory + "/models.ts", models(spec));
+            files.put(directory + "/operations.ts", operations(spec));
+        }
         return files;
     }
 

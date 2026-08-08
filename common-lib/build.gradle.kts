@@ -99,6 +99,12 @@ tasks.named<Test>("test") {
         rootDir.resolve(".dockerignore"),
         rootDir.resolve("settings.gradle.kts"),
         rootDir.resolve("docs/ERRORS.md"),
+        // M23.1: the manifests that make a directory a Node toolchain tree. The test discovers
+        // them by walking the repository root, which Gradle cannot infer — so a new portal or
+        // docs site would appear, go unexcluded, and leave `test` reporting UP-TO-DATE. Listing
+        // the manifests themselves is the closest declarable thing to "the set of such trees".
+        rootDir.resolve("developer-portal/package.json"),
+        rootDir.resolve("sdks/node/package.json"),
     )
         .withPropertyName("repositoryFilesAssertedByConsistencyTests")
         .withPathSensitivity(PathSensitivity.RELATIVE)

@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -86,6 +87,10 @@ class SdkCodegenTest {
                 "sdks/node/src/generated/contract.ts",
                 "sdks/node/src/generated/models.ts",
                 "sdks/node/src/generated/operations.ts",
+                // M23.1 (D189): the developer portal's copy of the same TypeScript.
+                "developer-portal/src/generated/contract.ts",
+                "developer-portal/src/generated/models.ts",
+                "developer-portal/src/generated/operations.ts",
                 "sdks/python/src/paymentflow/_generated/__init__.py",
                 "sdks/python/src/paymentflow/_generated/contract.py",
                 "sdks/python/src/paymentflow/_generated/models.py",
@@ -101,6 +106,29 @@ class SdkCodegenTest {
         assertThat(result.files().keySet()).allSatisfy(path ->
                 assertThat(SdkCodegen.generatedDirectories()).anySatisfy(directory ->
                         assertThat(path).startsWith(directory + "/")));
+    }
+
+    /**
+     * The property M23.1's third emitter target rests on (D189).
+     *
+     * <p>The portal reads the contract through the same generated files the Node SDK does, and
+     * "same" has to mean byte-identical or the duplication stops being bytes on disk and starts
+     * being a second source of truth. Each tree's own freshness is already gated by
+     * {@code verifySdkSources}, but neither check can see the other — a generator that emitted
+     * two different renderings from one {@link SdkSpec} would satisfy both and still be wrong.
+     *
+     * <p>Asserted here rather than only in CI's {@code diff} step so it fails in the build that
+     * owns the generator, on the machine that changed it.
+     */
+    @Test
+    void thePortalsGeneratedTypeScriptIsByteIdenticalToTheNodeSdks() {
+        Map<String, String> files = SdkCodegen.generate(SPEC).files();
+
+        for (String file : List.of("contract.ts", "models.ts", "operations.ts")) {
+            assertThat(files.get("developer-portal/src/generated/" + file))
+                    .describedAs("the portal's %s must be exactly the SDK's", file)
+                    .isEqualTo(files.get("sdks/node/src/generated/" + file));
+        }
     }
 
     @Test

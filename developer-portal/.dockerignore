@@ -1,0 +1,16 @@
+# The portal's own build context (M23.1). The repository-root .dockerignore does not apply
+# here — this image is built with `context: ./developer-portal`, so without this file the
+# whole of node_modules (hundreds of megabytes) is sent to the daemon before the first COPY.
+#
+# The deps stage installs from package.json + package-lock.json, and the build stage compiles
+# from source, so neither needs anything excluded below.
+node_modules/
+.next/
+out/
+build/
+.git/
+.env*.local
+*.tsbuildinfo
+next-env.d.ts
+Dockerfile
+README.md

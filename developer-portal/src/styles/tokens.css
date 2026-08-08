@@ -1,0 +1,355 @@
+/*
+ * PaymentFlow design tokens — the Linear Dark System (M23.1, redesigned).
+ *
+ * ── Source ─────────────────────────────────────────────────────────────────────────────
+ *
+ * `Design/linear-DESIGN.md`, `linear-design.json` and `linear.pdf`. Every colour, size,
+ * radius and spacing step below is an extracted token, transcribed rather than invented.
+ * The system's own summary is the brief: "dark-first, high-density product UI … the surface
+ * palette anchors on near-black (#08090a, #0f1011) with layered dark grays … the radius
+ * language is deliberately small (2–6px dominant) … elevation is expressed through subtle 1px
+ * inset borders and low-opacity drop shadows rather than dramatic layering."
+ *
+ * ── Two-layer naming, and why it is not cosmetic ───────────────────────────────────────
+ *
+ * The runtime tokens below are declared **without** the `--color-` prefix (`--surface`,
+ * `--fg`), and `@theme inline` maps each onto a Tailwind colour name (`--color-surface:
+ * var(--surface)`).
+ *
+ * That indirection is load-bearing. Tailwind's `inline` keyword resolves a theme variable at
+ * *build* time, so `@theme { --color-surface: var(--color-surface); }` — a name
+ * referring to itself — compiles `bg-surface` down to a literal hex taken from whichever block
+ * the compiler saw first. The utility then never changes with the theme: the light class flips
+ * the custom property and the generated CSS does not read it. That was a real defect in this
+ * file, and it was invisible because the dark theme is the default and looked perfectly
+ * correct. Two names is what makes `bg-surface` compile to `var(--surface)` and stay live.
+ *
+ * ── Three deliberate deviations, each honouring the reference's own rules ──────────────
+ *
+ * 1. **The light theme is derived, not transcribed.** The reference's light values are
+ *    internally inconsistent — it lists `text-secondary: #d0d6e0` on a `#ffffff` card, about
+ *    1.3:1 and unreadable. Its own guardrail says "Do maintain WCAG AA contrast ratios (4.5:1
+ *    for normal text)", so the light ramp is built from the same hue at lightnesses that clear
+ *    AA. Copying the literal values would honour the letter of the extraction and break the
+ *    rule the extraction states.
+ * 2. **Status colours are ours.** The reference has none — it is a project-management tool and
+ *    this is a payments dashboard, where "captured" and "declined" must be distinguishable at a
+ *    glance. They are tuned to sit quietly beside the indigo, and none of them is the brand
+ *    colour, so "use the primary color only for the single most important action per screen"
+ *    still holds.
+ * 3. **`--accent-text` is a lighter indigo than `--accent`.** #5e6ad2 on #0f1011 is 4.05:1 —
+ *    below AA for text. It is above AA the other way round, as a fill with white on it, which
+ *    is the only way the reference actually uses it (the Sign Up button). So fills keep the
+ *    extracted value and *text* uses a lighter step. Same hue, same brand, legible.
+ *
+ * ── The rules this file exists to enforce ──────────────────────────────────────────────
+ *
+ * 1. Components name **semantic** tokens (`bg-surface`, `text-fg-muted`). The raw scales are
+ *    private to this file. A component naming a raw value is a review failure.
+ * 2. Both themes are designed. Neither is an inversion of the other.
+ * 3. Money, ids and timestamps are tabular.
+ * 4. Radius is small and *consistent*: "Don't mix rounded and sharp corners in the same view."
+ */
+
+@theme {
+  /* ── Type ──────────────────────────────────────────────────────────────────────────── */
+  /*
+   * Inter, with `cv01` and `ss03` — the two features the reference names. Weight 510 is the
+   * system's signature: a variable-font weight between regular and medium.
+   * Berkeley Mono is commercially licensed and unavailable, so the mono stack falls through to
+   * the platform's own, exactly as the reference's own fallback list does.
+   */
+  --font-sans:
+    var(--font-inter), 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', sans-serif;
+  --font-mono: var(--font-mono-stack), ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* The extracted scale, exactly: 10 · 12 · 13 · 15 · 16 · 18 · 40 · 64. */
+  --text-caption: 0.625rem;
+  --text-caption--line-height: 0.9375rem;
+  --text-label-sm: 0.75rem;
+  --text-label-sm--line-height: 1.05rem;
+  --text-label: 0.8125rem;
+  --text-label--line-height: 1.21875rem;
+  --text-label--letter-spacing: -0.13px;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.5rem;
+  --text-body--letter-spacing: -0.165px;
+  --text-body-lg: 1rem;
+  --text-body-lg--line-height: 1.5rem;
+  --text-title-2: 1.125rem;
+  --text-title-2--line-height: 1.8rem;
+  --text-title-2--letter-spacing: -0.165px;
+  --text-title-1: 2.5rem;
+  --text-title-1--line-height: 2.75rem;
+  --text-title-1--letter-spacing: -0.88px;
+  --text-hero: 4rem;
+  --text-hero--line-height: 1.1;
+  --text-hero--letter-spacing: -0.88px;
+
+  /* ── Spacing: the reference's 4px base grid ────────────────────────────────────────── */
+  --spacing: 4px;
+
+  /* ── Radius: "deliberately small (2–6px dominant)"; pill for badges only ───────────── */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+
+  /* ── Motion, mirrored in src/lib/motion.ts so CSS and Framer Motion agree ──────────── */
+  --ease-out-quart: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-instant: 80ms;
+  --duration-fast: 140ms;
+  --duration-base: 220ms;
+}
+
+/*
+ * ── Raw scales ────────────────────────────────────────────────────────────────────────
+ *
+ * In a plain `:root` block, **not** in `@theme`, and that placement is load-bearing rather
+ * than tidiness.
+ *
+ * Tailwind resolves an `@theme inline` value at build time by following it as far as it can.
+ * With these scales inside `@theme` it could follow the whole chain — `--color-surface` →
+ * `--surface` → `--ink-900` → `#0f1011` — and compiled `bg-surface` down to that literal. The
+ * utility then never read the variable again, so switching themes changed the custom properties
+ * and nothing on screen moved. Verified by measurement: every card stayed `rgb(15, 16, 17)`
+ * under `.light`.
+ *
+ * Out here the chain is unresolvable at build time, so `bg-surface` compiles to
+ * `var(--color-surface)` and stays live. These names deliberately generate no utilities — a
+ * component naming `--ink-900` directly is a review failure.
+ */
+:root {
+  /*
+   * The extracted surfaces verbatim, plus the intermediate steps a real UI needs between them.
+   * The interpolated ones stay on the line the extraction draws: neutral, very slightly cool,
+   * never tinted toward the brand.
+   */
+  --ink-1000: #08090a; /* background-primary  — page, deepest */
+  --ink-950: #0c0d0e;
+  --ink-900: #0f1011; /* background-secondary — panel and card fills */
+  --ink-850: #141517;
+  --ink-800: #1a1c1f;
+  --ink-750: #1e2023;
+  --ink-700: #23252a; /* background-elevated — sidebar, modals */
+  --ink-600: #2c2f36;
+  --ink-500: #3a3e46;
+
+  --slate-400: #62666d; /* text-quaternary — disabled only; WCAG exempts disabled controls */
+  --slate-300: #8a8f98; /* text-tertiary   — placeholders, metadata, captions */
+  --slate-200: #d0d6e0; /* text-secondary  — labels, nav items */
+  --slate-50: #f7f8f8; /* text-primary */
+  --pure-white: #ffffff;
+
+  /* Light-theme neutrals, derived on the same hue so the two themes are one family. */
+  --paper-50: #f7f8f8;
+  --paper-100: #eef0f2;
+  --paper-200: #e2e4e7;
+  --paper-300: #c9cdd4;
+  --paper-400: #6b7280;
+  --paper-500: #565b64;
+  --paper-600: #3f444c;
+
+  /* Brand indigo, verbatim, plus lighter and darker steps. */
+  --indigo-300: #9aa2e6;
+  --indigo-400: #7b85dc;
+  --indigo-500: #5e6ad2; /* the extracted brand value */
+  --indigo-600: #4f5ac4;
+  --indigo-700: #414bab;
+
+  /* Status — see the header. Two steps each: a text step and a fill step. */
+  --green-400: #4cc38a;
+  --green-600: #167e4e;
+  --green-700: #0f6b40;
+  --amber-400: #e0a02f;
+  --amber-600: #91631a;
+  --amber-700: #7c5416;
+  --red-400: #f26d70;
+  --red-500: #e5484d;
+  --red-600: #b5282d;
+  --red-700: #9b1f24;
+  --blue-400: #7fadf0;
+  --blue-600: #2f66b5;
+}
+
+/*
+ * ── Semantic tokens ───────────────────────────────────────────────────────────────────
+ * Dark is the designed default. `next-themes` writes the class; `color-scheme` makes the
+ * browser's own chrome follow.
+ */
+:root {
+  color-scheme: dark;
+
+  --canvas: var(--ink-1000);
+  --surface: var(--ink-900);
+  --surface-raised: var(--ink-850);
+  --surface-elevated: var(--ink-700);
+  --surface-inset: var(--ink-950);
+  --surface-hover: var(--ink-800);
+  --surface-active: var(--ink-750);
+
+  /*
+   * The extraction lists one light `border-subtle` (#e2e4e7) for both themes, which on a
+   * near-black page would be a white hairline. What the product does — and what the shadow
+   * evidence shows in `shadow-border-inset: inset 0 0 0 1px rgb(35, 37, 42)` — is draw borders
+   * from the elevated surface colour. That is the value used here.
+   */
+  --border: var(--ink-700);
+  --border-strong: var(--ink-600);
+  --border-subtle: var(--ink-800);
+
+  --fg: var(--slate-50);
+  --fg-muted: var(--slate-200);
+  --fg-subtle: var(--slate-300);
+  /* Disabled text only. WCAG exempts inactive controls, and nothing legible uses this. */
+  --fg-faint: var(--slate-400);
+  --fg-on-accent: var(--pure-white);
+
+  --accent: var(--indigo-500);
+  --accent-text: var(--indigo-400);
+  --accent-hover: var(--indigo-400);
+  --accent-active: var(--indigo-600);
+  --accent-subtle: color-mix(in srgb, var(--indigo-500) 18%, transparent);
+  --accent-ring: color-mix(in srgb, var(--indigo-400) 70%, transparent);
+
+  --success: var(--green-400);
+  --success-surface: color-mix(in srgb, var(--green-400) 14%, transparent);
+  --warning: var(--amber-400);
+  --warning-surface: color-mix(in srgb, var(--amber-400) 14%, transparent);
+  --danger: var(--red-400);
+  --danger-solid: var(--red-600);
+  --danger-surface: color-mix(in srgb, var(--red-500) 18%, transparent);
+  --info: var(--blue-400);
+  --info-surface: color-mix(in srgb, var(--blue-400) 14%, transparent);
+  --neutral-surface: color-mix(in srgb, var(--slate-300) 14%, transparent);
+
+  /*
+   * Test mode. Deliberately outside both the status palette and the brand: a merchant must
+   * never have to work out whether amber here means "pending" or "this is not real money".
+   */
+  --mode-test: var(--amber-400);
+  --mode-test-surface: color-mix(in srgb, var(--amber-400) 12%, transparent);
+  --mode-test-border: color-mix(in srgb, var(--amber-400) 34%, transparent);
+
+  /* The five extracted shadow tokens, verbatim. Depth is a hairline, not a halo. */
+  --shadow-hairline: 0 1.2px 0 0 rgba(0, 0, 0, 0.03);
+  --shadow-low: 0 2px 4px 0 rgba(0, 0, 0, 0.4);
+  --shadow-inset-overlay: inset 0 0 12px 0 rgba(0, 0, 0, 0.2);
+  --shadow-border-inset: inset 0 0 0 1px var(--ink-700);
+  --shadow-border-outer: 0 0 0 1px rgba(0, 0, 0, 0.2);
+  --shadow-overlay: 0 16px 48px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--ink-700);
+
+  --grid-line: color-mix(in srgb, var(--ink-600) 55%, transparent);
+}
+
+.light {
+  color-scheme: light;
+
+  --canvas: var(--paper-50);
+  --surface: var(--pure-white);
+  --surface-raised: var(--pure-white);
+  --surface-elevated: var(--pure-white);
+  --surface-inset: var(--paper-50);
+  --surface-hover: var(--paper-50);
+  --surface-active: var(--paper-100);
+
+  --border: var(--paper-200);
+  --border-strong: var(--paper-300);
+  --border-subtle: var(--paper-100);
+
+  --fg: var(--ink-1000);
+  --fg-muted: var(--paper-600);
+  --fg-subtle: var(--paper-500);
+  --fg-faint: var(--paper-400);
+  --fg-on-accent: var(--pure-white);
+
+  --accent: var(--indigo-600);
+  --accent-text: var(--indigo-700);
+  --accent-hover: var(--indigo-700);
+  --accent-active: var(--indigo-700);
+  --accent-subtle: color-mix(in srgb, var(--indigo-500) 12%, transparent);
+  --accent-ring: color-mix(in srgb, var(--indigo-600) 55%, transparent);
+
+  --success: var(--green-700);
+  --success-surface: color-mix(in srgb, var(--green-400) 20%, transparent);
+  /* amber-600 on its own 24% wash measures 4.35:1 — under AA by a hair. One step darker. */
+  --warning: var(--amber-700);
+  --warning-surface: color-mix(in srgb, var(--amber-400) 24%, transparent);
+  --danger: var(--red-700);
+  --danger-solid: var(--red-600);
+  --danger-surface: color-mix(in srgb, var(--red-400) 20%, transparent);
+  --info: var(--blue-600);
+  --info-surface: color-mix(in srgb, var(--blue-400) 22%, transparent);
+  --neutral-surface: color-mix(in srgb, var(--paper-400) 16%, transparent);
+
+  /*
+   * A step darker than --warning, because this sits on its own tinted surface rather than on
+   * a card: amber-600 over a 22%-amber wash measures 4.42:1, which is under AA by a margin too
+   * small to see and large enough to matter.
+   */
+  --mode-test: var(--amber-700);
+  --mode-test-surface: color-mix(in srgb, var(--amber-400) 22%, transparent);
+  --mode-test-border: color-mix(in srgb, var(--amber-600) 32%, transparent);
+
+  --shadow-hairline: 0 1.2px 0 0 rgba(0, 0, 0, 0.03);
+  --shadow-low: 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+  --shadow-inset-overlay: inset 0 0 12px 0 rgba(0, 0, 0, 0.03);
+  --shadow-border-inset: inset 0 0 0 1px var(--paper-200);
+  --shadow-border-outer: 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-overlay: 0 16px 48px -12px rgba(0, 0, 0, 0.16), 0 0 0 1px var(--paper-200);
+
+  --grid-line: color-mix(in srgb, var(--paper-300) 60%, transparent);
+}
+
+/*
+ * Exposed to Tailwind. Each name here differs from the runtime variable it points at — see the
+ * header: a self-reference would compile the utility down to a frozen hex and the theme would
+ * stop switching. Shadows are deliberately absent: components reference them with the
+ * `shadow-(--shadow-overlay)` arbitrary-property syntax, which reads the variable at runtime and
+ * therefore needs no theme entry at all.
+ */
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-inset: var(--surface-inset);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-border-subtle: var(--border-subtle);
+
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-fg-faint: var(--fg-faint);
+  --color-fg-on-accent: var(--fg-on-accent);
+
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-active: var(--accent-active);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-ring: var(--accent-ring);
+
+  --color-success: var(--success);
+  --color-success-surface: var(--success-surface);
+  --color-warning: var(--warning);
+  --color-warning-surface: var(--warning-surface);
+  --color-danger: var(--danger);
+  --color-danger-solid: var(--danger-solid);
+  --color-danger-surface: var(--danger-surface);
+  --color-info: var(--info);
+  --color-info-surface: var(--info-surface);
+  --color-neutral-surface: var(--neutral-surface);
+
+  --color-mode-test: var(--mode-test);
+  --color-mode-test-surface: var(--mode-test-surface);
+  --color-mode-test-border: var(--mode-test-border);
+}

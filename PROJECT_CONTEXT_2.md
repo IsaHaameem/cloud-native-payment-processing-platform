@@ -191,8 +191,20 @@
 > §5.0's M22 row still read "in progress", and this milestone's own first test silently borrowed
 > the developer's running compose stack — known issue #3, observed rather than theorised.
 > **0 breaking, 0 accepted, 0 additive**: M23.0 touched no published contract at all.
+> **M23.1 complete** (2026-08-02): the portal exists. `developer-portal/` is a Next.js 15 /
+> React 19 / TypeScript-strict / Tailwind v4 application with an ESLint and Prettier toolchain,
+> a design system derived from `Design/` rather than copied from it, vendored shadcn primitives
+> over Radix where behaviour is needed, the navigation shell (collapsible desktop rail, mobile
+> drawer, sticky header, test-mode banner), route groups, loading UI, error boundaries, route
+> guards, and a server-only API transport built on M22's generated operation descriptors. The
+> generator gained its **third emitter target** (D189), so the portal's contract types come from
+> the same reader in the same pass as the Node SDK's and are gated by the same
+> `verifySdkSources`. Its own Dockerfile, compose entry and CI job; `.dockerignore` excludes it
+> from the nine service contexts, and `DockerBuildContextConsistencyTest` gained a fourth
+> assertion that **discovers** Node toolchain trees rather than listing them. Nothing in the
+> portal authenticates or fetches yet — that is M23.2 and M23.3, deliberately.
 > **Milestone IDs continue from V1:** V2 begins at **M15**.
-> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D191**.
+> **Decision IDs continue from V1:** V1 ended at **D97**; V2's log now runs **D98–D195**.
 
 ---
 
@@ -1069,7 +1081,7 @@ the single place to see where V2 stands; the full entry for every completed mile
 | **M20** — Request logging, metering, per-key limits | B | ✅ complete | 2026-07-26 |
 | **M21** — OpenAPI 3.1, versioning & the error contract | B | ✅ complete | 2026-07-27 – 07-29 |
 | **M22** — Node & Python SDKs | C | ✅ complete | 2026-07-30 – 07-31 |
-| **M23** — Developer portal, part 1 | C | 🟡 in progress — M23.0 complete | from 2026-08-02 |
+| **M23** — Developer portal, part 1 | C | 🟡 in progress — M23.0, M23.1 complete | from 2026-08-02 |
 | **M24** — Developer portal, part 2 | C | ⬜ not started | — |
 | **M25** — Documentation site | C | ⬜ not started | — |
 | **M26** — Java & Go SDKs | C | ⬜ not started | — |
@@ -2886,6 +2898,15 @@ decisions are appended as milestones are implemented.
 | D189 | (M23) `:sdks:shared` gains a **third emitter target**, writing the generated TypeScript into `developer-portal/src/generated`, covered by the existing `verifySdkSources` freshness gate | (a) A TypeScript codegen step in the portal's own toolchain; (b) a `tsconfig` path alias into `sdks/node/src/generated` | D164's constraint is unchanged: the freshness gate has to run in the build that owns the spec, and a contributor with no Node must still be able to build the monorepo. (a) moves the gate into a toolchain `./gradlew build` cannot run. (b) avoids the copy and crosses a Docker build context to do it. One reader, now three emitters — the same trade already accepted between Node and Python |
 | D190 | (M23) Capture, refund and void are **never** optimistic in the portal UI | Optimistic updates everywhere, for consistency with list edits and metadata | An optimistic "Refunded" that rolls back is a false statement about a financial event, shown to the person least able to verify it independently. The rollback is technically clean and the damage is done before it runs. Metadata edits and saved views stay optimistic because their rollback costs nothing and asserts nothing |
 | D191 | (M23) Filter, sort and pagination state lives in the **URL**; the portal has no global client store | Zustand or Redux for cross-component state | Every candidate for global state turned out to be server state (TanStack Query), URL state, or cookie state. A store would add a fourth place the truth could live, and the first bug it produces is the one it was added to prevent — two components disagreeing about the current filter. URL state is additionally shareable, bookmarkable and back-button-correct, which a store is not |
+| D192 | (M23.1) The portal's UI primitives are **vendored** — shadcn components copied into `components/ui`, with Radix underneath the three that need real behaviour (dialog, dropdown, tooltip) | (a) Depend on a component library (MUI, Chakra, Mantine); (b) hand-roll every primitive with no Radix at all | (a) is the fastest way to a working dashboard and the surest way to look like everything else built the same way; `Design/design-system.md` names "Material UI look" and "Bootstrap look" as things to avoid, and a library's markup, class names and a11y are not ours to change when a token or a focus treatment needs to move. (b) is tempting for a foundation milestone and is where drawers and menus go wrong: a focus trap, roving tabindex, `Escape`, scroll locking, `aria-activedescendant` and focus restoration are invisible in a screenshot and are the whole difference between usable and unusable without a mouse — the mobile drawer was verified to have all six. Vendoring is the arrangement shadcn is designed for: three runtime dependencies for behaviour, and every line of markup ours. |
+| D193 | (M23.1) Navigation renders **every** destination in §6.1's information architecture, with the ones later milestones build marked unavailable and tooltipped with the milestone that turns them on | (a) Show only what exists and add items as they ship; (b) show everything as ordinary links that 404 | (a) reshuffles the sidebar under the user twice between here and M24, and makes each arriving surface look like a feature that was missing rather than one that was scheduled. (b) is worse: a link that leads nowhere is a defect, not a preview. Rendering them inert with `aria-disabled` and a reason means the shape of the product is decided once, in one file, and the answer to "why is this greyed out" is in the UI rather than in a roadmap. |
+| D194 | (M23.1) TypeScript runs with `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` on top of `strict`, and component props are written `T \| undefined` rather than `T?` | (a) `strict` alone, as the Next.js template ships; (b) the extra flags with props left `T?` | (a) leaves the two mistakes a data-heavy dashboard makes most: `page.data[0]` typed as present when a cursor page may be empty, and "absent" indistinguishable from "explicitly undefined" — which is exactly the distinction the platform's own error envelope makes, since absent fields are omitted and never null. (b) does not compile: `requestId={error.digest}` is `string \| undefined`, and the fix a developer reaches for is a non-null assertion on a value that is genuinely sometimes absent. D173 settled the same question for the SDK's input options and settled it the same way — keep the strictness on data being read, not on props being passed. |
+| D195 | (M23.1) `DockerBuildContextConsistencyTest` gains an assertion that every **Node toolchain tree** is excluded from the build context, and **discovers** that set by walking the repository | (a) Add `developer-portal/` to `.dockerignore` and leave the test alone; (b) assert against a hard-coded list of directories | The three existing assertions are about Gradle modules, because until M23.1 that was the only way a directory could matter to an image build. The portal is the first top-level directory that is neither a module nor consumed by any service, so nothing in the test would have noticed it either way — while it rode along in a context that is sent to the daemon once per image, nine times per matrix run. (a) fixes today and guards nothing. (b) is a list someone has to remember to extend, which is the failure this test exists because of: the same omission happened three times for `load-tests`, `openapi-tools` and `test-support` before it was automated. Discovery means a second portal or a docs site fails the build until it is excluded, without anyone remembering anything. |
+| D196 | (M23.2) The session cookie is **AES-256-GCM encrypted** with a HKDF-derived key, version-tagged with the version bound as GCM additional-authenticated-data, `httpOnly`, `SameSite=Strict`, `Secure` in production, and capped by a 30-day absolute age independent of token lifetimes | (a) A signed-only cookie (JWT or HMAC envelope); (b) a server-side session store keyed by an opaque cookie | The cookie carries an access token and a refresh token. (a) makes it tamper-evident while leaving both **readable** by anything that can see the cookie — a browser extension, a crash dump, a proxy log, a screenshot of devtools — and a round-trip test cannot tell the two apart, which is exactly why the choice has to be recorded rather than left to whoever writes the module. (b) is stronger still and buys instant revocation, but it puts a datastore in the portal's request path for a service that currently has none, and it re-introduces the shared-state problem this milestone otherwise confines to one process. Web Crypto rather than `node:crypto` because `middleware.ts` must seal and unseal too, and a session format only half the server can read is not a format. The version is AAD rather than a prefix so rewriting it fails the tag: a version that is only a label is a downgrade waiting to happen. The absolute ceiling exists because rotation otherwise extends a session forever — each refresh mints another week — so a browser left open never ages out and a compromise never expires |
+| D197 | (M23.2) Refresh is coordinated by an in-process **mutex plus an idempotent replay cache** keyed by a hash of the refresh token, and the multi-replica limitation is documented rather than solved | (a) No coordination — let each request refresh and treat 401 as a logout; (b) mutex alone, with no replay cache; (c) shared coordination in Redis from the start | Verified from the backend rather than assumed: `RefreshTokenService.rotate` revokes the presented token in the same transaction that issues its replacement, and `RefreshToken` carries **no `@Version`** — so two concurrent rotations both *succeed* (the row lock serialises the `UPDATE`; with no optimistic-locking column neither fails), identity mints two live tokens, and any request arriving after the first commit presents a revoked token and gets 401. Reuse does not invalidate the family, so the orphan is a live credential nobody is watching. (a) therefore signs users out mid-page-load, which is the specific risk M23.0 flagged for this milestone. (b) is not enough, and the reason is architectural: Next.js Server Components **cannot set cookies**, so a rotation triggered during a render cannot be persisted — the next request then presents the token that rotation already revoked, and the user is signed out by nothing worse than a page load. The replay cache makes that recoverable by answering the old token's key from memory for 30 seconds. (c) is the correct end state for multiple replicas and is deferred because it is a deployment decision, not portal code; §14 records the gap |
+| D198 | (M23.2) `middleware.ts` is the portal's **single refresh point**, runs on the **Node.js runtime**, and its matcher is written as an exclusion rather than a list of protected prefixes | (a) Refresh inside the data layer, per call; (b) refresh in middleware on the Edge runtime; (c) a matcher enumerating the protected route prefixes | Follows from D197's constraint: middleware is the only thing that runs once per request, before the render, on a response it owns — so it is the only place a rotated token can be both used and stored. (a) is the per-parallel-RSC-fetch refresh storm the M23 architecture ruled out, and on the render path it cannot persist what it rotates. (b) looks equivalent and is not: the Edge runtime has its own module registry, so the coordinator's mutex and cache there are a *second, disjoint* copy — two uncoordinated refreshers, precisely what D197 exists to prevent. (c) fails **open**: a route added and not listed is a route with no gate. The exclusion form fails closed, and the public paths are then named in one place where the reason for each is visible. Middleware is explicitly *not* the security boundary — `requireSession` is, because a path pattern is the wrong thing to rest authorization on — and this one exists to stop protected content rendering before it can redirect itself |
+| D199 | (M23.2) CSRF is defended three ways: `SameSite=Strict`, a server-side **`Origin`/`Sec-Fetch-Site` assertion**, and a **synchronizer token** held in an `httpOnly` cookie and echoed into the form by the server | (a) `SameSite=Strict` alone; (b) the classic double-submit cookie; (c) `SameSite` plus the origin check, with no token | (a) is a browser promise, not the server's own check, and it treats a sibling subdomain as same-site — which is the one attacker it does not stop. (b) requires a **script-readable** cookie, which contradicts the milestone's constraint that no secret is readable by script; the synchronizer form keeps the token `httpOnly` and has the *server* echo it. (c) is the tempting answer and misses the case that matters most: login happens **before** a session cookie exists, so `SameSite` on that cookie protects nothing there, and login CSRF — signing a victim into the *attacker's* account so that everything they then do happens under credentials the attacker can read — is defended only by a token the attacker cannot read. The token is rotated on successful login, because one minted before authentication and kept after it is the CSRF analogue of session fixation. The comparison is constant-time; `===` short-circuits at the first differing byte |
+| D200 | (M23.2) The portal throttles failed sign-ins **per account**, in process, and the gateway's own limiter is left unchanged | (a) Rely on the gateway's existing rate limit; (b) add per-account lockout to identity-service; (c) throttle by client address in the portal | (a) does not work here, and the reason is structural rather than a matter of tuning: `RateLimiterConfig.clientIp` reads the socket address and deliberately does not trust `X-Forwarded-For`, so **every** portal login arrives from the portal's own address and all users share one bucket sized for anonymous browsers — while `AuthService.login` counts a metric on failure and has no lockout of its own. Credential stuffing against one account is therefore limited only by a quota meant for the whole portal. (b) is the better long-term home and is a backend change outside this milestone's boundary. (c) is trivially defeated from a botnet and punishes a shared office NAT for one person's typo — the attack is "many guesses at one account", so the key has to be the account. The accepted cost is stated rather than hidden: someone who knows an address can lock its owner out for the window, which is why the window is minutes and why a successful sign-in clears the count |
 
 ---
 
@@ -2976,6 +2997,8 @@ those that V2 closes are tabulated in §2.11 above with their closing milestone.
 - **The Python SDK has no async client.** §7.2's plan is "sync client first with an async variant", and M22.5 delivered the first half. `async`/`await` colours every function it touches, so the variant needs its own transport, its own retry loop and its own copy of all eleven resource namespaces — a coroutine cannot be called from a synchronous method or the reverse. Delivering it inside M22.5 would have produced two clients of which one was well tested. Named in `sdks/python/README.md` so no integrator discovers it by looking for it. Unowned; a natural M26 companion when the Java and Go SDKs are written.
 - **The Node SDK declares `engines.node >= 18`, and nothing executes it on 18.** CI runs the suite on Node 20 (pinned deliberately, `ci.yml`); development happens on whatever the contributor has, currently 24. Node 18 — the floor the package advertises to integrators — is exercised by neither. This is the same shape as the Python-3.9 item above, and it is not hypothetical: the CI defect recorded in §17 (2026-07-31) was exactly a Node-version disagreement, invisible for the whole of M22 because only one of the two environments ever ran the suite. The cheap partial answer is a CI matrix over 18/20/latest, which costs one `strategy.matrix` entry and would have caught that defect on the commit that introduced it. Unowned; the natural companion to the Python 3.9 leg, and worth doing together.
 - **The `session:merchant:v1:` lookup cache is not evicted when a merchant's profile changes.** `ApiKeyService` evicts the `apikey:v1:` namespace directly on revoke and rotate, so a revoked key stops authenticating within one call rather than one TTL. M23.0's session cache has no equivalent: updating `contactEmail` or `webhookUrl` through `PATCH /api/v1/merchants/me` leaves the gateway asserting the old values on the session path for up to the five-minute positive TTL. The blast radius is genuinely small — the merchant id itself cannot change (a user owns at most one merchant, and merchant-service refuses a second), and those two fields already carry exactly this staleness on the API-key path, for the same consumers (D43/D118) — which is why it was accepted rather than solved. It is recorded because the asymmetry with the key cache is deliberate and would otherwise read as an oversight: the fix, if a reason appears, is one `@CacheEvict`-adjacent eviction in `MerchantService.updateMine`/`updateMyWebhook` writing to the same Redis namespace the gateway owns, exactly as `ApiKeyService` already does. No milestone owns it; M23.4 (merchant settings) is the natural moment, since that is when a human first edits these fields from the portal and would notice.
+- **The portal's refresh coordination and login throttle are per-process, so both weaken under horizontal scaling (M23.2, D197/D200).** Both are module state, which holds for every request served by one Node process — what `docker-compose.yml` runs and what a single-replica deployment runs. With N replicas the refresh mutex degrades to per-replica: two replicas can rotate the same token concurrently, and because `RefreshToken` has no `@Version` both *succeed*, so nobody is signed out immediately — one replica simply holds a token the other has orphaned, and the next request through the losing replica finds its token revoked and **does** end that session. The replay cache cannot help, because the entry lives in the other process. The login throttle degrades more gently: an attacker gets the allowance times the replica count, which is a weaker limit rather than none. The fix for both is the same and is a deployment decision rather than portal code — the Redis the platform already runs, or sticky sessions. Not owned by any milestone; M29 (infrastructure) or whichever milestone first runs the portal with more than one replica is the natural home, and the portal must not be scaled out before then without one of the two.
+- **`RefreshTokenService` does not invalidate a token family on reuse, so a stolen refresh token wins the race against its owner (identity-service, surfaced by M23.2).** Rotation is single-use and revocation is immediate, but a replayed token simply throws `InvalidTokenException` — nothing else happens. The consequence is the classic one: if an attacker rotates a stolen token *before* the legitimate user does, the attacker receives a working pair, the user's next refresh presents a token that is now revoked, and the **user** is the one signed out while the attacker continues. Detecting this is exactly what a token-family (lineage) column is for: a presented-but-revoked token is proof of theft, and the correct response is to revoke every descendant. This was found by reading the rotation semantics for M23.2's coordinator rather than by an incident, and it is a backend change — a `family_id` on `refresh_tokens`, a reuse branch in `rotate`, and a bulk revoke — deliberately left out of a portal milestone. No milestone owns it; it belongs with the next identity-service work, and it is the strongest of the outstanding security gaps because the victim of the failure is the account owner.
 
 ---
 
@@ -8320,8 +8343,8 @@ M23.0–M23.9, with M23.0 the only one that touches the backend at all.
 | # | Scope | Status |
 |---|---|---|
 | M23.0 | Backend enablement — the session-derived internal context | ✅ |
-| M23.1 | Portal foundation — scaffold, tokens, Docker, CI, generated types | ⬜ |
-| M23.2 | Authentication — session cookie, login/signup/verify/reset, middleware, CSRF | ⬜ |
+| M23.1 | Portal foundation — scaffold, tokens, Docker, CI, generated types | ✅ |
+| M23.2 | Authentication — session cookie, login, logout, middleware, refresh coordination, CSRF | ✅ |
 | M23.3 | Shell and data layer — sidebar, header, mode toggle, transport, query keys | ⬜ |
 | M23.4 | Onboarding and merchant settings | ⬜ |
 | M23.5 | API keys — create, reveal-once, rotate, revoke | ⬜ |
@@ -8479,6 +8502,177 @@ rather than part of the data path.
 builds until it is taught about it.
 
 ---
+
+#### M23.1 — the portal foundation ✅ (2026-08-02)
+
+**What exists now.** `developer-portal/`: a Next.js 15 (App Router) / React 19 application on
+TypeScript strict and Tailwind v4, with ESLint, Prettier, a vendored primitive set, the
+navigation shell, route groups, loading and error boundaries, route-protection scaffolding, a
+server-only API transport, its own Dockerfile, a compose entry and a CI job. It builds, type-checks,
+lints and runs; it authenticates nothing and fetches nothing, which is M23.2 and M23.3.
+
+**The design system is derived, not copied.** `Design/design-system.md` fixes the direction —
+dark-first, purple and blue accents, subtle gradients, grid backgrounds, glass only where useful,
+Stripe/Vercel/Linear/Railway for the dashboard, and explicitly not Material, not Bootstrap, not
+neon, not overly rounded. The three reference documents were read for their language rather than
+their pixels, and what they share is what `src/styles/tokens.css` encodes: neutrals built from a
+blue-violet hue rather than grey, so surfaces, borders and muted labels share one temperature
+with the accent; one saturated accent used sparingly; borders doing in dark what shadows do in
+light; and small, tight, confident typography — 14px base, six-step scale, one radius family.
+
+Three rules the file exists to enforce: components name **semantic** tokens and never a raw ramp;
+both themes are designed rather than one being an inversion of the other; and money, ids and
+timestamps are tabular. `/foundation` renders all of it, which is what makes the system
+reviewable rather than merely asserted.
+
+**The generator gained a third emitter target (D189).** `:sdks:shared` now writes the same
+TypeScript into `developer-portal/src/generated` as into `sdks/node/src/generated`, in one pass
+from one `SdkSpec`. The portal's types therefore cannot drift from `docs/openapi.yaml`, and the
+gate is the existing `verifySdkSources` running inside `./gradlew build` — so a stale portal
+model fails the Java build, and Node stays a non-prerequisite (D136/D164). A new test asserts the
+two trees are **byte-identical**, which neither tree's own freshness check could see: a generator
+emitting two renderings from one spec would satisfy both and still be wrong.
+
+**Docker.** The portal has its own Dockerfile — the shared one is parameterised over Gradle
+modules and builds Spring Boot jars — built from `./developer-portal` rather than the repository
+root, because `.dockerignore` now excludes that directory from the root context. It needed a
+second `.dockerignore` of its own: the root one does not apply to a context rooted elsewhere, so
+without it the whole of `node_modules` would be sent to the daemon. The image is 339 MB, runs as
+non-root `paymentflow`, exposes 3000 and healthchecks `/api/health` — the same three properties
+the nine service images are asserted for, now asserted for a tenth in CI.
+
+**`DockerBuildContextConsistencyTest` gained a fourth assertion (D195)**, and it is a different
+question from the first three. Those are about Gradle modules; the portal is the first top-level
+directory that is neither a module nor consumed by any service, so none of them would have
+noticed it while it rode along in a context sent to the daemon nine times per matrix run. The new
+assertion **discovers** Node toolchain trees by walking the repository rather than listing them,
+so a second portal or a docs site fails the build until it is excluded — the same automate-rather-
+than-remember reasoning that produced the test in the first place, after the identical omission
+happened three times.
+
+**Two defects found by verification.**
+
+1. **Three text tokens missed WCAG AA**, found by measuring rendered elements in a real browser
+   rather than by eye: light `fg-subtle` at 2.71:1, light `fg-muted` at 4.38:1, dark `fg-subtle`
+   at 4.40:1 — all against the 4.5:1 bar for normal text. The cause is structural rather than a
+   bad value: measured against this design's own canvases, 4.5:1 needs L ≥ 0.565 on dark and
+   L ≤ 0.553 on light, so **one ramp step cannot serve both themes** for a de-emphasised role. The
+   ramp gained a `450` step and the two themes now resolve `fg-subtle` to different entries. A
+   full sweep of every text-bearing element in both themes now reports zero failures, excluding
+   disabled controls, which WCAG exempts.
+2. **The image build failed on a missing `public/` directory** — a `COPY` of a path that does not
+   exist is an error, not a no-op. It now holds a `robots.txt` that the portal genuinely wants
+   (a merchant's private dashboard should not be indexed), rather than a placeholder.
+
+**Deliberately not built.** No login, no session cookie, no data fetching, no dashboard.
+`src/lib/session/require.ts` has the guards and they redirect unconditionally, because there is
+no session yet — which is the correct behaviour for a portal with no login: closed, not open. The
+`(app)` layout does not call `requireMerchant()` for the same reason; doing so today would make
+the shell unreachable and this milestone unreviewable. `src/lib/api/transport.ts` is complete and
+has no callers. The CSP is `Report-Only` and still admits `'unsafe-inline'` for scripts, because
+the nonce comes from middleware that arrives in M23.2 — and it says so at the site rather than
+claiming to be a finished control.
+
+**Verification.**
+
+| Gate | Result |
+|---|---|
+| `./gradlew build --max-workers=2` | BUILD SUCCESSFUL |
+| `npm run verify` (portal) | typecheck, lint, format, production build — all clean |
+| `verifySdkSources` | fresh across all four generated trees |
+| `verifyOpenApiBaseline` / `verifyOpenApiCompatibility` | in sync; **0 breaking, 0 accepted, 0 additive** |
+| Docker | portal image built, non-root, port-exposed, healthchecked; nine service images unaffected |
+| Contrast | every text element, both themes, zero below AA |
+| Responsive | no horizontal overflow at 375px or 1280px; rail hides, drawer appears |
+| Mobile drawer | labelled, described, focus-trapped, scroll-locked, Escape closes, focus returns |
+| Mutation proof | removing `developer-portal/` from `.dockerignore` fails the new consistency assertion |
+
+**What M23.2 needs from here.** The session module. `readSession()` is the one function it
+replaces; every guard, the transport's `RequestCredentials`, and the `(app)` layout are already
+written against the shape it will return.
+
+---
+
+#### M23.2 — real authentication ✅ (2026-08-08)
+
+The portal stops being a shell that redirects everyone and becomes an application a merchant
+signs into. Nothing about the backend changed: M23.0's `SessionContextWebFilter` was already
+waiting, and this milestone is the portal's half of the same design.
+
+**The browser holds nothing.** D187's promise, now enforced and measured. The session — access
+token, refresh token, both expiries, user identity, merchant id, mode — is sealed into one
+AES-256-GCM cookie that only this server can open (D196), and the only thing that crosses into
+the React tree is `PublicSession`, a type that structurally cannot carry a token. The browser
+suite asserts it four ways: `document.cookie`, `localStorage`, `sessionStorage`, and a scan of
+the served HTML for anything JWT-shaped.
+
+**One architectural fact decided the whole design.** Next.js allows a cookie to be written only
+where a response is being constructed — a Route Handler, a Server Action, or middleware. A Server
+Component cannot. Since `RefreshTokenService.rotate` is single-use and irreversible, a refresh
+triggered during a render would rotate the token at identity-service and then be unable to store
+the result: the next request presents a revoked token and the user is signed out by nothing worse
+than a page load. So refresh happens in exactly one place, `middleware.ts`, which runs once per
+request, before the render, on a response it owns (D198) — preserving the property M23's
+architecture required, that refresh never happens once per parallel RSC fetch.
+
+**The refresh-token semantics were read rather than assumed**, and three of the four questions
+M23.0 flagged resolve badly:
+
+| Question | Answer, from the code |
+|---|---|
+| Is rotation single-use? | Yes — `rotate` revokes the presented token in the same transaction |
+| Does reuse invalidate the family? | **No** — a replayed token throws and siblings stay live |
+| Do old tokens stay valid briefly? | No — revocation is immediate |
+| Can a race log a user out? | **Yes** — `RefreshToken` has no `@Version`, so two concurrent rotations both succeed, mint two live tokens, and any third request presents a revoked one |
+
+Hence D197's two mechanisms. The mutex collapses concurrent refreshes into one call; the replay
+cache, keyed by the *old* token, makes a rotation whose cookie write was impossible recoverable
+by the next request instead of terminal. The unit suite proves the first by counting calls to
+identity-service — ten concurrent refreshes, one rotation — and the browser suite proves the
+second end to end.
+
+**CSRF is three defences because they cover different things (D199).** `SameSite=Strict` on the
+cookie, a server-side `Origin`/`Sec-Fetch-Site` assertion that also refuses a sibling subdomain,
+and a synchronizer token in an `httpOnly` cookie echoed into each form by the server. The login
+form is the case that justifies the third: it is submitted *before* any session cookie exists, so
+`SameSite` protects nothing there, and login CSRF is a real attack.
+
+**A gap in the platform's brute-force protection was found and closed at the portal (D200).**
+`RateLimiterConfig.clientIp` reads the socket address and does not trust `X-Forwarded-For`, so
+every portal login shares one bucket keyed by the portal's own address, and `AuthService.login`
+has no per-account lockout. Per-account throttling now lives in the portal, which is the only
+layer that can see which account is under attack.
+
+**Two defects the browser found that no unit test could.** A menu item that submits a form does
+nothing at all — Radix unmounts the menu content as part of selecting an item, cancelling the
+click's default action — so sign-out and the mode switch both submit their forms explicitly. And
+navigating away before the sign-in redirect is consumed *aborts* it, discarding its `Set-Cookie`:
+the platform records a successful login, the server logs `ECONNRESET`, and the browser sits on
+`/login` with no error, because nothing failed.
+
+**Verification.**
+
+| Gate | Result |
+|---|---|
+| `npm run verify` (typecheck, lint, format, **75 unit tests**, build) | pass |
+| `scripts/verify-auth.mjs` | 47/47 |
+| `scripts/verify-interactions.mjs` (M23.1 regression, now signed in) | 25/25 |
+| `./gradlew build --max-workers=2` | pass |
+| `verifyOpenApiBaseline`, `verifyOpenApiCompatibility`, `verifySdkSources` | pass |
+| Portal image | builds |
+| Mutation proof — coordination removed | 3 refresh tests fail |
+| Mutation proof — CSRF comparison removed | `the session survived a forged CSRF token` fails |
+
+Both browser suites now run in CI against the Chrome on the runner, driven by a stub platform
+(`scripts/stub-platform.mjs`) that reproduces identity-service's single-use rotation. A stub
+rather than the real stack because the situations that matter — an expired access token, a
+revoked refresh token, a rotation race — are one line each here and would need a fifteen-minute
+wait against the real service. Both suites assert their own instrument before anything else.
+
+**What M23.3 needs from here.** `callAs()` in `lib/api/client.ts` is the one authenticated path
+to the platform; every page, action and route handler goes through it and nothing else puts a
+token on a request. The guards in `lib/session/require.ts` are the only source of a credential,
+so a page that forgets to call one has nothing to fetch merchant data with.
 
 *(Populated by M28. V1's benchmarks remain in `PROJECT_CONTEXT.md` §14 and are the
 regression baseline for the original payment hot path.)*

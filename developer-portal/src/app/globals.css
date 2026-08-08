@@ -1,0 +1,204 @@
+@import 'tailwindcss';
+@import '../styles/tokens.css';
+
+/*
+ * Dark is the base, so the *light* theme is the variant class. That is the right way round
+ * for a dark-first product and the wrong way round in every template.
+ */
+@custom-variant light (&:where(.light, .light *));
+
+@layer base {
+  *,
+  ::after,
+  ::before {
+    border-color: var(--color-border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    /* The page never scrolls sideways; wide content scrolls inside its own container. */
+    overflow-x: hidden;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    letter-spacing: var(--text-body--letter-spacing);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /*
+     * The two features the reference names. `cv01` gives Inter its single-storey `a`-adjacent
+     * alternates and `ss03` the curved-tail forms — between them they are most of why Linear's
+     * type reads as Linear's rather than as default Inter.
+     */
+    font-feature-settings: 'cv01', 'ss03';
+    text-rendering: optimizeLegibility;
+  }
+
+  /*
+   * Weight 510 is the system's signature — a variable-font weight between regular and medium.
+   * Applied to headings and to anything the scale calls a label.
+   */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: 510;
+    color: var(--color-fg);
+    text-wrap: balance;
+  }
+
+  /*
+   * One focus treatment, from the reference's own interaction evidence: a 3px outline at
+   * offset 0. Not the 2px-with-offset every template ships — the ring sits *on* the control's
+   * edge, which is what keeps it from colliding with a neighbour in a dense sidebar.
+   */
+  :focus-visible {
+    outline: 3px solid var(--color-accent-ring);
+    outline-offset: 0;
+  }
+
+  /* Money, ids and timestamps line up in a column or they are not a column. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum', 'cv01', 'ss03';
+  }
+
+  ::selection {
+    background-color: var(--color-accent-subtle);
+    color: var(--color-fg);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-border-strong);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-fg-faint);
+  }
+}
+
+@layer utilities {
+  /*
+   * The grid backdrop. Two repeating gradients rather than an image, so it costs no request
+   * and follows the theme.
+   */
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+
+  .bg-grid-fade {
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 20%, transparent 75%);
+  }
+
+  /*
+   * `backdrop-filter: blur(20px)` is one of the two blurs in the reference's interaction
+   * evidence. Used on the sticky header and on overlay scrims, and nowhere else.
+   */
+  .glass {
+    background-color: color-mix(in srgb, var(--color-canvas) 72%, transparent);
+    backdrop-filter: saturate(180%) blur(20px);
+  }
+
+  /*
+   * The hairline border the whole system's depth rests on — `shadow-border-inset` from the
+   * extraction. An inset ring rather than a border so it never affects layout, which is what
+   * lets a card animate scale without its edge shifting a subpixel.
+   */
+  .ring-hairline {
+    box-shadow: var(--shadow-border-inset);
+  }
+
+  /*
+   * A one-pixel highlight along a surface's top edge. This is the detail that separates the
+   * reference's panels from flat rectangles: light appears to fall from above, without a
+   * gradient anywhere.
+   */
+  .edge-light {
+    position: relative;
+  }
+  .edge-light::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      color-mix(in srgb, var(--color-fg) 8%, transparent) 20%,
+      color-mix(in srgb, var(--color-fg) 8%, transparent) 80%,
+      transparent
+    );
+    pointer-events: none;
+  }
+
+  /* Skeletons shimmer rather than pulse — a sweep reads as "loading", a fade reads as "broken". */
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+    background-color: var(--color-surface-hover);
+  }
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--color-fg) 5%, transparent),
+      transparent
+    );
+    animation: shimmer 1.6s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  /*
+   * Everything that animates is promoted to its own layer, so the compositor moves it rather
+   * than the main thread repainting it. `will-change` is scoped to elements that genuinely
+   * animate — applying it broadly costs memory for nothing.
+   */
+  .gpu {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    will-change: transform, opacity;
+  }
+}
+
+/*
+ * Respected globally rather than per-component. Someone who has asked the system to stop
+ * moving things has not asked twice — and Framer Motion reads the same preference through
+ * `MotionConfig reducedMotion="user"` in the providers.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

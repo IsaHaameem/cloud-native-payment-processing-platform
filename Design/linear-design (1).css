@@ -1,0 +1,92 @@
+:root {
+  /* Colors */
+  --color-background-primary: #08090a;
+  --color-background-secondary: #0f1011;
+  --color-background-elevated: #23252a;
+  --color-text-primary: #f7f8f8;
+  --color-text-secondary: #d0d6e0;
+  --color-text-tertiary: #8a8f98;
+  --color-text-quaternary: #62666d;
+  --color-border-subtle: #e2e4e7;
+  --color-brand-indigo: #5e6ad2;
+  --color-white-surface: #ffffff;
+  --color-background-primary: #f7f8f8;
+  --color-text-primary: #08090a;
+  --color-text-secondary: #d0d6e0;
+  --color-text-tertiary: #8a8f98;
+  --color-text-quaternary: #62666d;
+  --color-brand-indigo: #5e6ad2;
+  --color-border-default: #e2e4e7;
+  --color-white: #ffffff;
+
+  /* Typography */
+  --font-display-hero-family: Inter Variable;
+  --font-display-hero-size: 64px;
+  --font-display-hero-weight: 510;
+  --font-display-hero-line-height: 1.1;
+  --font-display-hero-letter-spacing: -0.88px;
+  --font-title-1-family: Inter Variable;
+  --font-title-1-size: 40px;
+  --font-title-1-weight: 510;
+  --font-title-1-line-height: 44px;
+  --font-title-1-letter-spacing: -0.88px;
+  --font-title-2-family: Inter Variable;
+  --font-title-2-size: 18px;
+  --font-title-2-weight: 400;
+  --font-title-2-line-height: 28.8px;
+  --font-title-2-letter-spacing: -0.165px;
+  --font-body-regular-family: Inter Variable;
+  --font-body-regular-size: 15px;
+  --font-body-regular-weight: 400;
+  --font-body-regular-line-height: 24px;
+  --font-body-regular-letter-spacing: -0.165px;
+  --font-body-base-family: Inter Variable;
+  --font-body-base-size: 16px;
+  --font-body-base-weight: 400;
+  --font-body-base-line-height: 24px;
+  --font-label-medium-family: Inter Variable;
+  --font-label-medium-size: 13px;
+  --font-label-medium-weight: 510;
+  --font-label-medium-line-height: 19.5px;
+  --font-label-medium-letter-spacing: -0.13px;
+  --font-label-small-family: Inter Variable;
+  --font-label-small-size: 12px;
+  --font-label-small-weight: 510;
+  --font-label-small-line-height: 16.8px;
+  --font-caption-family: Inter Variable;
+  --font-caption-size: 10px;
+  --font-caption-weight: 510;
+  --font-caption-line-height: 15px;
+  --font-code-inline-family: Berkeley Mono;
+  --font-code-inline-size: 14px;
+  --font-code-inline-weight: 400;
+  --font-code-inline-line-height: 24px;
+  --font-nav-item-family: Inter Variable;
+  --font-nav-item-size: 13px;
+  --font-nav-item-weight: 400;
+  --font-nav-item-line-height: 19.5px;
+  --font-nav-item-letter-spacing: -0.13px;
+
+  /* Spacing */
+  --spacing-spacing-1: 2px;
+  --spacing-spacing-2: 4px;
+  --spacing-spacing-3: 6px;
+  --spacing-spacing-4: 8px;
+  --spacing-spacing-5: 12px;
+  --spacing-spacing-6: 16px;
+  --spacing-spacing-7: 20px;
+  --spacing-spacing-8: 24px;
+  --spacing-spacing-9: 32px;
+  --spacing-spacing-10: 48px;
+  --spacing-spacing-11: 96px;
+
+  /* Border Radius */
+  --radius-radius-xs: 2px;
+  --radius-radius-sm: 4px;
+  --radius-radius-md: 6px;
+  --radius-radius-lg: 8px;
+  --radius-radius-xl: 12px;
+  --radius-radius-2xl: 16px;
+  --radius-radius-pill: 9999px;
+
+}

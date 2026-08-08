@@ -83,3 +83,6 @@ __pycache__/
 # Generated per-run by SeedMerchantsSimulation (throwaway JWTs against
 # whatever local stack happens to be running) — not source, never committed.
 load-tests/src/gatling/resources/data/
+
+# Claude Code local state (the launch config is shared; the lock file is per-machine).
+.claude/scheduled_tasks.lock

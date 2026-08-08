@@ -1,0 +1,48 @@
+@theme {
+  /* Colors */
+  --color-background-primary: #08090a;
+  --color-background-secondary: #0f1011;
+  --color-background-elevated: #23252a;
+  --color-text-primary: #f7f8f8;
+  --color-text-secondary: #d0d6e0;
+  --color-text-tertiary: #8a8f98;
+  --color-text-quaternary: #62666d;
+  --color-border-subtle: #e2e4e7;
+  --color-brand-indigo: #5e6ad2;
+  --color-white-surface: #ffffff;
+  --color-background-primary: #f7f8f8;
+  --color-text-primary: #08090a;
+  --color-text-secondary: #d0d6e0;
+  --color-text-tertiary: #8a8f98;
+  --color-text-quaternary: #62666d;
+  --color-brand-indigo: #5e6ad2;
+  --color-border-default: #e2e4e7;
+  --color-white: #ffffff;
+
+  /* Spacing */
+  --spacing-spacing-1: 2px;
+  --spacing-spacing-2: 4px;
+  --spacing-spacing-3: 6px;
+  --spacing-spacing-4: 8px;
+  --spacing-spacing-5: 12px;
+  --spacing-spacing-6: 16px;
+  --spacing-spacing-7: 20px;
+  --spacing-spacing-8: 24px;
+  --spacing-spacing-9: 32px;
+  --spacing-spacing-10: 48px;
+  --spacing-spacing-11: 96px;
+
+  /* Border Radius */
+  --radius-radius-xs: 2px;
+  --radius-radius-sm: 4px;
+  --radius-radius-md: 6px;
+  --radius-radius-lg: 8px;
+  --radius-radius-xl: 12px;
+  --radius-radius-2xl: 16px;
+  --radius-radius-pill: 9999px;
+
+  /* Fonts */
+  --font-inter-variable: "Inter Variable", sans-serif;
+  --font-berkeley-mono: "Berkeley Mono", sans-serif;
+
+}

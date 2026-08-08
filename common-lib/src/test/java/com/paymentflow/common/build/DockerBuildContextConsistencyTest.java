@@ -142,4 +142,89 @@ class DockerBuildContextConsistencyTest {
         int lastSlash = path.lastIndexOf('/');
         return lastSlash < 0 ? null : path.substring(0, lastSlash);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // M23.1 — the other way a directory reaches the build context.
+    // ─────────────────────────────────────────────────────────────────────────────────────
+
+    private static final Path REPOSITORY_ROOT = Path.of("..");
+
+    /**
+     * Every non-JVM toolchain tree is excluded from the Docker build context.
+     *
+     * <p>The three assertions above are about <em>Gradle modules</em>, because until M23.1 that
+     * was the only way a directory could matter to an image build. The developer portal is the
+     * first top-level directory that is not a Gradle module and not consumed by any service —
+     * so {@code settings.gradle.kts} never mentions it, the Dockerfile never copies it, and
+     * none of the checks above would notice it either way.
+     *
+     * <p>What it would do is ride along in the context. Docker sends the whole context to the
+     * daemon before the first {@code COPY} runs, the image matrix builds nine services, and a
+     * Node application's tree is not small. {@code node_modules/} and {@code .next/} are already
+     * excluded globally, which is exactly what makes this easy to get wrong: the expensive part
+     * is already handled, so the source tree looks harmless and gets left in.
+     *
+     * <p>The set is <b>discovered, not listed</b>. Anything with a {@code package.json} under it
+     * is a Node toolchain tree and has to be excluded; adding a second portal, or a docs site,
+     * fails here until {@code .dockerignore} learns about it, without anyone remembering to
+     * extend a constant. That is the same reason the assertions above parse their inputs rather
+     * than hard-coding the module list.
+     */
+    @Test
+    void everyNodeToolchainDirectoryIsExcludedFromTheBuildContext() throws IOException {
+        List<String> ignore = Files.readAllLines(DOCKERIGNORE, StandardCharsets.UTF_8);
+        Set<String> nodeTrees = topLevelNodeToolchainDirectories();
+
+        // Guard the guard: a discovery that found nothing would make this pass by not looking,
+        // which is the failure mode the repository's testing rules single out.
+        assertThat(nodeTrees)
+                .describedAs("no top-level directory with a package.json was found — the discovery "
+                        + "below is broken, or this test is running from an unexpected directory")
+                .isNotEmpty();
+
+        assertThat(ignore)
+                .describedAs("every Node toolchain tree must be excluded from the Docker build "
+                        + "context; the whole context is sent to the daemon once per image, and the "
+                        + "matrix builds nine")
+                .containsAll(nodeTrees.stream().map(directory -> directory + "/").toList());
+    }
+
+    /**
+     * Top-level directories containing a {@code package.json} within two levels.
+     *
+     * <p>Two levels because that covers both shapes the repository actually has — the portal
+     * keeps its manifest at the root of its own directory, and {@code sdks} keeps its one level
+     * down in {@code sdks/node}. Deeper would start walking {@code node_modules}, where every
+     * dependency has a manifest and none of them says anything about this repository.
+     */
+    private static Set<String> topLevelNodeToolchainDirectories() throws IOException {
+        Set<String> found = new LinkedHashSet<>();
+        try (var top = Files.list(REPOSITORY_ROOT)) {
+            for (Path candidate : top.filter(Files::isDirectory).toList()) {
+                String name = candidate.getFileName().toString();
+                if (name.startsWith(".") || "node_modules".equals(name)) {
+                    continue;
+                }
+                if (containsManifestWithinTwoLevels(candidate)) {
+                    found.add(name);
+                }
+            }
+        }
+        return found;
+    }
+
+    private static boolean containsManifestWithinTwoLevels(Path directory) throws IOException {
+        if (Files.exists(directory.resolve("package.json"))) {
+            return true;
+        }
+        try (var children = Files.list(directory)) {
+            for (Path child : children.filter(Files::isDirectory).toList()) {
+                if (!"node_modules".equals(child.getFileName().toString())
+                        && Files.exists(child.resolve("package.json"))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 }

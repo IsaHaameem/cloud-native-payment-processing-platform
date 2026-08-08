@@ -3,7 +3,7 @@
 # published API contract, then build (but not yet push) a Docker image for every
 # one of the 9 microservices.
 #
-# Four jobs:
+# Five jobs:
 #   1. build-and-test — ./gradlew clean build across all modules. Any test
 #      failure fails this job immediately, which skips the others entirely
 #      (`needs:` below) — no Docker minutes are spent building images for a
@@ -21,7 +21,13 @@
 #      is a prerequisite for building this monorepo and neither should become
 #      one; separate from each other so a Python failure does not hide a Node
 #      one.
-#   4. docker-build — one matrix leg per service, each leg building exactly
+#   4. developer-portal (M23.1) — the portal is a Node application with its own
+#      toolchain, so it gets its own job for the same reason the SDKs do: neither
+#      Node nor Next is a prerequisite for building this monorepo. It type-checks,
+#      lints, builds, asserts its generated contract is byte-identical to the Node
+#      SDK's, and builds its image (never pushed) with the same non-root/port/
+#      healthcheck assertions the nine service images get.
+#   5. docker-build — one matrix leg per service, each leg building exactly
 #      one image via the shared M9 Dockerfile (docker-compose.yml's own
 #      SERVICE_MODULE/SERVICE_PORT build args, unchanged). Tagged
 #      GHCR-shaped (ghcr.io/<owner>/<service>:latest and :<sha>) but NOT
@@ -406,6 +412,136 @@ jobs:
           echo "### SDK — ${{ matrix.sdk }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Published: no (both packages are marked private; publishing needs explicit approval)" >> "$GITHUB_STEP_SUMMARY"
+
+  developer-portal:
+    name: Developer portal
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Pinned independently of the SDK job, which pins 20 on purpose. Next.js 15
+      # needs 20.9+, and sharing one pin between two packages with different
+      # floors is the shape of the M22 Node defect: one environment ran the suite
+      # and every other version was untested. Two packages, two pins.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: developer-portal/package-lock.json
+
+      # `npm ci`, never `npm install` — same reason as the SDK job: it installs
+      # exactly the committed lockfile and fails if it and package.json disagree.
+      - name: Install
+        working-directory: developer-portal
+        run: npm ci
+
+      # Type-check, lint, format check, then a production build. Cheapest first,
+      # so a formatting slip does not cost a full Next build to discover.
+      - name: Verify
+        working-directory: developer-portal
+        run: npm run verify
+
+      # The portal's generated tree is committed and its freshness against
+      # docs/openapi.yaml is gated by verifySdkSources, in job 1. This asserts the
+      # other half: that the portal's copy is byte-identical to the Node SDK's.
+      # That is what makes "one reader, three emitters" (D189) true rather than
+      # intended — a drift here means the generator produced two different files
+      # from one spec, which neither tree's own freshness check could see.
+      - name: The portal's generated contract matches the Node SDK's
+        run: |
+          set -euo pipefail
+          for file in contract.ts models.ts operations.ts; do
+            diff -u "sdks/node/src/generated/$file" "developer-portal/src/generated/$file"
+          done
+
+      # M23.2. `npm run verify` proves the portal compiles, lints and builds; it
+      # cannot observe an overlay that opens invisible, a cookie missing HttpOnly,
+      # a refresh race that signs a user out, or a token rendered into the HTML.
+      # Those are properties of a real browser holding real cookies.
+      #
+      # Driven through playwright-core against the Chrome preinstalled on the
+      # runner, so nothing downloads a browser. The stub platform stands in for
+      # the gateway: an expired access token and a revoked refresh token are one
+      # line each there, and would need a fifteen-minute wait against the real
+      # identity-service.
+      #
+      # Both suites assert their own instrument first — visibility and frame
+      # delivery — so a headless run that cannot see what it is testing fails
+      # loudly rather than reporting green. That is not hypothetical: the whole
+      # M23.1 overlay investigation was a browser silently delivering no frames.
+      - name: Start the stub platform and the portal
+        working-directory: developer-portal
+        env:
+          STUB_PORT: "4600"
+          # Short enough that every navigation lands inside the middleware's
+          # two-minute refresh skew, so the refresh and race checks exercise the
+          # path they claim to rather than passing because nothing expired.
+          STUB_ACCESS_TTL: "60"
+        run: |
+          set -euo pipefail
+          node scripts/stub-platform.mjs &
+          PF_GATEWAY_URL=http://localhost:4600 \
+          PORTAL_PUBLIC_ORIGIN=http://localhost:3601 \
+          PORTAL_SESSION_SECRET=ci-only-session-secret-not-used-anywhere-else \
+          PORT=3601 npm start &
+          for _ in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:3601/login; then exit 0; fi
+            sleep 1
+          done
+          echo "the portal did not come up"
+          exit 1
+
+      - name: Authentication flows
+        working-directory: developer-portal
+        env:
+          BASE: http://localhost:3601
+          STUB: http://localhost:4600
+        run: node scripts/verify-auth.mjs
+
+      - name: Interaction and animation behaviour
+        working-directory: developer-portal
+        env:
+          BASE: http://localhost:3601
+        run: node scripts/verify-interactions.mjs
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Built from ./developer-portal, not the repository root: .dockerignore
+      # excludes this directory from the root context precisely so the nine
+      # service images do not carry it, which means it cannot be built from there.
+      - name: Build the portal image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./developer-portal
+          file: ./developer-portal/Dockerfile
+          push: false
+          load: true
+          tags: paymentflow/developer-portal:ci
+
+      # The same three properties every service image is asserted for. A portal
+      # image that ran as root would be the one image in the repository that did.
+      - name: Image runs as non-root, exposes its port, and has a healthcheck
+        run: |
+          set -euo pipefail
+          image=paymentflow/developer-portal:ci
+          user=$(docker image inspect "$image" --format '{{.Config.User}}')
+          if [ "$user" != "paymentflow" ]; then
+            echo "image runs as '$user', expected 'paymentflow'"
+            exit 1
+          fi
+          docker image inspect "$image" --format '{{json .Config.ExposedPorts}}' | grep -q '3000/tcp'
+          docker image inspect "$image" --format '{{json .Config.Healthcheck}}' | grep -q 'wget'
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Developer portal" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: built, not pushed" >> "$GITHUB_STEP_SUMMARY"
 
   docker-build:
     name: Docker build (${{ matrix.service }})

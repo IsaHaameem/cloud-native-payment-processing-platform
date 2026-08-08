@@ -9,6 +9,10 @@ import java.util.Map;
 /**
  * Reads the published contract and produces every generated SDK file (M22.1).
  *
+ * <p>Since M23.1 it also writes the developer portal's copy of the TypeScript (D189), so the
+ * portal reads the contract through the same one reader the SDKs do rather than through a
+ * second, ungated description of it.
+ *
  * <p>Pure: it takes the document's text and returns a map from repository-relative path to
  * file content. Nothing here touches the filesystem, which is what lets the whole generator be
  * tested by ordinary unit tests rather than only through a Gradle invocation — the convention
@@ -55,6 +59,7 @@ public final class SdkCodegen {
      * produce.
      */
     public static List<String> generatedDirectories() {
-        return List.of(TypeScriptEmitter.DIRECTORY, PythonEmitter.DIRECTORY, FixtureEmitter.DIRECTORY);
+        return List.of(TypeScriptEmitter.DIRECTORY, TypeScriptEmitter.PORTAL_DIRECTORY,
+                PythonEmitter.DIRECTORY, FixtureEmitter.DIRECTORY);
     }
 }
