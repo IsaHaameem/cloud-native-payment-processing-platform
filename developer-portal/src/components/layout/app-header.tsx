@@ -1,6 +1,7 @@
 import { BookOpen } from 'lucide-react';
 
 import { AccountMenu } from '@/components/layout/account-menu';
+import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 import { CommandMenu } from '@/components/layout/command-menu';
 import { MobileNav } from '@/components/layout/mobile-nav';
 import { ModeSwitch } from '@/components/layout/mode-switch';
@@ -61,6 +62,14 @@ export function AppHeader({
           </>
         ) : null}
         <ModeSwitch mode={session.mode} csrfToken={csrfToken} />
+
+        {/*
+         * The trail sits *after* the mode switch, which is the opposite of the usual order and is
+         * deliberate: mode qualifies everything on the screen, so it must be the first thing read
+         * and the last thing lost when the header runs out of room. Breadcrumbs hide themselves
+         * below `sm` and on one-level routes (M23.3).
+         */}
+        <Breadcrumbs className="ml-1" />
       </div>
 
       <div className="flex flex-1 justify-center">

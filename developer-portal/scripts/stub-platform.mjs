@@ -58,6 +58,41 @@ let nextUserId = 0;
 let nextMerchantId = 0;
 
 /**
+ * The handful of `/v1` objects the shell suite looks up (M23.3).
+ *
+ * Ids match the contract's own shapes — UUIDs for payments and refunds, `evt_` plus 32 hex for
+ * events — because the portal classifies a pasted id by shape before it asks anything, and a stub
+ * with invented ids would exercise a code path no real id can reach.
+ */
+const STUB_OBJECTS = {
+  payments: {
+    '11111111-aaaa-4bbb-8ccc-111111111111': {
+      id: '11111111-aaaa-4bbb-8ccc-111111111111',
+      status: 'captured',
+      amountMinor: 4200,
+      currency: 'EUR',
+      createdAt: '2026-08-09T10:00:00Z',
+    },
+  },
+  refunds: {
+    '22222222-aaaa-4bbb-8ccc-222222222222': {
+      id: '22222222-aaaa-4bbb-8ccc-222222222222',
+      status: 'succeeded',
+      amountMinor: 1000,
+      currency: 'EUR',
+      createdAt: '2026-08-09T11:00:00Z',
+    },
+  },
+  events: {
+    evt_9f2c1e7a4b8d4c3e8a1d2b4f6a8c05d1: {
+      id: 'evt_9f2c1e7a4b8d4c3e8a1d2b4f6a8c05d1',
+      type: 'payment.captured',
+      createdAt: '2026-08-09T10:00:01Z',
+    },
+  },
+};
+
+/**
  * Live password-reset tokens, mapped to the email that owns them (M23.2b).
  *
  * Single-use and expiring, mirroring `PasswordResetService`: `confirmReset` filters on
@@ -409,6 +444,47 @@ const server = createServer(async (request, response) => {
     const body = await readJson(request);
     if (typeof body.refreshToken === 'string') liveRefreshTokens.delete(body.refreshToken);
     return send(response, 204, undefined);
+  }
+
+  /*
+   * The `/v1` reads M23.3's data layer goes through.
+   *
+   * Only the three the object lookup resolves, and only enough of each shape for the palette to
+   * describe them — this stub stands in for the gateway on the *portal's* paths, not for the
+   * payments API. Mode matters: the gateway binds it into the signed internal context (M23.0), so
+   * the same id in test and live is two different objects, and a stub that ignored `X-PF-Mode`
+   * would let a cross-mode cache bug pass unnoticed.
+   */
+  const V1_READ = /^\/v1\/(payments|refunds|events)\/(.+)$/;
+  const v1Read = V1_READ.exec(path);
+  if (v1Read && request.method === 'GET') {
+    const [, collection, id] = v1Read;
+    if (!userFromAuthorization(request.headers.authorization)) {
+      return send(response, 401, { type: 'authentication_error', code: 'unauthorized' });
+    }
+
+    const mode = request.headers['x-pf-mode'] === 'live' ? 'live' : 'test';
+    const known = STUB_OBJECTS[collection];
+    const object = known?.[id];
+    if (!object) {
+      return send(response, 404, {
+        type: 'invalid_request_error',
+        code: 'not_found',
+        message: `No such ${collection.replace(/s$/, '')}.`,
+        requestId: 'req_stub000001',
+      });
+    }
+    // Live mode is deliberately empty, so a lookup performed in one mode and re-run in the other
+    // must produce a different answer — which is what proves mode reaches the key.
+    if (mode === 'live') {
+      return send(response, 404, {
+        type: 'invalid_request_error',
+        code: 'not_found',
+        message: 'No such object in live mode.',
+        requestId: 'req_stub000002',
+      });
+    }
+    return send(response, 200, object);
   }
 
   if (path === '/api/v1/merchants/me' && request.method === 'GET') {

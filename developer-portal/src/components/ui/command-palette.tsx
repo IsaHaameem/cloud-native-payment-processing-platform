@@ -54,11 +54,25 @@ export function CommandPalette({
   open,
   onOpenChange,
   items,
+  pinnedItems,
+  onQueryChange,
   placeholder = 'Search or jump to…',
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   items: readonly CommandItem[];
+  /**
+   * Results that are *answers to the query itself* rather than matches against the static list —
+   * M23.3's object lookup, where pasting an id resolves it against the platform (D107 ids are
+   * opaque, so no static list could ever contain one).
+   *
+   * Rendered first and **never filtered**: they were produced from the query, so re-testing them
+   * against it would be asking the same question twice and occasionally getting "no" — a resolved
+   * payment whose id happens not to be a subsequence of its own label would vanish.
+   */
+  pinnedItems?: readonly CommandItem[] | undefined;
+  /** Lets the owner resolve the query. Called on every keystroke; debounce downstream. */
+  onQueryChange?: ((query: string) => void) | undefined;
   placeholder?: string | undefined;
 }) {
   const [query, setQuery] = React.useState('');
@@ -74,7 +88,11 @@ export function CommandPalette({
     }
   }, [open]);
 
-  const matches = React.useMemo(() => {
+  React.useEffect(() => {
+    onQueryChange?.(query);
+  }, [query, onQueryChange]);
+
+  const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return items;
     return items.filter((item) => {
@@ -90,6 +108,12 @@ export function CommandPalette({
       return true;
     });
   }, [items, query]);
+
+  // Pinned first, so keyboard selection lands on the resolved object before the static routes.
+  const matches = React.useMemo(
+    () => [...(pinnedItems ?? []), ...filtered],
+    [pinnedItems, filtered],
+  );
 
   // Clamp rather than reset: as results shrink, the highlight should stay as close to where the
   // user left it as the new list allows.

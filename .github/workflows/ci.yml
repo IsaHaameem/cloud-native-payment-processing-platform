@@ -518,6 +518,18 @@ jobs:
           STUB: http://localhost:4600
         run: node scripts/verify-public.mjs
 
+      # M23.3. The shell and the data layer: that a pasted id reaches the platform through
+      # the session and comes back as a row, that focus lands on the incoming page's
+      # heading after a client-side navigation, and — the security half — that a browser
+      # holding a valid session still cannot talk the read route into a mutation or into
+      # choosing its own mode.
+      - name: Shell and data layer
+        working-directory: developer-portal
+        env:
+          BASE: http://localhost:3601
+          STUB: http://localhost:4600
+        run: node scripts/verify-shell.mjs
+
       - name: Interaction and animation behaviour
         working-directory: developer-portal
         env:

@@ -107,6 +107,25 @@ function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.has(pathname);
 }
 
+/**
+ * Paths that must be *answered*, never redirected (M23.3).
+ *
+ * A redirect to `/login` is the right response to a browser asking for a page it may not see. It
+ * is the wrong response to a `fetch` expecting JSON: the redirect is followed transparently, the
+ * login page arrives with status **200**, and the client layer parses HTML as data. Discovered by
+ * `verify-shell.mjs`, which asked `/api/platform/getPayment` without a session and was handed the
+ * sign-in page rather than a 401.
+ *
+ * Passing these through is not a hole, because none of them relies on the middleware for
+ * authorization — the middleware has never been the security boundary (D198). `/api/platform`
+ * calls `readSession` and answers 401; `/api/session/mode` reads the cookie itself and redirects
+ * when there is none; `/api/health` is deliberately public. Each route decides, which is the
+ * arrangement `requireSession` already established for pages.
+ */
+function mustAnswerRatherThanRedirect(pathname: string): boolean {
+  return pathname.startsWith('/api/');
+}
+
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname, search } = request.nextUrl;
 
@@ -125,7 +144,9 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   const session = await decodeSession(sealed);
 
   if (!session) {
-    if (isPublic(pathname)) return withCsrf(NextResponse.next({ request }), csrf);
+    if (isPublic(pathname) || mustAnswerRatherThanRedirect(pathname)) {
+      return withCsrf(NextResponse.next({ request }), csrf);
+    }
     return withCsrf(redirectToLogin(request, pathname + search, sealed !== undefined), csrf);
   }
 
@@ -178,7 +199,13 @@ async function refreshAndContinue(
       // The refresh token is genuinely dead — revoked by a logout elsewhere, or already rotated
       // by a process this one cannot see. The session is over; clear it rather than leaving a
       // cookie that will fail identically on every subsequent request.
-      if (isPublic(pathname)) return clearedResponse(NextResponse.next({ request }));
+      //
+      // An API path is cleared and passed through rather than redirected, for the same reason as
+      // above: its caller is a `fetch` that needs a status, and the route it reaches will answer
+      // 401 now that the cookie is gone.
+      if (isPublic(pathname) || mustAnswerRatherThanRedirect(pathname)) {
+        return clearedResponse(NextResponse.next({ request }));
+      }
       return clearedResponse(redirectToLogin(request, pathname + search, true));
     }
     if (error instanceof IdentityUnavailableError) {

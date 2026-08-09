@@ -4,7 +4,9 @@ import { AppHeader } from '@/components/layout/app-header';
 import { AppSidebar, SIDEBAR_COLLAPSED_COOKIE } from '@/components/layout/app-sidebar';
 import { ModeBanner } from '@/components/layout/mode-banner';
 import { PageTransition } from '@/components/layout/page-transition';
+import { RouteFocus } from '@/components/layout/route-focus';
 import { currentMerchant } from '@/lib/platform/current-merchant';
+import { QueryScopeProvider } from '@/lib/query/scope';
 import { readCsrfToken } from '@/lib/security/csrf';
 import { requireSession } from '@/lib/session/require';
 import { toPublicSession } from '@/lib/session/session';
@@ -71,19 +73,28 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       : undefined;
 
   return (
-    <div className="flex min-h-dvh bg-canvas">
-      <AppSidebar defaultCollapsed={collapsed} />
+    /*
+     * `QueryScopeProvider` wraps the shell rather than each page, so every client component below
+     * builds correctly-scoped query keys without its author knowing the rule (M23.3). It takes the
+     * public projection, so the scope — like everything else that crosses this boundary — cannot
+     * carry a token.
+     */
+    <QueryScopeProvider session={publicSession}>
+      <div className="flex min-h-dvh bg-canvas">
+        <RouteFocus />
+        <AppSidebar defaultCollapsed={collapsed} />
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <ModeBanner mode={publicSession.mode} />
-        <AppHeader session={publicSession} businessName={businessName} csrfToken={csrfToken} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <ModeBanner mode={publicSession.mode} />
+          <AppHeader session={publicSession} businessName={businessName} csrfToken={csrfToken} />
 
-        <main id="main" className="flex-1 px-5 py-8 sm:px-8 lg:px-10">
-          <div className="mx-auto w-full max-w-[1200px]">
-            <PageTransition>{children}</PageTransition>
-          </div>
-        </main>
+          <main id="main" className="flex-1 px-5 py-8 sm:px-8 lg:px-10">
+            <div className="mx-auto w-full max-w-[1200px]">
+              <PageTransition>{children}</PageTransition>
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+    </QueryScopeProvider>
   );
 }

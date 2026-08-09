@@ -25,7 +25,7 @@
 | **Purpose** | A payment processor's orchestration layer — payment lifecycle FSM, double-entry ledger, and asynchronous state propagation — built across independently deployable microservices. A portfolio/engineering project, not a production payment system. |
 | **Repository version** | V2 in progress (V1 complete and frozen) |
 | **Development phase** | Phase B complete — *Product surface*; Phase C in progress: M22 done, **M23 under way (M23.0 complete)** (see §3) |
-| **Current milestone** | **M23 — developer portal, part 1.** M23.0 (backend enablement), M23.1 (foundation), M23.2 (authentication), M23.2a (public entry flow) and M23.2b (origin fix + password recovery) complete; M23.3 (shell and data layer) next |
+| **Current milestone** | **M23 — developer portal, part 1.** M23.0–M23.3 complete (backend enablement, foundation, authentication, public entry flow, origin fix + password recovery, shell and data layer); M23.4 (onboarding and merchant settings) next |
 | **Branch** | `main` |
 | **Latest commit** | *feat(m23.1): the portal, its design system, and the contract it reads* |
 | **Repository health** | Healthy |
@@ -128,7 +128,7 @@ M23.0 touches the backend.
 | M23.2 | Authentication — session cookie, auth flows, middleware, CSRF | ✅ |
 | M23.2a | Public entry flow — landing, signup, onboarding, dashboard entry (no backend change) | ✅ |
 | M23.2b | CSRF origin fix + password recovery against the M15 contract (no backend change) | ✅ |
-| M23.3 | Shell and data layer — chrome, mode toggle, transport, query keys | ⬜ |
+| M23.3 | Shell and data layer — chrome, mode toggle, transport, query keys | ✅ |
 | M23.4 | Onboarding and merchant settings | ⬜ |
 | M23.5 | API keys — create, reveal-once, rotate, revoke | ⬜ |
 | M23.6 | Payments list — filters, saved views, cursor pagination, CSV | ⬜ |
@@ -1102,7 +1102,7 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 
 ---
 
-## 17. Current Milestone — M23.0, M23.1, M23.2, M23.2a and M23.2b (complete); M23.3 next
+## 17. Current Milestone — M23.0 through M23.3 (complete); M23.4 next
 
 **Objective (M23).** The Merchant Developer Portal: one Next.js App Router application that
 turns this platform into something a merchant can use — sign up, onboard, manage API keys, and
@@ -1321,6 +1321,51 @@ ordinary one, so the limiter cannot become the enumeration oracle `requestReset`
 (+20), including signup at `127.0.0.1` — the reported bug, at the layer it was reported from —
 the full recovery journey with the old password rejected and the token refused on reuse, and
 reload/back-forward on the entry forms. 47 authentication and 25 interaction checks unchanged.
+
+### M23.3 — the shell and the data layer ✅
+
+**What it is.** The plumbing every screen from M23.4 onwards reads through, plus the three shell
+pieces earlier milestones deferred here by name.
+
+| Piece | Note |
+|---|---|
+| `lib/query/keys.ts` | The scope — merchant **and** mode — is the first argument of the only exported key builder, so §6.6's "mode is part of every query key" is enforced rather than remembered (D209). A test caught the first draft giving `object()` its own key shape, which would have cached one request twice; it delegates to `operation()` now |
+| `app/api/platform/[operation]` | The one door a client component reads through. **GETs only**, filtered on the descriptor's own `method`, so capture/refund/void stay behind Server Actions with CSRF and D190's confirmations. Never takes a merchant or a mode from the client (D207) |
+| `lib/query/use-platform.ts` | `usePlatformQuery`, `usePlatformObject`, `usePlatformList` (cursor, never constructed — the contract says treat `nextCursor` as opaque), `useInvalidatePlatform` |
+| `providers/query-provider.tsx` | Client created per mount, not at module scope: a module-level `QueryClient` on a server-rendered app is one merchant's cache answering another's render |
+| `components/layout/breadcrumbs.tsx` | Labels from `NAV_SECTIONS`, not title-cased path segments — `/developers/api-keys` reads "API keys". Dormant until M23.6 adds a two-level route |
+| `components/layout/route-focus.tsx` | Focus to the incoming `<h1>` after a client-side navigation |
+| Command palette | Object lookup by pasted id (D208) |
+
+**Two defects found by the browser suite, both in code M23.3 added.**
+
+*The middleware redirected API routes.* `/api/platform/...` without a session was handed the
+sign-in **page**, status 200, HTML — a `fetch` expecting JSON parsing a login form. Middleware now
+passes `/api/` through; each route already guards itself, and the middleware was never the
+security boundary (D198).
+
+*Route focus took three attempts, each one measured.* One animation frame was too early —
+`main h1` is absent while `AnimatePresence` swaps. Waiting for the heading then focusing it worked
+for a palette navigation and silently failed for a sidebar click, because the element is
+**detached** as the transition settles and focus falls to `<body>`. And guarding "don't steal the
+user's focus" made the whole effect a no-op, since focus at the start of a navigation is normally
+still on the link just clicked — the stale focus the component exists to move. Final version
+observes for a bounded window, re-focuses on detachment, and exempts the pre-navigation element.
+
+**Testing.** 190 unit tests (+37). 30 new browser checks (`verify-shell.mjs`, in CI) covering the
+read route's refusals, the lookup's four states, breadcrumbs, focus for both navigation kinds, and
+that the client layer leaves no credential behind. 47 authentication, 81 public-flow and 25
+interaction checks unchanged. **Real-stack verified**: a payment created through the real API with
+a real secret key, resolved in the palette as *"Payment …ba19e6 · created · €42.00"*, plus
+`listPayments`/`listRefunds` returning the contract's cursor page through a real session — and the
+mutation and mode refusals re-asserted against the real gateway.
+
+**Findings recorded, not fixed (outside M23.3).** `lib/platform/merchants.ts` still swallows
+failures silently, as M23.2c noted. Local compose needs every service image rebuilt together after
+a backend change: stale `payment-service`/`merchant-service` images produced
+`internal merchant context could not be verified`, and a merchant-service restart left the gateway
+holding a dead connection until it too was restarted (its `sessionMerchantLookup` circuit breaker
+opened correctly meanwhile). Neither is portal code.
 
 ### What M23.3 needs from here
 

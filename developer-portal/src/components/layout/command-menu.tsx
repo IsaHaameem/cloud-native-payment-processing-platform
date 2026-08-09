@@ -25,6 +25,8 @@ import {
   type CommandItem,
 } from '@/components/ui/command-palette';
 import { Button } from '@/components/ui/button';
+import { formatMoney, truncateId } from '@/lib/format';
+import { useObjectLookup } from '@/lib/query/object-lookup';
 import { cn } from '@/lib/utils';
 
 /**
@@ -47,12 +49,51 @@ import { cn } from '@/lib/utils';
  * carries a real, clickable control that shows the shortcut — which is also the only way in on a
  * touch device, where there is no keyboard to press.
  */
+/** Icons per object kind, so the pinned row reads as the thing it found. */
+const OBJECT_ICON = {
+  payment: CreditCard,
+  refund: Receipt,
+  event: Activity,
+} as const;
+
+/**
+ * One line describing a resolved object.
+ *
+ * Reads the platform's own fields defensively — three different response shapes come through this
+ * path and only `id` is common to all of them — so a missing field degrades the label rather than
+ * throwing inside a `useMemo`.
+ */
+function describeObject(result: {
+  kind: 'payment' | 'refund' | 'event';
+  id: string;
+  data: Record<string, unknown>;
+}): string {
+  const short = truncateId(result.id);
+
+  if (result.kind === 'event') {
+    const type = typeof result.data.type === 'string' ? result.data.type : 'event';
+    return `Event ${short} · ${type}`;
+  }
+
+  const status = typeof result.data.status === 'string' ? result.data.status : 'unknown';
+  const amount =
+    typeof result.data.amountMinor === 'number' && typeof result.data.currency === 'string'
+      ? ` · ${formatMoney(result.data.amountMinor, result.data.currency)}`
+      : '';
+
+  const noun = result.kind === 'payment' ? 'Payment' : 'Refund';
+  return `${noun} ${short} · ${status}${amount}`;
+}
+
 export function CommandMenu() {
   const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState('');
   const router = useRouter();
   const { setTheme } = useTheme();
 
   useCommandShortcut(React.useCallback(() => setOpen(true), []));
+
+  const lookup = useObjectLookup(query);
 
   const items = React.useMemo<CommandItem[]>(() => {
     const go = (href: string) => () => router.push(href);
@@ -177,6 +218,67 @@ export function CommandMenu() {
     ];
   }, [router, setTheme]);
 
+  /**
+   * The resolved object, as a row the palette pins above its static results.
+   *
+   * Three states are worth showing and a fourth deliberately is not: resolving, found, and
+   * genuinely-not-found each produce a row; an input that is not an id produces nothing at all,
+   * because the palette is mostly used for navigation and a "no such object" under every partial
+   * word would be noise.
+   */
+  const pinnedItems = React.useMemo<readonly CommandItem[]>(() => {
+    if (lookup.candidates.length === 0) return [];
+
+    if (lookup.isLoading) {
+      return [
+        {
+          id: 'lookup-pending',
+          label: `Looking up ${truncateId(query.trim())}…`,
+          group: 'Object',
+          icon: Search,
+          onSelect: () => {},
+        },
+      ];
+    }
+
+    if (lookup.error) {
+      return [
+        {
+          id: 'lookup-error',
+          label: lookup.error.message,
+          group: 'Object',
+          icon: Search,
+          onSelect: () => {},
+        },
+      ];
+    }
+
+    if (lookup.result) {
+      return [
+        {
+          id: 'lookup-result',
+          label: describeObject(lookup.result),
+          group: 'Object',
+          icon: OBJECT_ICON[lookup.result.kind],
+          // The detail screens are M23.6/M23.7. Until they exist the row identifies the object,
+          // which is the half of "paste an id and go" that the data layer owns; the other half is
+          // one `router.push` added by the milestone that builds the destination.
+          onSelect: () => {},
+        },
+      ];
+    }
+
+    return [
+      {
+        id: 'lookup-missing',
+        label: `No payment, refund or event with id ${truncateId(query.trim())}`,
+        group: 'Object',
+        icon: Search,
+        onSelect: () => {},
+      },
+    ];
+  }, [lookup, query]);
+
   return (
     <>
       <Button
@@ -206,7 +308,14 @@ export function CommandMenu() {
         <Search />
       </Button>
 
-      <CommandPalette open={open} onOpenChange={setOpen} items={items} />
+      <CommandPalette
+        open={open}
+        onOpenChange={setOpen}
+        items={items}
+        pinnedItems={pinnedItems}
+        onQueryChange={setQuery}
+        placeholder="Search, or paste a payment, refund or event id…"
+      />
     </>
   );
 }

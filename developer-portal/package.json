@@ -20,7 +20,8 @@
     "test:watch": "vitest",
     "verify:auth": "node scripts/verify-auth.mjs",
     "verify:public": "node scripts/verify-public.mjs",
-    "stub:platform": "node scripts/stub-platform.mjs"
+    "stub:platform": "node scripts/stub-platform.mjs",
+    "verify:shell": "node scripts/verify-shell.mjs"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "^2.3.7",
@@ -29,6 +30,7 @@
     "@radix-ui/react-slot": "^1.1.2",
     "@radix-ui/react-tooltip": "^1.1.8",
     "@radix-ui/react-visually-hidden": "^1.2.11",
+    "@tanstack/react-query": "^5.101.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.43.0",
