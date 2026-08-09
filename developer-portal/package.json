@@ -23,7 +23,8 @@
     "stub:platform": "node scripts/stub-platform.mjs",
     "verify:shell": "node scripts/verify-shell.mjs",
     "verify:settings": "node scripts/verify-settings.mjs",
-    "verify:api-keys": "node scripts/verify-api-keys.mjs"
+    "verify:api-keys": "node scripts/verify-api-keys.mjs",
+    "verify:payments": "node scripts/verify-payments.mjs"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "^2.3.7",

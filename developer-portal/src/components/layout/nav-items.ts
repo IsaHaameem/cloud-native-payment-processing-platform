@@ -56,11 +56,14 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         enabled: true,
         milestone: 'M23.8',
       },
+      // Turned on by M23.6: the list, its filters and cursor pagination. The row does not link
+      // anywhere yet — `/payments/[id]` is M23.7's, and a row that navigated to a 404 would be
+      // worse than one that does not invite the click.
       {
         label: 'Payments',
         href: '/payments',
         icon: CreditCard,
-        enabled: false,
+        enabled: true,
         milestone: 'M23.6',
       },
       { label: 'Refunds', href: '/refunds', icon: Receipt, enabled: false, milestone: 'M23.7' },

@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { callAs } from '@/lib/api/client';
 import { AuthenticationError, PlatformError } from '@/lib/api/errors';
 import { readOperation } from '@/lib/api/read-operations';
-import { type OperationId } from '@/lib/api/transport';
+import { type OperationId, declaresQueryParameter } from '@/lib/api/transport';
 import { isSameOrigin } from '@/lib/security/origin';
 import { readSession } from '@/lib/session/require';
 
@@ -160,7 +160,11 @@ function splitParameters(
   for (const [name, value] of searchParams.entries()) {
     if (operation.pathParameters.includes(name)) {
       path[name] = value;
-    } else if (operation.descriptor.queryParameters.includes(name)) {
+    } else if (declaresQueryParameter(operation.descriptor.queryParameters, name)) {
+      // `declaresQueryParameter` rather than `includes`, so a map-valued parameter reaches the
+      // platform in the spelling the contract documents for it — `metadata[order_id]=abc`. The
+      // rule is still the descriptor's: a bracket suffix is accepted only on a declared base
+      // name, so this widens what M23.6 can ask for without widening what may be asked.
       query[name] = value;
     } else {
       unknown.push(name);

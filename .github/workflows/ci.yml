@@ -562,6 +562,18 @@ jobs:
           STUB: http://localhost:4600
         run: node scripts/verify-api-keys.mjs
 
+      # M23.6. The first list screen, and therefore the first real exercise of M23.3's cursor
+      # pagination: that the cursor advances without repeating or skipping a row, that a filter
+      # reaches the platform rather than being applied to a page that arrived unfiltered, and that
+      # switching mode replaces every row instead of showing one mode's money under the other's
+      # heading. The stub holds a different ledger per mode precisely so that last one can fail.
+      - name: Payments list
+        working-directory: developer-portal
+        env:
+          BASE: http://localhost:3601
+          STUB: http://localhost:4600
+        run: node scripts/verify-payments.mjs
+
       - name: Interaction and animation behaviour
         working-directory: developer-portal
         env:

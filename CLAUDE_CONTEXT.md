@@ -25,7 +25,7 @@
 | **Purpose** | A payment processor's orchestration layer — payment lifecycle FSM, double-entry ledger, and asynchronous state propagation — built across independently deployable microservices. A portfolio/engineering project, not a production payment system. |
 | **Repository version** | V2 in progress (V1 complete and frozen) |
 | **Development phase** | Phase B complete — *Product surface*; Phase C in progress: M22 done, **M23 under way (M23.0 complete)** (see §3) |
-| **Current milestone** | **M23 — developer portal, part 1.** M23.0–M23.5 complete (backend enablement, foundation, authentication, public entry flow, origin fix + password recovery, shell and data layer, merchant settings, API keys); M23.6 (payments list and detail) next |
+| **Current milestone** | **M23 — developer portal, part 1.** M23.0–M23.6 complete (backend enablement, foundation, authentication, public entry flow, origin fix + password recovery, shell and data layer, merchant settings, API keys, payments list); M23.7 (payment detail, capture/refund/void, refunds) next |
 | **Branch** | `main` |
 | **Latest commit** | *feat(m23.1): the portal, its design system, and the contract it reads* |
 | **Repository health** | Healthy |
@@ -131,7 +131,7 @@ M23.0 touches the backend.
 | M23.3 | Shell and data layer — chrome, mode toggle, transport, query keys | ✅ |
 | M23.4 | Onboarding and merchant settings | ✅ |
 | M23.5 | API keys — create, reveal-once, rotate, revoke | ✅ |
-| M23.6 | Payments list — filters, saved views, cursor pagination, CSV | ⬜ |
+| M23.6 | Payments list — filters, saved views, cursor pagination, CSV | ✅ |
 | M23.7 | Payment detail, capture/refund/void, refunds | ⬜ |
 | M23.8 | Overview | ⬜ |
 | M23.9 | Hardening — Playwright, axe, visual regression, CSP | ⬜ |
@@ -1102,7 +1102,7 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 
 ---
 
-## 17. Current Milestone — M23.0 through M23.5 (complete); M23.6 next
+## 17. Current Milestone — M23.0 through M23.6 (complete); M23.7 next
 
 **Objective (M23).** The Merchant Developer Portal: one Next.js App Router application that
 turns this platform into something a merchant can use — sign up, onboard, manage API keys, and
@@ -1333,7 +1333,7 @@ pieces earlier milestones deferred here by name.
 | `app/api/platform/[operation]` | The one door a client component reads through. **GETs only**, filtered on the descriptor's own `method`, so capture/refund/void stay behind Server Actions with CSRF and D190's confirmations. Never takes a merchant or a mode from the client (D207) |
 | `lib/query/use-platform.ts` | `usePlatformQuery`, `usePlatformObject`, `usePlatformList` (cursor, never constructed — the contract says treat `nextCursor` as opaque), `useInvalidatePlatform` |
 | `providers/query-provider.tsx` | Client created per mount, not at module scope: a module-level `QueryClient` on a server-rendered app is one merchant's cache answering another's render |
-| `components/layout/breadcrumbs.tsx` | Labels from `NAV_SECTIONS`, not title-cased path segments — `/developers/api-keys` reads "API keys". Dormant until M23.6 adds a two-level route |
+| `components/layout/breadcrumbs.tsx` | Labels from `NAV_SECTIONS`, not title-cased path segments — `/developers/api-keys` reads "API keys". Still dormant: M23.6 is a single-level route, and `/payments/[id]` is M23.7's |
 | `components/layout/route-focus.tsx` | Focus to the incoming `<h1>` after a client-side navigation |
 | Command palette | Object lookup by pasted id (D208) |
 
@@ -1428,7 +1428,44 @@ the concrete argument for the repository rule about not using a stub as the fina
 `GET /v1/payments` (200). After rotation the old key still returns 200 inside its 24-hour window;
 after revocation the new key returns 401 on the very next request.
 
-### What M23.6 needs from here
+### M23.6 — the payments list ✅
+
+**What it is.** `/payments`: the list, its filters, cursor pagination and CSV. The **list only** —
+the sub-milestone table puts payment detail, capture/refund/void and refunds in M23.7, and this
+milestone deliberately builds none of them. The sidebar row links to the list and the rows link
+nowhere, because a row that navigated to a 404 is worse than one that does not invite the click.
+
+This is the screen M23.3's data layer was built for. D207 predicted cursor pagination would stay
+unbuildable until a list screen existed; `usePlatformList` had never been exercised until now.
+
+| Piece | What it settles |
+|---|---|
+| `lib/payments/filters.ts` | The URL *is* the view (D215). Round-trips every filter, drops malformed values rather than coercing them, and emits only parameters the descriptor names — never a merchant, never a mode |
+| `lib/payments/csv.ts` | Exports the loaded rows, in minor units, with formula-injection neutralised (D216) |
+| `payments/payments-browser.tsx` | Skeleton rows inside the table so geometry never moves; the dim on refetch is on the container, so `DataTableBody`'s mount stagger is not replayed on every keystroke |
+| `payments/status-badge.tsx` | The FSM's seven values and no others — there is no `PARTIALLY_CAPTURED`, capture is all-or-nothing — and an unrecognised status renders as itself, as the contract instructs |
+
+**The one change outside the screen.** The transport and `/api/platform/[operation]` now accept
+`metadata[order_id]=abc`, the `deepObject` spelling of a declared map parameter (D217). Without it
+§6.2's metadata filter could not be sent at all, and the tempting workaround — send it anyway —
+produces a correct-looking **unfiltered** page, which is the exact failure the parameter check
+exists to prevent. The check survives intact: a bracket suffix passes only on a declared base name.
+
+**Nothing is optimistic, because nothing is a mutation.** M23.6 issues none, so every figure is a
+field the platform returned. No amount is summed, no status inferred, no row changed by the client.
+
+**Two findings, recorded not implemented.** There is no free-text payment search in the contract —
+`listPayments` filters but does not search, and a pasted id is served by M23.3's command palette.
+And multi-status filtering is client-side beyond the first value, because `status` is a single
+string in the contract; the screen says so on itself rather than implying the platform did it.
+
+### What M23.7 needs from here
+
+`usePlatformList` and `usePlatformObject`, both now proven against a real ledger: the cursor
+advances without repeating or skipping a row, and mode-scoped keys keep two modes' money apart.
+Payment detail is `usePlatformObject('getPayment', id)` with `?expand=refunds`; capture, refund and
+void are Server Actions carrying an `Idempotency-Key`, because `/api/platform/[operation]` resolves
+GETs only and always will.
 
 `callAs()` and nothing else. It is the only function in the portal that puts a token on a
 request, and the guards in `lib/session/require.ts` are the only source of a credential — so a
@@ -1442,7 +1479,7 @@ page that forgets to ask for a session has nothing to fetch merchant data with. 
 | Signal | Status | Detail |
 |---|---|---|
 | **Build** | ✅ | `./gradlew build --max-workers=2` — BUILD SUCCESSFUL |
-| **Tests** | ✅ | **1087 / 1087** Gradle, 0 failures, 0 errors, 0 skipped, across 13 modules. Plus the portal: **267** unit (vitest), and 280 browser checks across six suites — 47 authentication, 81 public flow, 30 shell, 34 settings, 63 API keys, 25 interaction |
+| **Tests** | ✅ | **1087 / 1087** Gradle, 0 failures, 0 errors, 0 skipped, across 13 modules. Plus the portal: **314** unit (vitest), and 353 browser checks across seven suites — 47 authentication, 81 public flow, 30 shell, 34 settings, 63 API keys, 73 payments, 25 interaction |
 | **Working tree** | ✅ | Clean |
 | **OpenAPI baseline** | ✅ | `verifyOpenApiBaseline` — in sync |
 | **OpenAPI compatibility** | ✅ | 0 breaking, 0 accepted, **0 additive** — no M23 sub-milestone has touched a platform contract |

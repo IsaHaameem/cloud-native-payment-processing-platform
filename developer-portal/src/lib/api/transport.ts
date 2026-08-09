@@ -189,7 +189,7 @@ function buildUrl(descriptor: OperationDescriptor, options: CallOptions): string
     // Checked against the contract rather than passed through: a typo'd filter name is
     // ignored by the platform, which answers with a correct-looking *unfiltered* page. That
     // is the failure worth turning into an exception.
-    if (!descriptor.queryParameters.includes(name)) {
+    if (!declaresQueryParameter(descriptor.queryParameters, name)) {
       throw new UnknownQueryParameterError(
         `${descriptor.id} does not accept a query parameter named "${name}".`,
       );
@@ -199,6 +199,36 @@ function buildUrl(descriptor: OperationDescriptor, options: CallOptions): string
 
   const query = search.toString();
   return `${env.gatewayUrl}${path}${query ? `?${query}` : ''}`;
+}
+
+/**
+ * Whether a descriptor accepts a query parameter by this name (M23.6).
+ *
+ * ── Why a name can have brackets ──────────────────────────────────────────────────────
+ *
+ * Most parameters are matched exactly. Map-valued ones are not spelled that way on the wire:
+ * `metadata` is `style: deepObject` in `docs/openapi.yaml`, and the request it describes is
+ * `?metadata[order_id]=abc`, not `?metadata=…`. The descriptors carry parameter *names*, so
+ * `metadata[order_id]` is not in the list even though it is exactly what the contract documents.
+ *
+ * Before this, the payments list could not filter on metadata at all — §6.2 requires it — and the
+ * two available workarounds were both worse than a rule: send `metadata=` and get a
+ * correct-looking unfiltered page, or let arbitrary parameters through and lose the check that
+ * turns a typo into an exception instead of silently wrong data.
+ *
+ * The check that matters is preserved exactly. A bracket suffix is accepted **only** when the
+ * base name is declared, so `metadata[x]` passes for an operation that documents `metadata` and
+ * `mode[x]`, `merchant[id]` or `stat[us]` fail like any other name the contract does not know.
+ */
+export function declaresQueryParameter(declared: readonly string[], name: string): boolean {
+  if (declared.includes(name)) return true;
+
+  const bracket = name.indexOf('[');
+  // Must end in `]` and carry a non-empty base: `[x]`, `metadata[` and `metadata[x` are not the
+  // deepObject spelling of anything.
+  if (bracket <= 0 || !name.endsWith(']')) return false;
+
+  return declared.includes(name.slice(0, bracket));
 }
 
 function buildHeaders(descriptor: OperationDescriptor, options: CallOptions): Headers {

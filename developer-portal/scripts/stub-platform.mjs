@@ -171,6 +171,60 @@ const STUB_OBJECTS = {
 };
 
 /**
+ * A deterministic payments ledger per mode (M23.6).
+ *
+ * Built once and reused, so a cursor walked twice gives the same answer — a stub that regenerated
+ * rows per request would make "no row is served twice" untestable.
+ *
+ * The statuses are spread across the FSM's real values, including both refund states, so the
+ * status filter and the badge mapping are exercised against every value the portal claims to
+ * know. Ids are UUIDs, as `PaymentResponse.id` is.
+ */
+const PAYMENT_STATUSES_FIXTURE = [
+  'captured',
+  'authorized',
+  'created',
+  'failed',
+  'refunded',
+  'partially_refunded',
+  'voided',
+];
+
+const paymentLedgers = new Map();
+
+function stubPayments(mode) {
+  const existing = paymentLedgers.get(mode);
+  if (existing) return existing;
+
+  // Live deliberately holds fewer, different rows: a screen showing the same count in both modes
+  // is the symptom a cross-mode test needs to be able to see.
+  const count = mode === 'live' ? 7 : 60;
+  const rows = Array.from({ length: count }, (_, index) => {
+    const n = index + 1;
+    return {
+      object: 'payment',
+      id: `${mode === 'live' ? 'ffffffff' : '11111111'}-aaaa-4bbb-8ccc-${String(n).padStart(12, '0')}`,
+      status: PAYMENT_STATUSES_FIXTURE[index % PAYMENT_STATUSES_FIXTURE.length],
+      amountMinor: 1000 + n * 137,
+      capturedAmountMinor: 1000 + n * 137,
+      refundedAmountMinor: index % 5 === 0 ? 500 : 0,
+      currency: index % 3 === 0 ? 'EUR' : 'USD',
+      mode,
+      createdAt: new Date(Date.UTC(2026, 7, 9, 12, 0, 0) - n * 3_600_000).toISOString(),
+      description: `${mode} payment ${n}`,
+      paymentMethodToken: `pm_${mode}_${String(n).padStart(4, '0')}`,
+      metadata: { order_id: `ord_${n}`, channel: index % 2 === 0 ? 'web' : 'mobile' },
+    };
+  });
+
+  paymentLedgers.set(mode, rows);
+  return rows;
+}
+
+/** Set by `/__stub/payments-failure` so the list's error state can be driven deliberately. */
+let paymentsFailure = null;
+
+/**
  * Live password-reset tokens, mapped to the email that owns them (M23.2b).
  *
  * Single-use and expiring, mirroring `PasswordResetService`: `confirmReset` filters on
@@ -380,10 +434,33 @@ const server = createServer(async (request, response) => {
     passwordResets.clear();
     apiKeys.clear();
     nextKeyId = 0;
+    paymentsFailure = null;
     // Accounts created by a previous test are cleared too, so a suite that registers
     // `new@example.com` twice does not fail the second time with a 409 it did not ask for.
     seedUsers();
     return send(response, 200, { ok: true });
+  }
+
+  /**
+   * Makes `GET /v1/payments` fail, so the list's error state can be verified (M23.6).
+   *
+   * The portal is required to surface the platform's own code and request id on a failed read
+   * (§6.6), and the only way to check that it does is to make the platform produce one.
+   */
+  if (path === '/__stub/payments-failure') {
+    const status = Number(url.searchParams.get('status') ?? 0);
+    paymentsFailure = status
+      ? {
+          status,
+          body: {
+            type: 'api_error',
+            code: 'stub_forced_failure',
+            message: 'The stub was told to fail this request.',
+            requestId: 'req_stubfail0001',
+          },
+        }
+      : null;
+    return send(response, 200, { paymentsFailure });
   }
 
   /** Sets or clears the access-token TTL for the suite that is running. See `accessTtlSeconds`. */
@@ -574,6 +651,77 @@ const server = createServer(async (request, response) => {
     const body = await readJson(request);
     if (typeof body.refreshToken === 'string') liveRefreshTokens.delete(body.refreshToken);
     return send(response, 204, undefined);
+  }
+
+  /*
+   * `GET /v1/payments` — the payments list (M23.6).
+   *
+   * ── A generated ledger, not a fixture list ────────────────────────────────────────────
+   *
+   * Cursor pagination cannot be tested against three rows: the properties that matter are that a
+   * cursor advances, that `hasMore` eventually turns false, and that no row is served twice or
+   * skipped. So this generates a deterministic ledger — same ids, amounts and timestamps on every
+   * run — big enough to need several pages.
+   *
+   * ── Mode is the whole point of half these checks ──────────────────────────────────────
+   *
+   * Test and live hold **different** payments, as they do on the real platform, where mode is
+   * bound into the gateway's signed internal context (M23.0). A stub that returned the same rows
+   * in both modes would let a cross-mode cache bug pass, which is the one class of bug on a
+   * payments screen that shows a merchant somebody's real money instead of their test data.
+   *
+   * ── Filters are applied for real ──────────────────────────────────────────────────────
+   *
+   * Every parameter the portal sends is honoured here, including `metadata[key]=value`. A stub
+   * that ignored a filter would answer a correct-looking *unfiltered* page — precisely the failure
+   * the transport's parameter check exists to prevent, and one a test must be able to catch.
+   */
+  if (path === '/v1/payments' && request.method === 'GET') {
+    if (!userFromAuthorization(request.headers.authorization)) {
+      return send(response, 401, { type: 'authentication_error', code: 'unauthorized' });
+    }
+
+    const mode = request.headers['x-pf-mode'] === 'live' ? 'live' : 'test';
+    if (paymentsFailure) {
+      return send(response, paymentsFailure.status, paymentsFailure.body);
+    }
+
+    const params = url.searchParams;
+    let rows = stubPayments(mode);
+
+    const status = params.get('status');
+    if (status) rows = rows.filter((p) => p.status === status);
+    const currency = params.get('currency');
+    if (currency) rows = rows.filter((p) => p.currency === currency);
+    const min = params.get('amount_min');
+    if (min !== null) rows = rows.filter((p) => p.amountMinor >= Number(min));
+    const max = params.get('amount_max');
+    if (max !== null) rows = rows.filter((p) => p.amountMinor <= Number(max));
+    const after = params.get('created_after');
+    if (after) rows = rows.filter((p) => Date.parse(p.createdAt) >= Date.parse(after));
+    const before = params.get('created_before');
+    if (before) rows = rows.filter((p) => Date.parse(p.createdAt) <= Date.parse(before));
+
+    // `style: deepObject` — the spelling M23.6 taught the transport and this route to accept.
+    for (const [name, value] of params.entries()) {
+      const match = /^metadata\[(.+)\]$/.exec(name);
+      if (match) rows = rows.filter((p) => (p.metadata?.[match[1]] ?? '') === value);
+    }
+
+    // Clamped exactly as the contract documents: "values above the ceiling are clamped to it
+    // rather than rejected", default 25.
+    const limit = Math.min(Math.max(Number(params.get('limit') ?? 25) || 25, 1), 100);
+    const startingAfter = params.get('starting_after');
+    const start = startingAfter ? rows.findIndex((p) => p.id === startingAfter) + 1 : 0;
+    const page = rows.slice(start, start + limit);
+    const hasMore = start + limit < rows.length;
+
+    return send(response, 200, {
+      object: 'list',
+      data: page,
+      hasMore,
+      nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null,
+    });
   }
 
   /*
