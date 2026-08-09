@@ -62,6 +62,9 @@ try {
   await verifyMobileNavigation();
   await verifyEntryPagesLinkToEachOther();
   await verifyNewUserJourney();
+  await verifySignupFromASiblingLoopbackAddress();
+  await verifyPasswordRecovery();
+  await verifyReloadAndHistory();
   await verifyReturningUserGoesStraightToTheDashboard();
   await verifyDashboardIsNotPublic();
   await verifyBothThemes();
@@ -380,6 +383,233 @@ async function verifyNewUserJourney() {
   check('signing out lands on /login', page.url().includes('/login'), page.url());
 
   await context.close();
+}
+
+/**
+ * The bug this milestone was opened for, at the layer it was reported from (M23.2b).
+ *
+ * The portal is configured for `http://localhost:…` and reached at `http://127.0.0.1:…` — the
+ * same server, the same machine, the spelling a browser will offer by itself. Every state-changing
+ * form was refused, and the screen said the form had expired.
+ *
+ * This is deliberately a *browser* check and not only a unit one: the unit test proves the
+ * decision, and this proves the decision is the one actually reached by a real form post carrying
+ * a real `Origin` header through the real middleware.
+ */
+async function verifySignupFromASiblingLoopbackAddress() {
+  const sibling = BASE.replace('localhost', '127.0.0.1');
+  if (sibling === BASE) {
+    check('the sibling-loopback check has an address to use', false, `BASE is ${BASE}`);
+    return;
+  }
+
+  const context = await freshContext();
+  const page = await context.newPage();
+
+  await page.goto(`${sibling}/signup`, { waitUntil: 'networkidle' });
+  await page.fill('#field-email', `loopback-${Date.now()}@example.com`);
+  await page.fill('#field-password', 'a very long correct password');
+  await page.getByRole('button', { name: /create account/i }).click();
+  await page.waitForURL(/\/login/, { timeout: 15_000 });
+
+  check(
+    'signup works when the portal is reached at 127.0.0.1 instead of localhost',
+    page.url().includes('registered=1'),
+    page.url(),
+  );
+
+  // And the message that made this undiagnosable is gone from the successful path entirely.
+  const body = await page.content();
+  check('no "form expired" message is shown on a successful signup', !/form expired/i.test(body));
+
+  await context.close();
+}
+
+/**
+ * Password recovery end to end (M23.2b), against the endpoints identity-service has served since
+ * M15 — including the parts only a browser can show: that the emailed link lands on a working
+ * page, that the new password actually works, and that the old one no longer does.
+ *
+ * The token comes from the stub's `/__stub/reset-token`, which stands in for the mailbox. There
+ * is no other way to obtain it: the real one is delivered by notification-service over Kafka, and
+ * the portal never sees it.
+ */
+async function verifyPasswordRecovery() {
+  await fetch(`${STUB}/__stub/reset`);
+  const context = await freshContext();
+  const page = await context.newPage();
+
+  const email = 'ada@example.com';
+  const newPassword = 'an entirely new long password';
+
+  // 1 — the entry point exists on the page someone stuck at sign-in is looking at.
+  await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
+  const forgot = page.getByRole('link', { name: /forgot password/i });
+  check('sign-in offers a way to recover a password', await forgot.isVisible());
+
+  await forgot.click();
+  await page.waitForURL(/\/forgot-password/);
+  await page.waitForLoadState('networkidle');
+
+  // 2 — an address that does not exist must be answered exactly like one that does.
+  await page.fill('#field-email', 'nobody-at-all@example.com');
+  await page.getByRole('button', { name: /send reset link/i }).click();
+  await wait(800);
+  const unknownAnswer = (await page.locator('main, body').first().innerText()).trim();
+  check(
+    'an unknown address is confirmed rather than refused',
+    /check your inbox/i.test(unknownAnswer),
+    unknownAnswer.slice(0, 60),
+  );
+  const unknownToken = (
+    await (await fetch(`${STUB}/__stub/reset-token?email=nobody-at-all@example.com`)).json()
+  ).token;
+  check('and no token is issued for it', unknownToken === null, String(unknownToken));
+
+  // 3 — the real request.
+  await page.goto(`${BASE}/forgot-password`, { waitUntil: 'networkidle' });
+  await page.fill('#field-email', email);
+  await page.getByRole('button', { name: /send reset link/i }).click();
+  await wait(800);
+  const knownAnswer = (await page.locator('main, body').first().innerText()).trim();
+  check(
+    'a known address gets the identical confirmation',
+    /check your inbox/i.test(knownAnswer),
+    knownAnswer.slice(0, 60),
+  );
+
+  const { token } = await (await fetch(`${STUB}/__stub/reset-token?email=${email}`)).json();
+  check(
+    'a reset token was issued for the known address',
+    typeof token === 'string' && token.length > 0,
+  );
+
+  // 4 — a link with no token explains itself rather than rendering a form that cannot work.
+  await page.goto(`${BASE}/reset-password`, { waitUntil: 'networkidle' });
+  check(
+    'a truncated link is explained, not rendered as a broken form',
+    /link is incomplete/i.test(await page.locator('body').innerText()),
+  );
+  check(
+    'and offers a way to get a new one',
+    (await page.getByRole('link', { name: /request a new link/i }).count()) > 0,
+  );
+
+  // 5 — a made-up token is refused on submit, which is the earliest it can honestly be known.
+  await page.goto(`${BASE}/reset-password?token=not-a-real-token`, { waitUntil: 'networkidle' });
+  await page.fill('#field-password', newPassword);
+  await page.fill('#field-confirm', newPassword);
+  await page.getByRole('button', { name: /set new password/i }).click();
+  await wait(800);
+  check(
+    'an invalid token is refused',
+    /no longer valid/i.test(await page.locator('[role="alert"]').first().innerText()),
+  );
+
+  // 6 — the real reset.
+  await page.goto(`${BASE}/reset-password?token=${encodeURIComponent(token)}`, {
+    waitUntil: 'networkidle',
+  });
+  await page.fill('#field-password', newPassword);
+  await page.fill('#field-confirm', 'a completely different password');
+  await page.getByRole('button', { name: /set new password/i }).click();
+  await wait(800);
+  check(
+    'a mismatched confirmation is caught',
+    /do not match/i.test(await page.locator('body').innerText()),
+  );
+
+  await page.fill('#field-password', newPassword);
+  await page.fill('#field-confirm', newPassword);
+  await page.getByRole('button', { name: /set new password/i }).click();
+  await page.waitForURL(/\/login/, { timeout: 15_000 });
+  await page.waitForLoadState('networkidle');
+
+  check('a successful reset lands on sign in', page.url().includes('reset=1'), page.url());
+  check(
+    'and says the account was signed out everywhere',
+    /signed out everywhere/i.test(await page.locator('body').innerText()),
+  );
+
+  // 7 — the token is single-use, exactly as `PasswordResetService.confirmReset` makes it.
+  await page.goto(`${BASE}/reset-password?token=${encodeURIComponent(token)}`, {
+    waitUntil: 'networkidle',
+  });
+  await page.fill('#field-password', 'yet another long password');
+  await page.fill('#field-confirm', 'yet another long password');
+  await page.getByRole('button', { name: /set new password/i }).click();
+  await wait(800);
+  check(
+    'a reset token cannot be used twice',
+    /no longer valid/i.test(await page.locator('[role="alert"]').first().innerText()),
+  );
+
+  // 8 — the password actually changed, in both directions.
+  await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
+  await page.fill('#field-email', email);
+  await page.fill('#field-password', EXISTING.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await wait(1000);
+  check('the old password no longer works', page.url().includes('/login'), page.url());
+
+  await signIn(page, { email, password: newPassword });
+  check('the new password does', !page.url().includes('/login'), page.url());
+
+  await context.close();
+  // Left as it was found: every later check signs in with the seeded credentials.
+  await fetch(`${STUB}/__stub/reset`);
+}
+
+/**
+ * Reloading and moving through history on the entry pages (M23.2b).
+ *
+ * A synchronizer token makes both of these worth checking rather than assuming. The token is
+ * rendered into the form, so a page restored from the back/forward cache could in principle carry
+ * a stale one — and the symptom would be precisely the "this form expired" the user reported for a
+ * different reason. These prove the ordinary browser gestures leave a working form behind.
+ */
+async function verifyReloadAndHistory() {
+  await fetch(`${STUB}/__stub/reset`);
+  const context = await freshContext();
+  const page = await context.newPage();
+
+  const tokenOn = (p) => p.locator('input[name="csrfToken"]').first().inputValue();
+  const cookieValue = async () =>
+    (await context.cookies()).find((c) => c.name === 'pf_csrf')?.value ?? '';
+
+  await page.goto(`${BASE}/signup`, { waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'networkidle' });
+  check(
+    'a reloaded signup form carries the live token',
+    (await tokenOn(page)) === (await cookieValue()),
+  );
+
+  // Navigate away and back, which is where a cached document would surface.
+  await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
+  await page.goBack({ waitUntil: 'networkidle' });
+  await wait(300);
+  check(
+    'going back to signup leaves a submittable form',
+    (await tokenOn(page)) === (await cookieValue()),
+    page.url(),
+  );
+
+  // And it must actually submit, not merely look right.
+  await page.fill('#field-email', `history-${Date.now()}@example.com`);
+  await page.fill('#field-password', 'a very long correct password');
+  await page.getByRole('button', { name: /create account/i }).click();
+  await page.waitForURL(/\/login/, { timeout: 15_000 });
+  check('and it registers', page.url().includes('registered=1'), page.url());
+
+  await page.goForward({ waitUntil: 'networkidle' }).catch(() => undefined);
+  await wait(300);
+  check(
+    'forward navigation does not strand the user',
+    !(await page.content()).includes('form expired'),
+  );
+
+  await context.close();
+  await fetch(`${STUB}/__stub/reset`);
 }
 
 async function verifyReturningUserGoesStraightToTheDashboard() {

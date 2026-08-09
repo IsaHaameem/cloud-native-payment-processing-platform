@@ -50,6 +50,29 @@ function url(name: string, fallback?: string): string {
 }
 
 /**
+ * A comma-separated list of absolute origins, normalised the same way {@link url} normalises one.
+ *
+ * Absent and empty both mean "none". Whitespace around entries is tolerated because this value is
+ * typed into a compose file or a deployment console by a human.
+ */
+function originList(name: string): readonly string[] {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return [];
+
+  return raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => {
+      try {
+        return new URL(entry).origin;
+      } catch {
+        throw new Error(`${name} contains "${entry}", which is not an absolute URL.`);
+      }
+    });
+}
+
+/**
  * A 32-byte secret, base64 or hex. Only enforced in production: local development would
  * otherwise need a secret before it could render a page, and the value protects nothing on a
  * developer's machine. The asymmetry is deliberate and is why the check names the environment.
@@ -77,6 +100,20 @@ export const env = {
 
   /** This portal's own origin, used for absolute links and for the CSRF origin check (M23.2). */
   publicOrigin: url('PORTAL_PUBLIC_ORIGIN', 'http://localhost:3000'),
+
+  /**
+   * Further origins this same portal is legitimately served on (M23.2b).
+   *
+   * Comma-separated and empty by default, because a deployment with one origin should configure
+   * one origin. It exists for the deployments that genuinely have more than one — a vanity
+   * domain beside the canonical one, or a staging host — where the alternative is that the
+   * origin check refuses real users and reports it as an expired form.
+   *
+   * Each entry is validated as an absolute URL at boot, for the same reason `PORTAL_PUBLIC_ORIGIN`
+   * is: a typo here does not weaken the check, it silently removes an origin from it, and a
+   * mistake that makes a security control *stricter than intended* still breaks the product.
+   */
+  additionalOrigins: originList('PORTAL_ADDITIONAL_ORIGINS'),
 
   /** Encrypts the session cookie. Consumed by M23.2; validated here (see above). */
   sessionSecret: sessionSecret(),

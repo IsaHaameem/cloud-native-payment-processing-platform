@@ -57,6 +57,23 @@ seedUsers();
 let nextUserId = 0;
 let nextMerchantId = 0;
 
+/**
+ * Live password-reset tokens, mapped to the email that owns them (M23.2b).
+ *
+ * Single-use and expiring, mirroring `PasswordResetService`: `confirmReset` filters on
+ * `isActive` — not consumed, not expired — and calls `reset.consume()` on success. A stub that
+ * let a token be redeemed twice would let the portal pass while doing the thing the real backend
+ * punishes.
+ *
+ * The raw token is readable through `GET /__stub/reset-token?email=…`, which stands in for the
+ * mailbox: the real one is delivered by notification-service over Kafka, and a browser test has
+ * no other way to obtain what a user would read out of an email.
+ */
+const passwordResets = new Map();
+
+/** Seconds. Overridable so a test can mint a token that is already stale. */
+const resetTtlSeconds = () => Number(process.env.STUB_RESET_TTL ?? 3600);
+
 /** Seconds. Overridable so a test can make an access token that is already stale. */
 const accessTtlSeconds = () => Number(process.env.STUB_ACCESS_TTL ?? 900);
 
@@ -231,10 +248,23 @@ const server = createServer(async (request, response) => {
     liveRefreshTokens.clear();
     maxRefreshesInFlight = 0;
     refreshRejections = 0;
+    passwordResets.clear();
     // Accounts created by a previous test are cleared too, so a suite that registers
     // `new@example.com` twice does not fail the second time with a 409 it did not ask for.
     seedUsers();
     return send(response, 200, { ok: true });
+  }
+
+  /**
+   * The mailbox, for tests. Answers the raw token most recently issued for an address, which is
+   * what a user would read out of the email notification-service sends.
+   */
+  if (path === '/__stub/reset-token') {
+    const email = (url.searchParams.get('email') ?? '').toLowerCase();
+    const entry = [...passwordResets.entries()].find(
+      ([, value]) => value.email === email && value.consumedAt === null,
+    );
+    return send(response, 200, { token: entry ? entry[0] : null });
   }
 
   /** Kills every live refresh token — the "signed out elsewhere" / "revoked" scenario. */
@@ -284,6 +314,61 @@ const server = createServer(async (request, response) => {
       emailVerified: false,
       createdAt: new Date().toISOString(),
     });
+  }
+
+  /*
+   * `AuthController.requestPasswordReset`: **always 202**, whether or not the address exists.
+   * `PasswordResetService.requestReset` does its work inside an `ifPresent` and returns normally
+   * either way, which is the platform declining to be an enumeration oracle — so a stub that
+   * answered 404 for an unknown address would let the portal pass while hiding the leak.
+   */
+  if (path === '/api/v1/auth/password-reset/request' && request.method === 'POST') {
+    const body = await readJson(request);
+    const email = String(body.email ?? '')
+      .trim()
+      .toLowerCase();
+
+    const user = users.get(email);
+    if (user) {
+      const token = `stub-reset-${randomUUID()}`;
+      passwordResets.set(token, {
+        email,
+        expiresAt: Date.now() + resetTtlSeconds() * 1000,
+        consumedAt: null,
+      });
+    }
+    return send(response, 202, undefined);
+  }
+
+  /*
+   * `AuthController.confirmPasswordReset`: 204 on success, 401 for a token that is unknown,
+   * expired or already consumed — all three indistinguishable, exactly as `InvalidTokenException`
+   * makes them. Success consumes the token and **revokes every refresh token for the account**,
+   * mirroring `refreshTokenRepository.revokeAllForUser`.
+   */
+  if (path === '/api/v1/auth/password-reset/confirm' && request.method === 'POST') {
+    const body = await readJson(request);
+    const record = passwordResets.get(String(body.token ?? ''));
+    const newPassword = String(body.newPassword ?? '');
+
+    if (!record || record.consumedAt !== null || record.expiresAt <= Date.now()) {
+      return send(response, 401, { type: 'authentication_error', code: 'unauthorized' });
+    }
+    if (newPassword.length < 8 || newPassword.length > 72) {
+      return send(response, 400, { type: 'invalid_request_error', code: 'validation_error' });
+    }
+
+    const user = users.get(record.email);
+    if (!user) {
+      return send(response, 401, { type: 'authentication_error', code: 'unauthorized' });
+    }
+
+    user.password = newPassword;
+    record.consumedAt = Date.now();
+    for (const [token, owner] of liveRefreshTokens) {
+      if (owner === record.email) liveRefreshTokens.delete(token);
+    }
+    return send(response, 204, undefined);
   }
 
   if (path === '/api/v1/auth/login' && request.method === 'POST') {

@@ -2,8 +2,7 @@
 
 import { redirect } from 'next/navigation';
 
-import { CsrfError, assertCsrfToken } from '@/lib/security/csrf';
-import { CrossOriginRequestError } from '@/lib/security/origin';
+import { GUARD_MESSAGES, guardFormRequest } from '@/lib/security/form-guard';
 import { safeRedirectPath } from '@/lib/security/redirect';
 import {
   EmailAlreadyRegisteredError,
@@ -11,7 +10,6 @@ import {
   RegistrationRejectedError,
   register,
 } from '@/lib/session/identity';
-import { assertRequestIsSameOrigin } from '@/lib/session/lifecycle';
 
 /**
  * The account-creation action (M23.2a).
@@ -27,10 +25,11 @@ import { assertRequestIsSameOrigin } from '@/lib/session/lifecycle';
  *
  * ── The same three CSRF defences as sign-in, for the same reason ──────────────────────
  *
- * Next.js's Origin/Host comparison, this application's own {@link assertRequestIsSameOrigin},
- * and a synchronizer token from an `httpOnly` cookie (D199). Registration happens before any
- * session exists, so `SameSite` on the session cookie protects nothing here — exactly the gap
- * that makes the token the load-bearing defence on the entry pages.
+ * Next.js's Origin/Host comparison, this application's own origin assertion, and a synchronizer
+ * token from an `httpOnly` cookie (D199) — the second and third applied together by
+ * {@link guardFormRequest}. Registration happens before any session exists, so `SameSite` on the
+ * session cookie protects nothing here — exactly the gap that makes the token the load-bearing
+ * defence on the entry pages.
  *
  * The token is **not** rotated on success. Rotation after sign-in exists because a token minted
  * before authentication and kept after it is the CSRF analogue of session fixation; registration
@@ -59,7 +58,6 @@ const MESSAGES = {
   name_long: 'Use at most 150 characters.',
   rejected: 'Those details were not accepted. Check the address and try again.',
   unavailable: 'Account creation is temporarily unavailable. Please try again in a moment.',
-  csrf: 'This form expired before it was submitted. Please try again.',
 } as const;
 
 /**
@@ -79,15 +77,8 @@ export async function signupAction(
   _previous: SignupState,
   formData: FormData,
 ): Promise<SignupState> {
-  try {
-    await assertRequestIsSameOrigin();
-    await assertCsrfToken(formData.get('csrfToken'));
-  } catch (error) {
-    if (error instanceof CsrfError || error instanceof CrossOriginRequestError) {
-      return { error: MESSAGES.csrf, field: undefined };
-    }
-    throw error;
-  }
+  const refused = await guardFormRequest(formData.get('csrfToken'));
+  if (refused) return { error: GUARD_MESSAGES[refused], field: undefined };
 
   // Normalised the same way `AuthService.normalizeEmail` does, so what the user is told they
   // registered is what they can sign in with.

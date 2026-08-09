@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
 
@@ -61,9 +62,25 @@ export function LoginForm({
         // arriving from signup starts at the password, which is the only thing left to type.
         autoFocus={email.length === 0}
       />
+      {/*
+       * The recovery link sits beside the password label rather than below the button.
+       *
+       * That is where someone looks at the moment they realise they cannot remember it — while
+       * staring at the field — and it keeps the space under the primary action free for the one
+       * thing that belongs there. `AuthField`'s `hint` slot already exists for exactly this kind
+       * of right-aligned label companion, so it costs no new layout.
+       */}
       <AuthField
         label="Password"
         name="password"
+        hintNode={
+          <Link
+            href="/forgot-password"
+            className="text-label-sm text-fg-subtle underline-offset-4 transition-colors duration-(--duration-fast) hover:text-fg hover:underline"
+          >
+            Forgot password?
+          </Link>
+        }
         type="password"
         autoComplete="current-password"
         placeholder="••••••••••••"

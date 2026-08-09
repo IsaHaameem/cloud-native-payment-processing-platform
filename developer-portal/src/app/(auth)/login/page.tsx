@@ -55,6 +55,7 @@ export default async function LoginPage({
   const next = safeRedirectPath(first(params.next));
 
   const justRegistered = first(params.registered) === '1';
+  const justReset = first(params.reset) === '1';
   const suggested = first(params.email) ?? '';
   const email = justRegistered && EMAIL_SHAPE.test(suggested) ? suggested.toLowerCase() : '';
 
@@ -72,6 +73,19 @@ export default async function LoginPage({
       {justRegistered ? (
         <div className="mb-4">
           <FormAlert tone="success">Account created. Sign in to finish setting up.</FormAlert>
+        </div>
+      ) : null}
+
+      {justReset ? (
+        <div className="mb-4">
+          {/*
+           * "everywhere" is not flourish. `PasswordResetService.confirmReset` revokes every
+           * refresh token the account holds, so any other browser or device that was signed in
+           * has been signed out — and a user who does not expect that reads it as a fault.
+           */}
+          <FormAlert tone="success">
+            Password updated. You have been signed out everywhere — sign in with your new password.
+          </FormAlert>
         </div>
       ) : null}
 

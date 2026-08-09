@@ -43,6 +43,15 @@ export class RegistrationRejectedError extends Error {}
 /** identity-service rejected the refresh token: revoked, rotated already, or unknown. */
 export class RejectedTokenError extends Error {}
 
+/**
+ * A password-reset token was refused: unknown, expired, or already used.
+ *
+ * The three are one error on purpose, and the backend agrees — `PasswordResetService.confirmReset`
+ * throws the same `InvalidTokenException` for all of them, because telling them apart tells a
+ * holder of a guessed token which guesses are *close*.
+ */
+export class InvalidResetTokenError extends Error {}
+
 /** The platform could not be reached, or answered 5xx. Never a reason to end a session. */
 export class IdentityUnavailableError extends Error {}
 
@@ -105,6 +114,51 @@ export async function register(
   }
   if (response.status !== 201 && (response.status < 200 || response.status >= 300)) {
     throw new IdentityUnavailableError(`Unexpected ${response.status} from register.`);
+  }
+}
+
+/**
+ * Asks identity-service to email a reset link. **Always succeeds.**
+ *
+ * `AuthController.requestPasswordReset` answers 202 whether or not the address has an account —
+ * `PasswordResetService.requestReset` does its work inside an `ifPresent` and returns normally
+ * either way. That is the backend refusing to be an enumeration oracle, and this function
+ * preserves it by having no failure the caller could branch on: a 202 and a 404 and a 400 all
+ * return normally, so no code path above can accidentally reintroduce the distinction.
+ *
+ * @throws {IdentityUnavailableError} only when the platform could not be reached at all — which
+ *         is not an answer about the address, so it does not leak one.
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  // `post` already throws `IdentityUnavailableError` on a network failure or a 5xx. Every other
+  // status is deliberately ignored: there is nothing about it the caller may act on.
+  await post('/api/v1/auth/password-reset/request', { email });
+}
+
+/**
+ * Sets a new password from a reset token.
+ *
+ * The backend does three things here that the portal must not undo: the token is single-use
+ * (`reset.consume()`), it is stored only as a SHA-256 hash, and a successful reset **revokes
+ * every refresh token the account has**. The last is why this deliberately does not try to
+ * establish a session afterwards — the user has just invalidated all of them, and the correct
+ * next step is a fresh sign-in with the password they now know.
+ *
+ * @throws {InvalidResetTokenError}   401 — unknown, expired, or already used
+ * @throws {RegistrationRejectedError} 400 — the new password failed the platform's own bounds
+ * @throws {IdentityUnavailableError}  unreachable, 5xx, or an answer we cannot describe
+ */
+export async function confirmPasswordReset(token: string, newPassword: string): Promise<void> {
+  const response = await post('/api/v1/auth/password-reset/confirm', { token, newPassword });
+
+  if (response.status === 401) {
+    throw new InvalidResetTokenError('That reset link is no longer valid.');
+  }
+  if (response.status === 400) {
+    throw new RegistrationRejectedError('That password was not accepted.');
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new IdentityUnavailableError(`Unexpected ${response.status} from password reset.`);
   }
 }
 

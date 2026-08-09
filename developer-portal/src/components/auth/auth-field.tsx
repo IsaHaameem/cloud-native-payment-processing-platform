@@ -36,6 +36,7 @@ export function AuthField({
   label,
   name,
   hint,
+  hintNode,
   error,
   reveal = false,
   ...props
@@ -44,6 +45,16 @@ export function AuthField({
   name: string;
   /** Quiet helper text, rendered beside the label. For stating a rule before it is broken. */
   hint?: string | undefined;
+  /**
+   * An interactive companion in the same slot — sign-in's "Forgot password?".
+   *
+   * Separate from `hint` rather than widening it to `ReactNode`, because the two behave
+   * differently where it matters: `hint` is described text and is wired into the input's
+   * `aria-describedby`, while this is a control of its own with its own accessible name. Reading
+   * a link out as the field's description would announce "Forgot password?" every time focus
+   * lands on the password box.
+   */
+  hintNode?: React.ReactNode | undefined;
   /** A message about *this* field. Marks the control invalid and describes it. */
   error?: string | undefined;
   /** Adds the show/hide control. Only meaningful with `type="password"`. */
@@ -68,6 +79,7 @@ export function AuthField({
             {hint}
           </span>
         ) : null}
+        {hintNode}
       </div>
 
       <div className="relative">

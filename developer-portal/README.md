@@ -38,11 +38,23 @@ M23.1 calls it, so the dev server runs happily without one.
 Validated once, at import, by `src/lib/env.ts` — a portal that starts without its session
 secret and invents one signs every user out on each deploy, so it refuses to start instead.
 
-| Variable                | Required          | Default                 | Purpose                              |
-| ----------------------- | ----------------- | ----------------------- | ------------------------------------ |
-| `PF_GATEWAY_URL`        | no                | `http://localhost:8080` | Where this server calls the platform |
-| `PORTAL_PUBLIC_ORIGIN`  | no                | `http://localhost:3000` | This portal's own origin             |
-| `PORTAL_SESSION_SECRET` | **in production** | dev-only value          | Encrypts the session cookie (M23.2)  |
+| Variable                    | Required          | Default                 | Purpose                                         |
+| --------------------------- | ----------------- | ----------------------- | ----------------------------------------------- |
+| `PF_GATEWAY_URL`            | no                | `http://localhost:8080` | Where this server calls the platform            |
+| `PORTAL_PUBLIC_ORIGIN`      | no                | `http://localhost:3000` | This portal's own origin                        |
+| `PORTAL_ADDITIONAL_ORIGINS` | no                | none                    | Other origins this portal is served on (M23.2b) |
+| `PORTAL_SESSION_SECRET`     | **in production** | dev-only value          | Encrypts the session cookie (M23.2)             |
+
+`PORTAL_PUBLIC_ORIGIN` has to be **the address users actually reach the portal on**, because it
+is what the CSRF origin check compares against. Get it wrong and every form is refused — the
+symptom is a submission answered with _"this request did not come from the portal"_, and the
+server log names the origin that arrived alongside the ones it accepts.
+
+Sibling spellings of a local address are handled without configuration: when the configured
+origin is itself loopback, `http://127.0.0.1:…` and `http://[::1]:…` on the same port are
+accepted too, so reaching a local portal by any of its names works. A deployment configured for a
+real domain never takes that path; if it genuinely serves several origins, name them in
+`PORTAL_ADDITIONAL_ORIGINS` (comma-separated).
 
 ## How it is put together
 

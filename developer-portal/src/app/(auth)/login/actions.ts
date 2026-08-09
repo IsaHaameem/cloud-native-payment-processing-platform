@@ -2,14 +2,10 @@
 
 import { redirect } from 'next/navigation';
 
-import { CsrfError, assertCsrfToken, rotateCsrfToken } from '@/lib/security/csrf';
-import { CrossOriginRequestError } from '@/lib/security/origin';
+import { rotateCsrfToken } from '@/lib/security/csrf';
+import { GUARD_MESSAGES, guardFormRequest } from '@/lib/security/form-guard';
 import { safeRedirectPath } from '@/lib/security/redirect';
-import {
-  assertRequestIsSameOrigin,
-  establishSession,
-  persistSession,
-} from '@/lib/session/lifecycle';
+import { establishSession, persistSession } from '@/lib/session/lifecycle';
 
 /**
  * The sign-in action (M23.2).
@@ -22,9 +18,13 @@ import {
  * ── Three CSRF defences, and why login needs all of them ──────────────────────────────
  *
  * 1. Next.js's own Origin/Host comparison for Server Actions.
- * 2. {@link assertRequestIsSameOrigin} — this application's own check, so the guarantee does not
- *    rest solely on a framework default.
- * 3. {@link assertCsrfToken} — a token the attacker cannot read, from an `httpOnly` cookie.
+ * 2. This application's own origin assertion, so the guarantee does not rest solely on a
+ *    framework default.
+ * 3. A synchronizer token the attacker cannot read, from an `httpOnly` cookie.
+ *
+ * The second and third are applied together by {@link guardFormRequest}, which also keeps their
+ * two failures distinguishable — they were reported identically until M23.2b, and that is how a
+ * portal reached on the wrong host came to say "this form expired".
  *
  * The third is the one that matters most *here*, and it is worth being precise about why: the
  * session cookie's `SameSite=Strict` protects requests that carry a session, and at login there
@@ -46,19 +46,11 @@ const MESSAGES = {
   invalid_credentials: 'That email and password combination was not recognised.',
   throttled: 'Too many sign-in attempts. Please wait a few minutes and try again.',
   unavailable: 'Sign-in is temporarily unavailable. Please try again in a moment.',
-  csrf: 'This form expired before it was submitted. Please try again.',
 } as const;
 
 export async function loginAction(_previous: LoginState, formData: FormData): Promise<LoginState> {
-  try {
-    await assertRequestIsSameOrigin();
-    await assertCsrfToken(formData.get('csrfToken'));
-  } catch (error) {
-    if (error instanceof CsrfError || error instanceof CrossOriginRequestError) {
-      return { error: MESSAGES.csrf };
-    }
-    throw error;
-  }
+  const refused = await guardFormRequest(formData.get('csrfToken'));
+  if (refused) return { error: GUARD_MESSAGES[refused] };
 
   const email = String(formData.get('email') ?? '');
   const password = String(formData.get('password') ?? '');

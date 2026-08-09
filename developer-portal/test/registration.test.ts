@@ -234,12 +234,15 @@ describe('the signup action', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('refuses a cross-origin submission, before touching the platform', async () => {
+  it('refuses a cross-origin submission, and says so rather than blaming the form', async () => {
     const { CrossOriginRequestError } = await import('@/lib/security/origin');
     assertSameOrigin.mockRejectedValue(new CrossOriginRequestError());
 
     const { state } = await submit(VALID);
-    expect(state?.error).toMatch(/expired/i);
+    // M23.2b: this said "expired" until a portal reached on the wrong host reported a signup bug
+    // that was neither signup nor an expiry. The two failures are told apart now.
+    expect(state?.error).toMatch(/did not come from the portal/i);
+    expect(state?.error).not.toMatch(/expired/i);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

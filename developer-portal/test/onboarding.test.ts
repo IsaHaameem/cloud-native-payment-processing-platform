@@ -269,12 +269,13 @@ describe('the onboarding action', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('refuses a cross-origin submission, before touching the platform', async () => {
+  it('refuses a cross-origin submission, and says so rather than blaming the form', async () => {
     const { CrossOriginRequestError } = await import('@/lib/security/origin');
     assertSameOrigin.mockRejectedValue(new CrossOriginRequestError());
 
     const { state } = await submit(VALID);
-    expect(state?.error).toMatch(/expired/i);
+    // See registration.test.ts: M23.2b separated these two messages.
+    expect(state?.error).toMatch(/did not come from the portal/i);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

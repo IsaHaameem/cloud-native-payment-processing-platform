@@ -39,8 +39,14 @@
  */
 export const DEFAULT_AFTER_LOGIN = '/dashboard';
 
-/** Paths that must never be a post-login destination. */
-const NEVER_REDIRECT_TO = ['/login', '/logout', '/signup'];
+/**
+ * Paths that must never be a post-login destination.
+ *
+ * The two reset paths are here with the rest: landing a freshly signed-in user on "set a new
+ * password" is a dead end, and `/reset-password` in particular would arrive stripped of the token
+ * that makes it work.
+ */
+const NEVER_REDIRECT_TO = ['/login', '/logout', '/signup', '/forgot-password', '/reset-password'];
 
 const BACKSLASH = 0x5c;
 const DELETE = 0x7f;

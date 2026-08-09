@@ -25,7 +25,7 @@
 | **Purpose** | A payment processor's orchestration layer — payment lifecycle FSM, double-entry ledger, and asynchronous state propagation — built across independently deployable microservices. A portfolio/engineering project, not a production payment system. |
 | **Repository version** | V2 in progress (V1 complete and frozen) |
 | **Development phase** | Phase B complete — *Product surface*; Phase C in progress: M22 done, **M23 under way (M23.0 complete)** (see §3) |
-| **Current milestone** | **M23 — developer portal, part 1.** M23.0 (backend enablement), M23.1 (foundation), M23.2 (authentication) and M23.2a (public entry flow) complete; M23.3 (shell and data layer) next |
+| **Current milestone** | **M23 — developer portal, part 1.** M23.0 (backend enablement), M23.1 (foundation), M23.2 (authentication), M23.2a (public entry flow) and M23.2b (origin fix + password recovery) complete; M23.3 (shell and data layer) next |
 | **Branch** | `main` |
 | **Latest commit** | *feat(m23.1): the portal, its design system, and the contract it reads* |
 | **Repository health** | Healthy |
@@ -127,6 +127,7 @@ M23.0 touches the backend.
 | M23.1 | Portal foundation — scaffold, tokens, Docker, CI, generated types | ✅ |
 | M23.2 | Authentication — session cookie, auth flows, middleware, CSRF | ✅ |
 | M23.2a | Public entry flow — landing, signup, onboarding, dashboard entry (no backend change) | ✅ |
+| M23.2b | CSRF origin fix + password recovery against the M15 contract (no backend change) | ✅ |
 | M23.3 | Shell and data layer — chrome, mode toggle, transport, query keys | ⬜ |
 | M23.4 | Onboarding and merchant settings | ⬜ |
 | M23.5 | API keys — create, reveal-once, rotate, revoke | ⬜ |
@@ -1101,7 +1102,7 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 
 ---
 
-## 17. Current Milestone — M23.0, M23.1, M23.2 and M23.2a (complete); M23.3 next
+## 17. Current Milestone — M23.0, M23.1, M23.2, M23.2a and M23.2b (complete); M23.3 next
 
 **Objective (M23).** The Merchant Developer Portal: one Next.js App Router application that
 turns this platform into something a merchant can use — sign up, onboard, manage API keys, and
@@ -1284,6 +1285,42 @@ authentication checks — unchanged in number and none weakened — and **61 new
 walking a genuinely new user from `/` to a working dashboard, plus mobile navigation, both themes
 with measured contrast, and reduced motion. Proven to fail on bad input: the new race assertion
 was verified against a deliberately sabotaged coordinator before being trusted.
+
+### M23.2b — the origin defect, and the recovery flow that was already built ✅
+
+**Reported as:** signup shows *"This form expired before it was submitted"* on a fresh form.
+**Actually:** the portal was configured for `http://localhost:3000` and reached at
+`http://127.0.0.1:3000`. `assertSameOrigin` compared `Origin` against one configured string, so
+every state-changing form was refused — and because a cross-origin refusal and a stale CSRF token
+shared one message, the screen described a failure that had not happened.
+
+Reproduced before anything was changed: the same server, two addresses, one signs up and one does
+not. That is the whole bug, and neither half of it was in signup or in CSRF.
+
+| Fix | Note |
+|---|---|
+| `lib/security/origin.ts` | Accepts sibling loopback spellings of its own address — gated on `PORTAL_PUBLIC_ORIGIN` *itself* being loopback, so a deployment on a real domain never enters that branch. Narrow: `Origin` must equal the request's own `Host`, be a loopback name, and be plain `http:`. Gating on `NODE_ENV` was tried first and is wrong, because `docker compose up` runs the production bundle on localhost (D204) |
+| `PORTAL_ADDITIONAL_ORIGINS` | Opt-in, empty by default, validated at boot. For deployments that genuinely serve several origins |
+| `lib/security/form-guard.ts` | Both checks in one call, with **different messages** and a log naming the origin that arrived against the ones accepted. Five actions previously repeated the sequence and could each mislabel it (D205) |
+
+**The scheme condition was found by a test, not by review.** `https://localhost:3000` passed the
+first version of the loopback check, because `Host` carries no scheme and the two are different
+origins.
+
+**Password recovery: it already existed.** Verified in the backend before writing a line —
+`PasswordResetService` has shipped since M15 (opaque token, SHA-256 at rest, 1-hour TTL,
+single-use `consume()`, revokes every refresh token on success), and `IdentityEventPublisher` has
+been emailing `{baseUrl}/reset-password?token=…` at a route the portal did not have. So
+`/forgot-password` and `/reset-password` are the other end of a link that has been being sent for
+eight milestones; **no backend change** (D206). The portal's own contribution is the part a
+browser client owes: a per-address throttle whose throttled answer is byte-identical to its
+ordinary one, so the limiter cannot become the enumeration oracle `requestReset` refuses to be.
+
+**Testing.** 147 unit tests (+41: 16 origin, 24 recovery, and one existing pair of assertions
+*strengthened* from "says expired" to "says the right thing"). 81 public-flow browser checks
+(+20), including signup at `127.0.0.1` — the reported bug, at the layer it was reported from —
+the full recovery journey with the old password rejected and the token refused on reuse, and
+reload/back-forward on the entry forms. 47 authentication and 25 interaction checks unchanged.
 
 ### What M23.3 needs from here
 

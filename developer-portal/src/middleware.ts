@@ -75,10 +75,20 @@ export const config = {
  *
  * `/` is the marketing page, which renders differently for a signed-in visitor but must render.
  * `/login` and `/signup` obviously — they are the two halves of the entry flow, and a signup page
- * behind an authentication gate is a door that only opens from the inside. `/api/health` is the
- * container's liveness probe and must answer before anyone has ever signed in.
+ * behind an authentication gate is a door that only opens from the inside. The two password-reset
+ * paths are public for the same reason and more sharply: someone who cannot sign in is precisely
+ * who needs them, so gating them behind a session would make the recovery flow reachable only by
+ * people who do not need it. `/api/health` is the container's liveness probe and must answer
+ * before anyone has ever signed in.
  */
-const PUBLIC_PATHS = new Set(['/', '/login', '/signup', '/api/health']);
+const PUBLIC_PATHS = new Set([
+  '/',
+  '/login',
+  '/signup',
+  '/forgot-password',
+  '/reset-password',
+  '/api/health',
+]);
 
 /**
  * Public paths a *signed-in* visitor is sent away from.
@@ -86,6 +96,10 @@ const PUBLIC_PATHS = new Set(['/', '/login', '/signup', '/api/health']);
  * Both are entry points to a session that already exists, so landing on either is a dead end:
  * `/login` would ask for credentials already held, and `/signup` would offer a second account to
  * someone who is signed into their first.
+ *
+ * The password-reset paths are deliberately **not** here. A signed-in user changing their
+ * password is an ordinary thing to do — more so than the reverse — and bouncing them to the
+ * dashboard would make a reset link useless to anyone whose browser still holds a session.
  */
 const ENTRY_PATHS = new Set(['/login', '/signup']);
 

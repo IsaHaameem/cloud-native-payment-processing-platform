@@ -3,10 +3,9 @@
 import { redirect } from 'next/navigation';
 
 import { lookupMerchant, onboardMerchant } from '@/lib/platform/merchants';
-import { CsrfError, assertCsrfToken } from '@/lib/security/csrf';
-import { CrossOriginRequestError } from '@/lib/security/origin';
+import { GUARD_MESSAGES, guardFormRequest } from '@/lib/security/form-guard';
 import { DEFAULT_AFTER_LOGIN } from '@/lib/security/redirect';
-import { assertRequestIsSameOrigin, persistSession } from '@/lib/session/lifecycle';
+import { persistSession } from '@/lib/session/lifecycle';
 import { readSession } from '@/lib/session/require';
 
 /**
@@ -46,7 +45,6 @@ const MESSAGES = {
   invalid: 'Those details were not accepted. Check them and try again.',
   unauthorized: 'Your session is no longer valid. Sign in again to continue.',
   unavailable: 'Setup is temporarily unavailable. Please try again in a moment.',
-  csrf: 'This form expired before it was submitted. Please try again.',
 } as const;
 
 /** `OnboardMerchantRequest`'s own bounds — `@Size(max = 200)` and `@Size(max = 255)`. */
@@ -60,15 +58,8 @@ export async function onboardingAction(
   _previous: OnboardingState,
   formData: FormData,
 ): Promise<OnboardingState> {
-  try {
-    await assertRequestIsSameOrigin();
-    await assertCsrfToken(formData.get('csrfToken'));
-  } catch (error) {
-    if (error instanceof CsrfError || error instanceof CrossOriginRequestError) {
-      return { error: MESSAGES.csrf, field: undefined };
-    }
-    throw error;
-  }
+  const refused = await guardFormRequest(formData.get('csrfToken'));
+  if (refused) return { error: GUARD_MESSAGES[refused], field: undefined };
 
   const session = await readSession();
   // Not `requireSession`: a redirect thrown from inside an action is served to a `fetch` the
