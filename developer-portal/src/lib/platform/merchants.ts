@@ -138,6 +138,108 @@ export async function onboardMerchant(
   return { ok: true, merchant };
 }
 
+/** Why an edit did not take. */
+export type UpdateFailure =
+  /** 400/422 — merchant-service refused the payload. */
+  | 'invalid'
+  /** 401/403 — the session is not entitled. */
+  | 'unauthorized'
+  /** 404 — this user has no merchant to edit. */
+  | 'absent'
+  /** Unreachable, 5xx, or an answer we cannot describe. */
+  | 'unavailable';
+
+export type UpdateResult =
+  | { readonly ok: true; readonly merchant: MerchantProfile }
+  | { readonly ok: false; readonly reason: UpdateFailure };
+
+/**
+ * Edits the caller's own business profile (M23.4).
+ *
+ * ── There is no merchant id in the request, and that is the isolation guarantee ───────
+ *
+ * `MerchantController.updateCurrentMerchant` derives the owner from the JWT subject and looks the
+ * merchant up by it — the path is `/me`, not `/{id}`. So a merchant cannot be named, mistyped or
+ * substituted by anything the portal sends. That is the same property onboarding relies on, and
+ * it is the reason a settings screen needs no authorization logic of its own beyond having a
+ * session at all.
+ *
+ * ── PATCH, and both fields are sent ───────────────────────────────────────────────────
+ *
+ * `UpdateMerchantRequest` is `(businessName, contactEmail)` and `Merchant.updateProfile` writes
+ * both, so this is a PATCH by HTTP method and a full replacement by semantics. The form therefore
+ * submits both fields whether or not the user touched them — sending one would clear the other.
+ */
+export async function updateMerchantProfile(
+  accessToken: string,
+  input: { businessName: string; contactEmail: string },
+): Promise<UpdateResult> {
+  return patchMerchant(accessToken, '/api/v1/merchants/me', input);
+}
+
+/**
+ * Sets or clears the merchant's webhook URL (M23.4).
+ *
+ * ── What this field is, and what it is not ────────────────────────────────────────────
+ *
+ * It is **not** how webhook deliveries are addressed. `WebhookDeliveryExecutor` reads
+ * `endpoint.getUrl()` from notification-service's `webhook_endpoints` (M18), and nothing in the
+ * delivery path consults this column. What it does is ride on the gateway's signed internal
+ * context (D118) so a downstream service can learn the merchant's nominated callback without a
+ * second lookup.
+ *
+ * That distinction is why the screen labels it as an account detail rather than as webhook
+ * configuration: a merchant who set this expecting deliveries to start arriving would be waiting
+ * for something that was never going to happen, and endpoint management is M24's screen.
+ *
+ * `null` clears it — `UpdateWebhookRequest` documents blank as "clear a previously configured
+ * webhook", and `Merchant.updateWebhookUrl` normalises blank to null.
+ */
+export async function updateMerchantWebhook(
+  accessToken: string,
+  webhookUrl: string | null,
+): Promise<UpdateResult> {
+  return patchMerchant(accessToken, '/api/v1/merchants/me/webhook', { webhookUrl });
+}
+
+async function patchMerchant(
+  accessToken: string,
+  path: string,
+  body: unknown,
+): Promise<UpdateResult> {
+  let response: Response;
+  try {
+    response = await fetch(`${env.gatewayUrl}${path}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch {
+    return { ok: false, reason: 'unavailable' };
+  }
+
+  if (response.status === 400 || response.status === 422) return { ok: false, reason: 'invalid' };
+  if (response.status === 401 || response.status === 403) {
+    return { ok: false, reason: 'unauthorized' };
+  }
+  if (response.status === 404) return { ok: false, reason: 'absent' };
+  if (!response.ok) return { ok: false, reason: 'unavailable' };
+
+  // Both endpoints answer with the updated `MerchantResponse`, so the caller re-renders from what
+  // the platform stored rather than from what was typed — which is the only way the screen can be
+  // trusted after a field was normalised (a blank webhook becoming null, for instance).
+  const merchant = merchantFrom(await safeJson(response));
+  if (!merchant) return { ok: false, reason: 'unavailable' };
+
+  return { ok: true, merchant };
+}
+
 async function safeJson(response: Response): Promise<unknown> {
   try {
     return await response.json();

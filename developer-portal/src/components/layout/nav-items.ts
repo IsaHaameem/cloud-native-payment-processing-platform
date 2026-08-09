@@ -104,7 +104,9 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     label: 'Insights',
     items: [
       { label: 'Analytics', href: '/analytics', icon: BarChart3, enabled: false, milestone: 'M24' },
-      { label: 'Settings', href: '/settings', icon: Settings, enabled: false, milestone: 'M23.4' },
+      // Turned on by M23.4. The account and business halves are real; team and the API version
+      // pin are named on the page as waiting on the platform, not hidden.
+      { label: 'Settings', href: '/settings', icon: Settings, enabled: true, milestone: 'M23.4' },
     ],
   },
 ];

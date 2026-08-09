@@ -530,6 +530,26 @@ jobs:
           STUB: http://localhost:4600
         run: node scripts/verify-shell.mjs
 
+      # M23.4. Merchant settings: that a saved business name or callback URL is genuinely
+      # stored by merchant-service rather than only echoed back by the form. Persistence
+      # is asserted against the platform's own state, so these checks are about storage
+      # rather than about how a dynamic route caches.
+      #
+      # M23.4's other half, onboarding, is not repeated here — M23.2a had to build it to
+      # give a new account any way to reach the dashboard, and the public-flow step above
+      # already walks a browser through it end to end.
+      #
+      # It raises the stub's access-token life for its own duration and restores it
+      # afterwards. Sixty seconds is shorter than the middleware's refresh skew, which is
+      # exactly what the authentication suite needs and exactly what makes a longer
+      # journey re-render mid-block against a lookup the platform has already refused.
+      - name: Merchant settings
+        working-directory: developer-portal
+        env:
+          BASE: http://localhost:3601
+          STUB: http://localhost:4600
+        run: node scripts/verify-settings.mjs
+
       - name: Interaction and animation behaviour
         working-directory: developer-portal
         env:

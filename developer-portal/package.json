@@ -21,7 +21,8 @@
     "verify:auth": "node scripts/verify-auth.mjs",
     "verify:public": "node scripts/verify-public.mjs",
     "stub:platform": "node scripts/stub-platform.mjs",
-    "verify:shell": "node scripts/verify-shell.mjs"
+    "verify:shell": "node scripts/verify-shell.mjs",
+    "verify:settings": "node scripts/verify-settings.mjs"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "^2.3.7",

@@ -109,8 +109,24 @@ const passwordResets = new Map();
 /** Seconds. Overridable so a test can mint a token that is already stale. */
 const resetTtlSeconds = () => Number(process.env.STUB_RESET_TTL ?? 3600);
 
-/** Seconds. Overridable so a test can make an access token that is already stale. */
-const accessTtlSeconds = () => Number(process.env.STUB_ACCESS_TTL ?? 900);
+/**
+ * Seconds of access-token life.
+ *
+ * `STUB_ACCESS_TTL` is set to 60 for the whole stub process because the authentication suite
+ * needs tokens that are always inside the middleware's two-minute refresh skew — which means
+ * *every* request refreshes, and that is the point there.
+ *
+ * It is poison for the longer functional suites. Under constant rotation a page can render after
+ * a lookup the platform refused, replacing a form with its "could not load" panel, and the suite
+ * then fails on a missing button several steps later. Measured: the settings suite failed a
+ * different check on each of three consecutive runs at 60 seconds and passed cleanly at the
+ * default.
+ *
+ * So a suite may ask for a different TTL for its own duration and put it back afterwards. The
+ * override is process-wide and deliberately blunt — the suites run one at a time.
+ */
+let accessTtlOverride = null;
+const accessTtlSeconds = () => accessTtlOverride ?? Number(process.env.STUB_ACCESS_TTL ?? 900);
 
 /**
  * Live refresh tokens, mapped to the email that owns them.
@@ -235,7 +251,7 @@ function merchantResponse(user) {
     id: user.merchantId,
     businessName: user.businessName,
     contactEmail: user.contactEmail,
-    webhookUrl: null,
+    webhookUrl: user.webhookUrl ?? null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -288,6 +304,26 @@ const server = createServer(async (request, response) => {
     // `new@example.com` twice does not fail the second time with a 409 it did not ask for.
     seedUsers();
     return send(response, 200, { ok: true });
+  }
+
+  /** Sets or clears the access-token TTL for the suite that is running. See `accessTtlSeconds`. */
+  if (path === '/__stub/access-ttl') {
+    const seconds = url.searchParams.get('seconds');
+    accessTtlOverride = seconds === null || seconds === '' ? null : Number(seconds);
+    return send(response, 200, { accessTtlSeconds: accessTtlSeconds() });
+  }
+
+  /**
+   * The stored merchant, for tests (M23.4).
+   *
+   * Lets a settings check assert what the platform actually holds rather than inferring it from
+   * what a re-rendered page happens to show — the difference between testing persistence and
+   * testing Next.js's caching.
+   */
+  if (path === '/__stub/merchant') {
+    const email = (url.searchParams.get('email') ?? '').toLowerCase();
+    const user = users.get(email);
+    return send(response, 200, user?.merchantId ? merchantResponse(user) : null);
   }
 
   /**
@@ -499,6 +535,78 @@ const server = createServer(async (request, response) => {
       return send(response, 404, { type: 'invalid_request_error', code: 'not_found' });
     }
     return send(response, 200, merchantResponse(user));
+  }
+
+  /*
+   * `MerchantController.updateCurrentMerchant` and `updateWebhook` (M23.4).
+   *
+   * Both are `/me`: the owner comes from the token, never from the request, which is the
+   * isolation property the settings screen relies on — so this stub resolves the merchant the
+   * same way and ignores anything the caller might say about identity.
+   *
+   * The webhook endpoint enforces `UpdateWebhookRequest`'s own rule (`^https://.+`) and treats
+   * blank as "clear", because a stub that accepted `http://` would let the portal pass while
+   * doing what the real service rejects.
+   */
+  if (path === '/api/v1/merchants/me' && request.method === 'PATCH') {
+    const user = userFromAuthorization(request.headers.authorization);
+    if (!user) {
+      return send(response, 401, { type: 'authentication_error', code: 'unauthorized' });
+    }
+    if (user.merchantId === undefined) {
+      return send(response, 404, { type: 'invalid_request_error', code: 'not_found' });
+    }
+
+    const body = await readJson(request);
+    const name = String(body.businessName ?? '').trim();
+    const email = String(body.contactEmail ?? '').trim();
+    if (name.length === 0 || name.length > 200 || !email.includes('@') || email.length > 255) {
+      return send(response, 400, { type: 'invalid_request_error', code: 'validation_error' });
+    }
+
+    user.businessName = name;
+    user.contactEmail = email;
+    return send(response, 200, merchantResponse(user));
+  }
+
+  if (path === '/api/v1/merchants/me/webhook' && request.method === 'PATCH') {
+    const user = userFromAuthorization(request.headers.authorization);
+    if (!user) {
+      return send(response, 401, { type: 'authentication_error', code: 'unauthorized' });
+    }
+    if (user.merchantId === undefined) {
+      return send(response, 404, { type: 'invalid_request_error', code: 'not_found' });
+    }
+
+    const body = await readJson(request);
+    const raw = body.webhookUrl;
+    const url =
+      raw === null || raw === undefined || String(raw).trim() === '' ? null : String(raw).trim();
+    if (url !== null && (!/^https:\/\/.+/.test(url) || url.length > 2048)) {
+      return send(response, 400, { type: 'invalid_request_error', code: 'validation_error' });
+    }
+
+    user.webhookUrl = url;
+    return send(response, 200, merchantResponse(user));
+  }
+
+  /*
+   * `UserController.currentUser` — the account section's read (M23.4).
+   */
+  if (path === '/api/v1/users/me' && request.method === 'GET') {
+    const user = userFromAuthorization(request.headers.authorization);
+    if (!user) {
+      return send(response, 401, { type: 'authentication_error', code: 'unauthorized' });
+    }
+    return send(response, 200, {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName ?? null,
+      roles: user.roles,
+      enabled: true,
+      emailVerified: false,
+      createdAt: '2026-08-01T09:00:00Z',
+    });
   }
 
   /*

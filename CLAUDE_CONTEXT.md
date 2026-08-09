@@ -25,7 +25,7 @@
 | **Purpose** | A payment processor's orchestration layer — payment lifecycle FSM, double-entry ledger, and asynchronous state propagation — built across independently deployable microservices. A portfolio/engineering project, not a production payment system. |
 | **Repository version** | V2 in progress (V1 complete and frozen) |
 | **Development phase** | Phase B complete — *Product surface*; Phase C in progress: M22 done, **M23 under way (M23.0 complete)** (see §3) |
-| **Current milestone** | **M23 — developer portal, part 1.** M23.0–M23.3 complete (backend enablement, foundation, authentication, public entry flow, origin fix + password recovery, shell and data layer); M23.4 (onboarding and merchant settings) next |
+| **Current milestone** | **M23 — developer portal, part 1.** M23.0–M23.4 complete (backend enablement, foundation, authentication, public entry flow, origin fix + password recovery, shell and data layer, merchant settings); M23.5 (payments list and detail) next |
 | **Branch** | `main` |
 | **Latest commit** | *feat(m23.1): the portal, its design system, and the contract it reads* |
 | **Repository health** | Healthy |
@@ -129,7 +129,7 @@ M23.0 touches the backend.
 | M23.2a | Public entry flow — landing, signup, onboarding, dashboard entry (no backend change) | ✅ |
 | M23.2b | CSRF origin fix + password recovery against the M15 contract (no backend change) | ✅ |
 | M23.3 | Shell and data layer — chrome, mode toggle, transport, query keys | ✅ |
-| M23.4 | Onboarding and merchant settings | ⬜ |
+| M23.4 | Onboarding and merchant settings | ✅ |
 | M23.5 | API keys — create, reveal-once, rotate, revoke | ⬜ |
 | M23.6 | Payments list — filters, saved views, cursor pagination, CSV | ⬜ |
 | M23.7 | Payment detail, capture/refund/void, refunds | ⬜ |
@@ -1095,14 +1095,14 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 | 20 | **The Python SDK has no async client.** §7.2's plan is "sync client first with an async variant"; M22.5 delivered the first half. `async` colours every function it touches, so the variant needs its own transport, retry loop and copy of all eleven namespaces. Named in the package's README so no integrator discovers it by looking for it. | Low — the sync client is complete and most Python integrators are synchronous | Unowned; a natural M26 companion | Low |
 | 19 | **`CreatePaymentRequest.amountMinor` is required in practice and optional in the document.** The Java field is a primitive `long` with `@Positive`, so a body omitting it is rejected with a 400 every time — but `required` lists only `currency`. The SDK's hand-written type states the truth (D170); the published document still understates it, so a caller generating from the spec can write the one request the API always refuses. Not fixed in M22 because adding to a `required` list is classified **breaking**, and the milestone was additive-only. | Medium — the same class as M21.7's `Idempotency-Key` defect | Unowned (needs a dated revision or a reviewed acceptance entry, plus a sweep for the same pattern) | **High** |
 | 21 | **The Node SDK declares `engines.node >= 18` and nothing runs it on 18.** CI pins 20; development is on 24. The advertised floor is exercised by neither. Same shape as item 17, and the cause of the 2026-07-31 CI defect — a Node-version disagreement invisible for all of M22 because only one environment ever ran the suite. A CI matrix over 18/20/latest is the cheap answer. | Medium — a floor-only regression can ship | Unowned (pairs with item 17's 3.9 leg) | Medium |
-| 22 | **The `session:merchant:v1:` lookup cache is not evicted on a merchant profile change.** `ApiKeyService` evicts `apikey:v1:` directly on revoke/rotate; M23.0's session cache has no equivalent, so `contactEmail`/`webhookUrl` can be up to five minutes stale on the session path. The merchant id itself cannot change, and the API-key path already carries the same staleness on the same two fields — so this is an accepted asymmetry, recorded so it does not read as an oversight. | Low | M23.4 (merchant settings) is the natural moment | Low |
+| 22 | **The `session:merchant:v1:` lookup cache is not evicted on a merchant profile change.** `ApiKeyService` evicts `apikey:v1:` directly on revoke/rotate; M23.0's session cache has no equivalent, so `contactEmail`/`webhookUrl` can be up to five minutes stale on the session path. The merchant id itself cannot change, and the API-key path already carries the same staleness on the same two fields — so this is an accepted asymmetry, recorded so it does not read as an oversight. | Low | M23.4 shipped and deliberately left it: the portal’s own reads *are* evicted, and webhook delivery uses `webhook_endpoints`, not this field | Low |
 | 23 | **The portal's refresh coordination and login throttle are per-process (M23.2, D197/D200).** Both are module state. With more than one replica, two can rotate the same refresh token concurrently — both succeed, because `RefreshToken` has no `@Version` — and the losing replica's next request finds its token revoked and ends that session. The throttle degrades more gently: the allowance multiplies by the replica count. Fix is shared state (the Redis already deployed) or sticky sessions. **The portal must not be scaled out before one of the two exists.** | Medium | M29, or whichever milestone first runs more than one replica | Medium |
 | 24 | **`RefreshTokenService` does not invalidate a token family on reuse (identity-service, surfaced by M23.2).** A replayed refresh token throws and nothing else happens. So a thief who rotates a stolen token first gets a working pair, and the **owner** is the one signed out. Detecting reuse is exactly what a lineage column is for. Found by reading the rotation semantics, not by an incident. | Medium | Next identity-service work | Medium |
 | 18 | **Neither SDK runs a style linter.** TypeScript's `strict` family and `mypy --strict` cover correctness; formatting and idiom conventions are unenforced, so the first contributor to either package has nothing to conform to. | Low now, Medium once the packages have real code | M22.2 | Low |
 
 ---
 
-## 17. Current Milestone — M23.0 through M23.3 (complete); M23.4 next
+## 17. Current Milestone — M23.0 through M23.4 (complete); M23.5 next
 
 **Objective (M23).** The Merchant Developer Portal: one Next.js App Router application that
 turns this platform into something a merchant can use — sign up, onboard, manage API keys, and
@@ -1367,7 +1367,35 @@ a backend change: stale `payment-service`/`merchant-service` images produced
 holding a dead connection until it too was restarted (its `sessionMerchantLookup` circuit breaker
 opened correctly meanwhile). Neither is portal code.
 
-### What M23.3 needs from here
+### M23.4 — merchant settings ✅
+
+**What it is.** `/settings`: the account as identity-service holds it, and the business as
+merchant-service holds it, with the business half editable. Onboarding — M23.4's other half on
+paper — shipped in M23.2a, because a new account had no way to reach the dashboard without it;
+`verify-public.mjs` walks a browser through it and the unit suite covers each step.
+
+| Piece | What it settles |
+|---|---|
+| `lib/platform/users.ts` | `GET /api/v1/users/me`, the account read. Never throws; an unavailable identity-service costs the account panel and not the page |
+| `lib/platform/merchants.ts` | `PATCH /me` and `PATCH /me/webhook`, returning a classified `UpdateResult` rather than swallowing the failure — the M23.3 finding, closed for the two calls M23.4 adds |
+| `settings/actions.ts` | Server Actions, not M23.3's read route: that route resolves GETs only by design (D207), so a mutation reachable by naming it would sit outside M23.2's CSRF token and origin assertion. Both endpoints are `/me`, so no merchant id crosses the wire and there is no authorization decision to get wrong |
+| `settings/settings-forms.tsx` | A save navigates the document to `/settings?saved=…` (D210). Three cheaper mechanisms were built and each failed differently against the real stack; the reasoning is kept in the file because two of the three failed *silently* |
+
+**Three defects, all found by measuring rather than by reading.** A `'use server'` module may
+export **only async functions** — a plain `IDLE` constant compiled, type-checked, and broke the
+page at runtime the first time an action on it ran. `revalidatePath` discarded the confirmation it
+was meant to accompany. And the verification script itself logged in once per poll, hitting the
+gateway with ~130 sign-ins in twenty seconds until D24's rate limiter throttled the portal too —
+which made a save that worked perfectly look broken.
+
+**Not built, and said on the screen (D211).** Team members: no membership entity exists anywhere
+in the platform. API version pin: `pinned_api_version` is real but rides only on the internal
+`ApiKeyVerifyResponse`, so the account plane cannot read it without a contract change M23.4 does
+not authorise. Account details are read-only because `UserController` has no update endpoint, and
+the password control says it emails a link because identity-service has no authenticated
+change-password path.
+
+### What M23.5 needs from here
 
 `callAs()` and nothing else. It is the only function in the portal that puts a token on a
 request, and the guards in `lib/session/require.ts` are the only source of a credential — so a
@@ -1381,7 +1409,7 @@ page that forgets to ask for a session has nothing to fetch merchant data with. 
 | Signal | Status | Detail |
 |---|---|---|
 | **Build** | ✅ | `./gradlew build --max-workers=2` — BUILD SUCCESSFUL |
-| **Tests** | ✅ | **1082 / 1082** Gradle, 0 failures, 0 errors, 0 skipped, across 13 modules. Plus the portal: **75** unit (vitest), **47** browser authentication checks, **25** interaction checks |
+| **Tests** | ✅ | **1082 / 1082** Gradle, 0 failures, 0 errors, 0 skipped, across 13 modules. Plus the portal: **217** unit (vitest), and 217 browser checks across five suites — 47 authentication, 81 public flow, 30 shell, 34 settings, 25 interaction |
 | **Working tree** | ✅ | Clean |
 | **OpenAPI baseline** | ✅ | `verifyOpenApiBaseline` — in sync |
 | **OpenAPI compatibility** | ✅ | 0 breaking, 0 accepted, **0 additive** — no M23 sub-milestone has touched a platform contract |
