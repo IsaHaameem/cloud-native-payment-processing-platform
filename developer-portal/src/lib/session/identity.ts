@@ -20,6 +20,20 @@ import { env } from '@/lib/env';
  * That third case is the one worth naming. If a backend blip were reported as "your token is
  * bad", the portal would sign everybody out during a deploy — turning a thirty-second outage
  * into a support queue.
+ *
+ * ── Unreachable is reported to the operator, not only to the user (M23.2c) ────────────
+ *
+ * The classification above is right for the *user*: "temporarily unavailable" is all they can act
+ * on, and it deliberately carries nothing from the platform's response. It was also, until now,
+ * all that **anyone** got — the failure was swallowed here and nothing was written anywhere. So a
+ * portal pointed at a gateway that was not running produced a generic sentence in the browser and
+ * an empty server log, and the two states an operator most needs to tell apart — *the platform is
+ * briefly unwell* and *this portal is misconfigured* — looked identical.
+ *
+ * That is how this module's own failure came to be reported as a signup bug. Every path that
+ * raises {@link IdentityUnavailableError} now says so on the server, with the URL it tried and the
+ * reason it failed. The user-facing message is unchanged, and so is the rule that nothing from the
+ * request — no password, no token — is ever interpolated into an error or a log line.
  */
 
 export class InvalidCredentialsError extends Error {}
@@ -113,6 +127,14 @@ export async function register(
     throw new RegistrationRejectedError('Those details were not accepted.');
   }
   if (response.status !== 201 && (response.status < 200 || response.status >= 300)) {
+    // 429 from the gateway's own limiter lands here, and so does a 404 from a `PF_GATEWAY_URL`
+    // that points at something which is not the gateway. Both are invisible to the user by
+    // design and must not be invisible to the operator.
+    reportUnavailable(
+      'Registration',
+      '/api/v1/auth/register',
+      `the platform answered ${response.status}`,
+    );
     throw new IdentityUnavailableError(`Unexpected ${response.status} from register.`);
   }
 }
@@ -158,6 +180,11 @@ export async function confirmPasswordReset(token: string, newPassword: string): 
     throw new RegistrationRejectedError('That password was not accepted.');
   }
   if (response.status < 200 || response.status >= 300) {
+    reportUnavailable(
+      'Password reset',
+      '/api/v1/auth/password-reset/confirm',
+      `the platform answered ${response.status}`,
+    );
     throw new IdentityUnavailableError(`Unexpected ${response.status} from password reset.`);
   }
 }
@@ -214,6 +241,32 @@ interface RawResponse {
   readonly body: unknown;
 }
 
+/**
+ * Tells the operator what the user cannot be told (M23.2c).
+ *
+ * ── Why this is `console.error` and not a richer signal ───────────────────────────────
+ *
+ * Because the portal has no logger, and inventing one to fix a diagnosability bug would be the
+ * larger change. Next.js writes this to the server's stdout, which is where `docker compose logs`
+ * and every hosting platform already look.
+ *
+ * ── What may and may not appear here ──────────────────────────────────────────────────
+ *
+ * The path and the configured gateway URL, because those are the two facts that separate "the
+ * platform is briefly unwell" from "this portal is pointed at the wrong place" — and the second
+ * was, in practice, the one that happened. The cause's **name** but never its message: a
+ * `fetch` failure's message can carry the full request URL, and this module's standing rule is
+ * that nothing from the auth path is interpolated into an error or a log line. The request body
+ * is never anywhere near this function's arguments, so a password cannot reach it by mistake.
+ */
+function reportUnavailable(operation: string, path: string, reason: string): void {
+  console.error(
+    `[platform] ${operation} could not be completed: ${reason}. ` +
+      `The portal calls the gateway at ${env.gatewayUrl}${path} — check that the platform is ` +
+      'running and that PF_GATEWAY_URL points at it.',
+  );
+}
+
 async function post(path: string, body: unknown): Promise<RawResponse> {
   let response: Response;
   try {
@@ -228,12 +281,13 @@ async function post(path: string, body: unknown): Promise<RawResponse> {
     // The message is *not* forwarded: it can contain the request URL, and while these URLs carry
     // no token today, a rule of "never interpolate anything from the auth path into an error" is
     // one that keeps holding as the code changes.
-    throw new IdentityUnavailableError(
-      `The platform could not be reached (${cause instanceof Error ? cause.name : 'unknown'}).`,
-    );
+    const name = cause instanceof Error ? cause.name : 'unknown';
+    reportUnavailable(`POST ${path}`, path, `the request failed (${name})`);
+    throw new IdentityUnavailableError(`The platform could not be reached (${name}).`);
   }
 
   if (response.status >= 500) {
+    reportUnavailable(`POST ${path}`, path, `the platform answered ${response.status}`);
     throw new IdentityUnavailableError(`The platform answered ${response.status}.`);
   }
 
@@ -249,6 +303,11 @@ async function post(path: string, body: unknown): Promise<RawResponse> {
 
 function tokensFrom(response: RawResponse, operation: string): IssuedTokens {
   if (response.status < 200 || response.status >= 300) {
+    reportUnavailable(
+      operation,
+      `/api/v1/auth/${operation}`,
+      `the platform answered ${response.status}`,
+    );
     throw new IdentityUnavailableError(`Unexpected ${response.status} from ${operation}.`);
   }
 

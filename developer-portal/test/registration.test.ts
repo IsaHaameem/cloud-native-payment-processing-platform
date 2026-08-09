@@ -153,6 +153,92 @@ describe('the registration client', () => {
   });
 });
 
+describe('an unreachable platform is reported to the operator (M23.2c)', () => {
+  /**
+   * The regression, and it is a regression in *diagnosability* rather than in behaviour.
+   *
+   * A portal pointed at a gateway that was not running produced "Account creation is temporarily
+   * unavailable" in the browser and **nothing whatsoever** on the server. The two states an
+   * operator most needs to tell apart — the platform is briefly unwell, and this portal is
+   * misconfigured — were indistinguishable from both sides, which is how a configuration problem
+   * came to be filed as a signup bug.
+   *
+   * Every assertion below fails on the code as it stood: it wrote no log line at all.
+   */
+  function captureErrors() {
+    return vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  }
+
+  it('names the gateway it tried and the variable that configures it', async () => {
+    const logged = captureErrors();
+    fetchMock.mockRejectedValue(new TypeError('fetch failed'));
+
+    await expect(register(VALID.email, VALID.password, undefined)).rejects.toBeInstanceOf(
+      IdentityUnavailableError,
+    );
+
+    const message = logged.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(message).toContain('/api/v1/auth/register');
+    expect(message).toContain('PF_GATEWAY_URL');
+  });
+
+  it('says so when the platform answers 5xx', async () => {
+    const logged = captureErrors();
+    fetchMock.mockResolvedValue(jsonResponse(503, {}));
+
+    await expect(register(VALID.email, VALID.password, undefined)).rejects.toBeInstanceOf(
+      IdentityUnavailableError,
+    );
+    expect(logged.mock.calls.map((c) => String(c[0])).join('\n')).toContain('503');
+  });
+
+  it('says so when the gateway rate-limits the attempt', async () => {
+    // 429 reaches the user as the same generic sentence, by design. Without a log there is
+    // nothing anywhere that distinguishes it from an outage.
+    const logged = captureErrors();
+    fetchMock.mockResolvedValue(jsonResponse(429, { code: 'rate_limited' }));
+
+    await expect(register(VALID.email, VALID.password, undefined)).rejects.toBeInstanceOf(
+      IdentityUnavailableError,
+    );
+    expect(logged.mock.calls.map((c) => String(c[0])).join('\n')).toContain('429');
+  });
+
+  it('never writes the password or the address into the log', async () => {
+    // The module's standing rule, extended to the new output. A diagnostic that leaks a
+    // credential is worse than no diagnostic.
+    const logged = captureErrors();
+    fetchMock.mockRejectedValue(new TypeError('fetch failed'));
+
+    await register('someone@example.com', 'super-secret-password', 'Ada Lovelace').catch(
+      () => undefined,
+    );
+
+    const message = logged.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(message).not.toContain('super-secret-password');
+    expect(message).not.toContain('someone@example.com');
+  });
+
+  it('stays silent when registration succeeds', async () => {
+    // A log that fires on the happy path is a log nobody reads.
+    const logged = captureErrors();
+    fetchMock.mockResolvedValue(jsonResponse(201, {}));
+
+    await register(VALID.email, VALID.password, undefined);
+    expect(logged).not.toHaveBeenCalled();
+  });
+
+  it('stays silent for a duplicate account, which is not an outage', async () => {
+    const logged = captureErrors();
+    fetchMock.mockResolvedValue(jsonResponse(409, {}));
+
+    await expect(register(VALID.email, VALID.password, undefined)).rejects.toBeInstanceOf(
+      EmailAlreadyRegisteredError,
+    );
+    expect(logged).not.toHaveBeenCalled();
+  });
+});
+
 describe('the signup action', () => {
   it('creates the account and hands the user to sign in', async () => {
     fetchMock.mockResolvedValue(jsonResponse(201, {}));
