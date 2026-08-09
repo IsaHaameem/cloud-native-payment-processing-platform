@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 
 import { CsrfError, assertCsrfToken } from '@/lib/security/csrf';
 import { CrossOriginRequestError, assertSameOrigin } from '@/lib/security/origin';
+import { DEFAULT_AFTER_LOGIN } from '@/lib/security/redirect';
 import { persistSession } from '@/lib/session/lifecycle';
 import { readSessionCookie } from '@/lib/session/store';
 
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
  */
 function backToWhereTheyWere(request: NextRequest): NextResponse {
   const referer = request.headers.get('referer');
-  let target = '/foundation';
+  let target = DEFAULT_AFTER_LOGIN;
 
   if (referer) {
     try {

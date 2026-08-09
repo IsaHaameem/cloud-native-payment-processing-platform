@@ -27,7 +27,16 @@ import { type PublicSession } from '@/lib/session/session';
  * It receives a `PublicSession`, never a `Session`. The whole header subtree is therefore
  * incapable of rendering a token into the document, by type rather than by review.
  */
-export function AppHeader({ session, csrfToken }: { session: PublicSession; csrfToken: string }) {
+export function AppHeader({
+  session,
+  businessName,
+  csrfToken,
+}: {
+  session: PublicSession;
+  /** Absent when the lookup failed or the user has no merchant. Never a placeholder. */
+  businessName?: string | undefined;
+  csrfToken: string;
+}) {
   return (
     <header className="glass sticky top-0 z-30 flex h-12 shrink-0 items-center gap-2 border-b border-border-subtle px-4">
       <MobileNav />
@@ -38,6 +47,19 @@ export function AppHeader({ session, csrfToken }: { session: PublicSession; csrf
        * the first question the header should answer — and now the first one it can also change.
        */}
       <div className="flex min-w-0 items-center gap-2">
+        {/*
+         * Which business, then which data plane — the two facts that qualify everything else on
+         * the screen. Hidden below `sm`, where the same answer is one tap away in the account
+         * menu and the mode control is the one that must not be.
+         */}
+        {businessName ? (
+          <>
+            <span className="hidden max-w-[22ch] truncate text-label font-[510] text-fg sm:block">
+              {businessName}
+            </span>
+            <span aria-hidden className="hidden h-3.5 w-px bg-border sm:block" />
+          </>
+        ) : null}
         <ModeSwitch mode={session.mode} csrfToken={csrfToken} />
       </div>
 
@@ -57,7 +79,7 @@ export function AppHeader({ session, csrfToken }: { session: PublicSession; csrf
           </a>
         </Button>
         <ThemeToggle />
-        <AccountMenu email={session.email} csrfToken={csrfToken} />
+        <AccountMenu email={session.email} businessName={businessName} csrfToken={csrfToken} />
       </div>
     </header>
   );

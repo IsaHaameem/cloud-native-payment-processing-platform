@@ -2,6 +2,8 @@ import 'server-only';
 
 import { redirect } from 'next/navigation';
 
+import { DEFAULT_AFTER_LOGIN } from '@/lib/security/redirect';
+
 import { type Session } from './session';
 import { readSessionCookie } from './store';
 
@@ -79,7 +81,7 @@ export async function requireMerchant(returnTo?: string): Promise<MerchantSessio
 export async function requireRole(role: string, returnTo?: string): Promise<Session> {
   const session = await requireSession(returnTo);
   if (!session.roles.includes(role)) {
-    redirect('/foundation');
+    redirect(DEFAULT_AFTER_LOGIN);
   }
   return session;
 }

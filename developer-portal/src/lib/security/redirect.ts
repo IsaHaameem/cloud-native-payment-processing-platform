@@ -17,8 +17,8 @@
  * - a path containing a backslash, which several browsers normalise to `/` *after* a server-side
  *   check has already approved the string.
  * - anything containing a control character — a header-splitting attempt, or corruption.
- * - `/login`, `/logout` — not an attack, but a redirect target that bounces the user straight
- *   back out of the session they just established.
+ * - `/login`, `/logout`, `/signup` — not an attack, but a redirect target that bounces the user
+ *   straight back out of the session they just established.
  *
  * Deliberately **not** parsed with `new URL(next, base)` and then origin-compared. That works,
  * and it makes the portal's safety depend on WHATWG URL normalisation agreeing with every
@@ -29,11 +29,18 @@
  * and the login form needs to build a link with it.
  */
 
-/** Where a user goes when they have no valid destination of their own. */
-export const DEFAULT_AFTER_LOGIN = '/foundation';
+/**
+ * Where a user goes when they have no valid destination of their own.
+ *
+ * `/dashboard` — the authenticated entry point §6.1 fixes, and the route the merchant guard
+ * protects. It was `/foundation` while the portal had no dashboard; sending a signed-in merchant
+ * to the design-system page was always a placeholder, and `requireMerchant` now routes a user
+ * with no merchant on to `/onboarding` from here rather than the other way round.
+ */
+export const DEFAULT_AFTER_LOGIN = '/dashboard';
 
 /** Paths that must never be a post-login destination. */
-const NEVER_REDIRECT_TO = ['/login', '/logout'];
+const NEVER_REDIRECT_TO = ['/login', '/logout', '/signup'];
 
 const BACKSLASH = 0x5c;
 const DELETE = 0x7f;

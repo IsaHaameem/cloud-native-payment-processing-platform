@@ -58,8 +58,16 @@ export function CommandMenu() {
     const go = (href: string) => () => router.push(href);
     return [
       {
+        id: 'dashboard',
+        label: 'Overview',
+        group: 'Go to',
+        icon: LayoutDashboard,
+        keywords: ['dashboard', 'home', 'start'],
+        onSelect: go('/dashboard'),
+      },
+      {
         id: 'foundation',
-        label: 'Foundation',
+        label: 'Design foundation',
         group: 'Go to',
         icon: LayoutDashboard,
         keywords: ['design', 'system', 'components'],

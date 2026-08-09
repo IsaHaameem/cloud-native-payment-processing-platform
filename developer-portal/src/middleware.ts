@@ -74,10 +74,20 @@ export const config = {
  * Paths reachable without a session.
  *
  * `/` is the marketing page, which renders differently for a signed-in visitor but must render.
- * `/login` obviously. `/api/health` is the container's liveness probe and must answer before
- * anyone has ever signed in.
+ * `/login` and `/signup` obviously — they are the two halves of the entry flow, and a signup page
+ * behind an authentication gate is a door that only opens from the inside. `/api/health` is the
+ * container's liveness probe and must answer before anyone has ever signed in.
  */
-const PUBLIC_PATHS = new Set(['/', '/login', '/api/health']);
+const PUBLIC_PATHS = new Set(['/', '/login', '/signup', '/api/health']);
+
+/**
+ * Public paths a *signed-in* visitor is sent away from.
+ *
+ * Both are entry points to a session that already exists, so landing on either is a dead end:
+ * `/login` would ask for credentials already held, and `/signup` would offer a second account to
+ * someone who is signed into their first.
+ */
+const ENTRY_PATHS = new Set(['/login', '/signup']);
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.has(pathname);
@@ -105,9 +115,9 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return withCsrf(redirectToLogin(request, pathname + search, sealed !== undefined), csrf);
   }
 
-  // Signed in and standing on the login page: send them where they were going. Without this,
+  // Signed in and standing on an entry page: send them where they were going. Without this,
   // a bookmarked `/login` is a dead end for someone who is already authenticated.
-  if (pathname === '/login') {
+  if (ENTRY_PATHS.has(pathname)) {
     const next = safeRedirectPath(request.nextUrl.searchParams.get('next'));
     return withCsrf(NextResponse.redirect(new URL(next, request.url)), csrf);
   }

@@ -46,11 +46,14 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   {
     label: 'Business',
     items: [
+      // The first entry to be turned on. M23.2a built `/dashboard` as the authenticated entry
+      // point the whole sign-up flow leads to; the figures §6.2 specifies for it arrive in M23.8,
+      // which is a change to what the page shows rather than to whether it exists.
       {
         label: 'Overview',
         href: '/dashboard',
         icon: LayoutDashboard,
-        enabled: false,
+        enabled: true,
         milestone: 'M23.8',
       },
       {

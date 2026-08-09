@@ -84,8 +84,8 @@ async function freshContext() {
 
 async function signIn(page, { email, password } = CREDENTIALS) {
   await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
-  await page.fill('#login-email', email);
-  await page.fill('#login-password', password);
+  await page.fill('#field-email', email);
+  await page.fill('#field-password', password);
   await page.getByRole('button', { name: /sign in/i }).click();
 
   /*
@@ -112,7 +112,7 @@ async function verifyInstrument() {
   await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
   const state = await page.evaluate(() => document.visibilityState);
   check('the browser is visible and compositing', state === 'visible', state);
-  check('the portal is serving the login page', await page.locator('#login-email').isVisible());
+  check('the portal is serving the login page', await page.locator('#field-email').isVisible());
   await context.close();
 }
 
@@ -155,8 +155,8 @@ async function verifyLogin() {
   const page = await context.newPage();
 
   await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
-  await page.fill('#login-email', CREDENTIALS.email);
-  await page.fill('#login-password', 'wrong password');
+  await page.fill('#field-email', CREDENTIALS.email);
+  await page.fill('#field-password', 'wrong password');
   await page.getByRole('button', { name: /sign in/i }).click();
   await wait(600);
   const errorText = await page.locator('form [role="alert"]').innerText();
@@ -310,24 +310,38 @@ async function verifyRefreshRace() {
   );
   await wait(600);
 
-  const countAfter = (await stub('/__stub/calls')).refreshCount;
-  const rotations = countAfter - countBefore;
+  const after = await stub('/__stub/calls');
+  const rotations = after.refreshCount - countBefore;
 
   /*
-   * At most one — and separately, proof that all ten requests were genuinely served.
+   * No request is ever handed a token another request already rotated away.
    *
-   * "Exactly one" is the wrong assertion. Zero is a legitimate and better outcome: if all ten
-   * arrive holding a token the coordinator has already rotated, every one is answered from the
-   * replay cache and identity-service is not called at all. What must never happen is *two*.
+   * ── Why this replaced a rotation *count* in M23.2a ──────────────────────────────────
    *
-   * But zero is also what a completely broken run looks like — ten navigations that never
-   * reached the server. So the rendering check below is what stops this from passing vacuously:
-   * it proves the requests happened and were answered with the application.
+   * This asserted `rotations <= 1`, and that was a sound proxy for exactly as long as the
+   * portal's navigation had no reachable destinations. The moment `/dashboard` became a real
+   * link, Next.js began prefetching it from every authenticated page — and a prefetch is an
+   * ordinary request that goes through the middleware and may legitimately rotate. The count
+   * rose to three or four with the coordinator working perfectly, so it had stopped measuring
+   * coordination and started measuring how many links are on the page.
+   *
+   * The replacement was chosen by measurement rather than by argument. With the mutex removed,
+   * ten navigations produced **eighteen rotations, nine rejections here, and nine users signed
+   * out**; with it, rejections stay at zero regardless of how much traffic the navigation graph
+   * generates. A rejection *is* the failure D197 exists to prevent — a request presenting a
+   * revoked token, receiving 401, and ending a session in the middle of a page load — so this
+   * asserts the failure directly instead of a proxy for it.
+   *
+   * The concurrency high-water mark is reported alongside because it is the direct reading of
+   * the mutex, but it is deliberately not the assertion: a browser updates its cookie jar
+   * between navigations, so requests opened together frequently arrive one at a time, and an
+   * uncoordinated portal can show a maximum of one in flight while still signing users out.
+   * `refresh.test.ts` is where genuinely simultaneous callers are exercised.
    */
   check(
-    'ten concurrent requests cause no more than one rotation',
-    rotations <= 1,
-    `${rotations} rotations`,
+    'no refresh is rejected as already-rotated',
+    after.refreshRejections === 0,
+    `${after.refreshRejections} rejected, ${rotations} rotations, ${after.maxConcurrentRefreshes} at once`,
   );
 
   const rendered = await Promise.all(
@@ -459,8 +473,8 @@ async function verifyOpenRedirect() {
   const page = await context.newPage();
 
   await page.goto(`${BASE}/login?next=https://example.com/phish`, { waitUntil: 'networkidle' });
-  await page.fill('#login-email', CREDENTIALS.email);
-  await page.fill('#login-password', CREDENTIALS.password);
+  await page.fill('#field-email', CREDENTIALS.email);
+  await page.fill('#field-password', CREDENTIALS.password);
   await Promise.all([
     page.waitForLoadState('networkidle'),
     page.getByRole('button', { name: /sign in/i }).click(),

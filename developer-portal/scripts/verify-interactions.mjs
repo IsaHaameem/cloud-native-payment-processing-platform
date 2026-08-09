@@ -95,8 +95,8 @@ async function signIn(page) {
   // Already signed in: the middleware bounces an authenticated visitor off /login.
   if (!page.url().includes('/login')) return;
 
-  await page.fill('#login-email', CREDENTIALS.email);
-  await page.fill('#login-password', CREDENTIALS.password);
+  await page.fill('#field-email', CREDENTIALS.email);
+  await page.fill('#field-password', CREDENTIALS.password);
   await page.getByRole('button', { name: /sign in/i }).click();
 
   /*

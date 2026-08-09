@@ -4,6 +4,7 @@ import { AppHeader } from '@/components/layout/app-header';
 import { AppSidebar, SIDEBAR_COLLAPSED_COOKIE } from '@/components/layout/app-sidebar';
 import { ModeBanner } from '@/components/layout/mode-banner';
 import { PageTransition } from '@/components/layout/page-transition';
+import { currentMerchant } from '@/lib/platform/current-merchant';
 import { readCsrfToken } from '@/lib/security/csrf';
 import { requireSession } from '@/lib/session/require';
 import { toPublicSession } from '@/lib/session/session';
@@ -34,6 +35,17 @@ import { toPublicSession } from '@/lib/session/session';
  * change is the single most common way an otherwise-good transition makes an app feel slower
  * than it is.
  *
+ * ── Why the business name is looked up rather than read from the session ──────────────
+ *
+ * The shell names the business the user is acting as, which the session cookie deliberately does
+ * not carry — see `lib/platform/current-merchant.ts` for why display data stays out of a value
+ * sent on every request. The lookup is memoised for the render, so the page below reuses this
+ * one call rather than making a second.
+ *
+ * A failed lookup yields no name rather than a placeholder. The shell is chrome: it either
+ * states a fact or says nothing, and "Loading…" or "Unknown business" frozen in a header is the
+ * kind of detail that makes a whole product feel unreliable.
+ *
  * ── Why the sidebar's state is read here ──────────────────────────────────────────────
  *
  * The collapsed preference is a cookie so this server component can render the correct width in
@@ -51,13 +63,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // a token, which is what makes that a structural guarantee rather than a habit.
   const publicSession = toPublicSession(session);
 
+  const lookup =
+    session.merchantId === undefined ? undefined : await currentMerchant(session.accessToken);
+  const businessName =
+    lookup?.status === 'found' && lookup.merchant.businessName.length > 0
+      ? lookup.merchant.businessName
+      : undefined;
+
   return (
     <div className="flex min-h-dvh bg-canvas">
       <AppSidebar defaultCollapsed={collapsed} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <ModeBanner mode={publicSession.mode} />
-        <AppHeader session={publicSession} csrfToken={csrfToken} />
+        <AppHeader session={publicSession} businessName={businessName} csrfToken={csrfToken} />
 
         <main id="main" className="flex-1 px-5 py-8 sm:px-8 lg:px-10">
           <div className="mx-auto w-full max-w-[1200px]">

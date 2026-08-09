@@ -1,100 +1,73 @@
-'use client';
-
-import { motion } from 'framer-motion';
-import { ArrowRight, KeyRound, Layers, ShieldCheck } from 'lucide-react';
+import {
+  ArrowRight,
+  BookLock,
+  Boxes,
+  FlaskConical,
+  GitBranch,
+  Radio,
+  RefreshCw,
+  ShieldCheck,
+  Terminal,
+  Webhook,
+} from 'lucide-react';
+import type { Metadata } from 'next';
 import Link from 'next/link';
 
-import { Wordmark } from '@/components/layout/logo';
-import { Badge } from '@/components/ui/badge';
+import { Hero } from '@/components/marketing/hero';
+import { Lifecycle } from '@/components/marketing/lifecycle';
+import { Reveal, RevealItem } from '@/components/marketing/reveal';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { listItemVariants, listVariants } from '@/lib/motion';
+import { readSession } from '@/lib/session/require';
+
+export const metadata: Metadata = {
+  title: 'PaymentFlow — payments infrastructure for developers',
+  description:
+    'Idempotent payments, a double-entry ledger, signed webhooks and a versioned API. Build against test mode first.',
+};
 
 /**
- * The public entry point (M23.1, redesigned to the Linear system).
+ * The public landing page (M23.2a).
  *
- * Kept to what the milestone is about: it proves the design language reads as intended at page
- * scale — the 64px hero at -0.88px tracking, the accent used exactly once, the grid backdrop —
- * and gives `/` something to be other than a redirect to a login page that does not exist yet.
- * The marketing surface proper is M25's.
+ * ── What changed and why ──────────────────────────────────────────────────────────────
  *
- * ── The hero is the one place the display sizes appear ─────────────────────────────────
+ * M23.1 put a single-screen page here whose job was to prove the design system read correctly at
+ * page scale — "Developer portal · M23", one link, to the component gallery. That was the right
+ * artefact for a foundation milestone and the wrong front door for a product: it described the
+ * milestone rather than the platform, and it offered a visitor no way to become a user.
  *
- * `text-hero` (64px / 510 / -0.88px) is the extracted `display-hero` role, and the reference
- * only ever uses it here. Inside the product, headings are 18px and the density does the work —
- * which is why `PageHeader` does not reach for this scale.
+ * This page sells what the repository can actually do, and every claim on it is traceable:
+ * idempotency records in `payment-service`, the transition table in `PaymentStatus`, the ledger
+ * in `transaction-service`, HMAC-signed deliveries in `notification-service`, Resilience4j in
+ * `common-lib`, the generated clients under `sdks/`, and a dated revision in `docs/openapi.yaml`.
+ * Nothing here is aspirational, and no milestone identifier appears anywhere a visitor can see —
+ * "M23.6" is a fact about our schedule, not about the product.
+ *
+ * ── Section ids are navigation contracts ──────────────────────────────────────────────
+ *
+ * `#platform`, `#lifecycle`, `#developers` and `#reliability` are what `SITE_NAV` points at, in
+ * both the navbar and the footer. Renaming one here breaks two links, which is why the list lives
+ * in `components/marketing/site-nav.ts` and is imported by both.
  */
-export default function LandingPage() {
+export default async function LandingPage() {
+  // Read rather than required: `/` renders for everyone. It decides which call to action is
+  // honest, and nothing more — the page never shows a signed-in visitor anything about
+  // themselves, so there is no per-user content here to leak.
+  const signedIn = (await readSession()) !== null;
+
   return (
-    <div className="relative min-h-dvh overflow-hidden">
-      <div aria-hidden className="bg-grid bg-grid-fade absolute inset-0 -z-10" />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 -top-32 -z-10 h-96 bg-[radial-gradient(ellipse_45%_50%_at_50%_50%,var(--color-accent-subtle),transparent_70%)]"
-      />
+    <main id="main">
+      <Hero signedIn={signedIn} />
 
-      <header className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-6">
-        <Wordmark />
-        <Button variant="ghost" size="md" asChild>
-          <Link href="/foundation">
-            Design system <ArrowRight />
-          </Link>
-        </Button>
-      </header>
-
-      <motion.main
-        id="main"
-        variants={listVariants}
-        initial="hidden"
-        animate="visible"
-        className="mx-auto w-full max-w-5xl px-6 pt-20 pb-28 sm:pt-28"
+      <Section
+        id="platform"
+        eyebrow="Platform"
+        title="Everything a payment touches, in one place"
+        lede="Four services behind one contract: authorization and capture, refunds, the ledger that records both, and the webhooks that tell your systems it happened."
       >
-        <motion.div variants={listItemVariants}>
-          <Badge tone="accent">Developer portal · M23</Badge>
-        </motion.div>
-
-        <motion.h1
-          variants={listItemVariants}
-          className="mt-6 max-w-3xl text-[2.5rem] leading-[1.1] font-[510] tracking-[-0.88px] text-balance text-fg sm:text-hero"
-        >
-          The payments platform your engineers actually want to integrate
-        </motion.h1>
-
-        <motion.p
-          variants={listItemVariants}
-          className="mt-6 max-w-xl text-body-lg text-pretty text-fg-subtle"
-        >
-          Idempotent payments, a double-entry ledger, signed webhooks and a versioned public API —
-          with a dashboard built on the same contract the SDKs are generated from.
-        </motion.p>
-
-        <motion.div variants={listItemVariants} className="mt-9 flex flex-wrap items-center gap-3">
-          <Button variant="primary" size="lg" asChild>
-            <Link href="/foundation">
-              Explore the foundation <ArrowRight />
-            </Link>
-          </Button>
-        </motion.div>
-
-        <motion.div variants={listVariants} className="mt-24 grid gap-4 sm:grid-cols-3">
-          {[
-            {
-              icon: Layers,
-              title: 'One contract',
-              body: 'The portal reads the same OpenAPI document the Node and Python SDKs are generated from.',
-            },
-            {
-              icon: ShieldCheck,
-              title: 'No token in the browser',
-              body: 'Sessions live in an encrypted, http-only cookie. Every platform call is server-side.',
-            },
-            {
-              icon: KeyRound,
-              title: 'Test and live, never confused',
-              body: 'Mode is bound to the credential and shown on every screen it affects.',
-            },
-          ].map(({ icon: Icon, title, body }) => (
-            <motion.div key={title} variants={listItemVariants}>
+        <Reveal stagger className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {CAPABILITIES.map(({ icon: Icon, title, body }) => (
+            <RevealItem key={title}>
               <Card className="h-full">
                 <CardContent className="pt-5">
                   <Icon aria-hidden className="size-4 text-fg-subtle" />
@@ -102,10 +75,210 @@ export default function LandingPage() {
                   <p className="mt-1.5 text-body text-fg-subtle">{body}</p>
                 </CardContent>
               </Card>
-            </motion.div>
+            </RevealItem>
           ))}
-        </motion.div>
-      </motion.main>
-    </div>
+        </Reveal>
+      </Section>
+
+      <Section
+        id="lifecycle"
+        eyebrow="Lifecycle"
+        title="A payment is a state machine, and you can see all of it"
+        lede="Illegal transitions are rejected rather than quietly coerced, so a payment is never in a state your integration cannot explain."
+      >
+        <Reveal>
+          <Lifecycle />
+        </Reveal>
+      </Section>
+
+      <Section
+        id="developers"
+        eyebrow="Developers"
+        title="API first, and the clients prove it"
+        lede="One OpenAPI document is the source of truth. The SDKs, this dashboard and the request validation are all generated or driven from it, so none of them can describe an API the platform is not serving."
+      >
+        <Reveal stagger className="grid gap-4 sm:grid-cols-2">
+          {DEVELOPER_POINTS.map(({ icon: Icon, title, body }) => (
+            <RevealItem key={title}>
+              <Card className="h-full">
+                <CardContent className="pt-5">
+                  <Icon aria-hidden className="size-4 text-fg-subtle" />
+                  <p className="mt-3 text-label font-[510] text-fg">{title}</p>
+                  <p className="mt-1.5 text-body text-fg-subtle">{body}</p>
+                </CardContent>
+              </Card>
+            </RevealItem>
+          ))}
+        </Reveal>
+      </Section>
+
+      <Section
+        id="reliability"
+        eyebrow="Reliability"
+        title="Built for the requests that do not go well"
+        lede="Retries, circuit breakers and an event log, because the interesting part of a payments platform is what it does when a downstream call times out."
+      >
+        <Reveal stagger className="grid gap-4 sm:grid-cols-3">
+          {RELIABILITY_POINTS.map(({ icon: Icon, title, body }) => (
+            <RevealItem key={title}>
+              <Card className="h-full">
+                <CardContent className="pt-5">
+                  <Icon aria-hidden className="size-4 text-fg-subtle" />
+                  <p className="mt-3 text-label font-[510] text-fg">{title}</p>
+                  <p className="mt-1.5 text-body text-fg-subtle">{body}</p>
+                </CardContent>
+              </Card>
+            </RevealItem>
+          ))}
+        </Reveal>
+      </Section>
+
+      <section className="mx-auto w-full max-w-6xl px-5 pb-28 sm:px-8">
+        <Reveal>
+          <div className="edge-light relative overflow-hidden rounded-xl bg-surface px-6 py-14 text-center ring-hairline sm:px-12">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(ellipse_50%_70%_at_50%_0%,var(--color-accent-subtle),transparent_70%)]"
+            />
+            <h2 className="relative text-title-2 font-[510] tracking-[-0.165px] text-balance text-fg sm:text-[2rem] sm:leading-[1.15] sm:tracking-[-0.6px]">
+              {signedIn
+                ? 'Everything is set up and waiting'
+                : 'Start in test mode in about a minute'}
+            </h2>
+            <p className="relative mx-auto mt-3 max-w-md text-body text-pretty text-fg-subtle">
+              {signedIn
+                ? 'Your business account is ready. Pick up where you left off.'
+                : 'Create an account, name your business, and you have keys. Nothing charges anything until you say so.'}
+            </p>
+            <div className="relative mt-7 flex flex-wrap items-center justify-center gap-3">
+              <Button variant="primary" size="lg" asChild>
+                <Link href={signedIn ? '/dashboard' : '/signup'}>
+                  {signedIn ? 'Open the dashboard' : 'Create your account'} <ArrowRight />
+                </Link>
+              </Button>
+              {signedIn ? null : (
+                <Button variant="ghost" size="lg" asChild>
+                  <Link href="/login">Sign in</Link>
+                </Button>
+              )}
+            </div>
+          </div>
+        </Reveal>
+      </section>
+    </main>
+  );
+}
+
+const CAPABILITIES = [
+  {
+    icon: RefreshCw,
+    title: 'Idempotent by default',
+    body: 'Every mutation takes an Idempotency-Key. Replay a request after a timeout and you get the original answer, not a second charge.',
+  },
+  {
+    icon: GitBranch,
+    title: 'Authorize, capture, refund',
+    body: 'Hold funds, settle them later, return them in full or in part — each an explicit transition with its own event.',
+  },
+  {
+    icon: BookLock,
+    title: 'Double-entry ledger',
+    body: 'A balance is derived from the entries that produced it rather than kept as a number beside them, so it can always be explained.',
+  },
+  {
+    icon: Webhook,
+    title: 'Signed webhooks',
+    body: 'Every delivery carries an HMAC signature over the exact body sent, and the signing secret is encrypted at rest — never hashed, so you can always verify.',
+  },
+  {
+    icon: FlaskConical,
+    title: 'Test and live, never confused',
+    body: 'Mode is bound to the credential, not to a header. A test key cannot read live data and no request can talk it into trying.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Keys you can rotate',
+    body: 'Publishable and secret keys per mode, stored hashed and revealed once, with rotation that leaves a grace window rather than an outage.',
+  },
+] as const;
+
+const DEVELOPER_POINTS = [
+  {
+    icon: Boxes,
+    title: 'Generated SDKs',
+    body: 'TypeScript and Python clients emitted from the same document that describes the API, with a build gate that fails when they drift from it.',
+  },
+  {
+    icon: Terminal,
+    title: 'A dated, versioned contract',
+    body: 'Requests name the revision they were written against. Breaking changes ship as a new date, and the old shape keeps being served.',
+  },
+  {
+    icon: FlaskConical,
+    title: 'A sandbox that decides on purpose',
+    body: 'Test cards choose their own outcome — approvals, declines, timeouts — so the failure paths are as easy to build against as the happy one.',
+  },
+  {
+    icon: Radio,
+    title: 'Everything is observable',
+    body: 'Traces, metrics and a per-request log across every service, correlated by one id from the gateway inwards.',
+  },
+] as const;
+
+const RELIABILITY_POINTS = [
+  {
+    icon: RefreshCw,
+    title: 'Retries with a memory',
+    body: 'Retries are bounded, jittered, and safe — the idempotency layer is what makes a repeated request a repeat rather than a duplicate.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Circuit breakers',
+    body: 'A failing dependency is isolated rather than waited on, so one slow service does not become a queue of stuck payments.',
+  },
+  {
+    icon: Radio,
+    title: 'Event-driven, not batch',
+    body: 'State changes are published as events the moment they commit, which is how the ledger, the webhooks and the analytics stay in step.',
+  },
+] as const;
+
+/**
+ * One band of the page.
+ *
+ * The vertical rhythm is here rather than at each call site, because a landing page whose
+ * sections are 96px, 112px and 80px apart is the single most reliable way to make an otherwise
+ * careful design read as assembled by hand.
+ */
+function Section({
+  id,
+  eyebrow,
+  title,
+  lede,
+  children,
+}: {
+  id: string;
+  eyebrow: string;
+  title: string;
+  lede: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      id={id}
+      // The offset keeps a heading clear of the sticky navbar when an anchor jumps to it —
+      // otherwise every in-page link lands with the title hidden behind the bar.
+      className="mx-auto w-full max-w-6xl scroll-mt-20 px-5 py-20 sm:px-8 sm:py-24"
+    >
+      <Reveal className="mb-10 max-w-2xl">
+        <p className="text-label font-[510] text-accent-text">{eyebrow}</p>
+        <h2 className="mt-2 text-title-2 font-[510] tracking-[-0.165px] text-balance text-fg sm:text-[2rem] sm:leading-[1.15] sm:tracking-[-0.6px]">
+          {title}
+        </h2>
+        <p className="mt-3 text-body text-pretty text-fg-subtle">{lede}</p>
+      </Reveal>
+
+      {children}
+    </section>
   );
 }

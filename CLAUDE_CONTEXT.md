@@ -25,7 +25,7 @@
 | **Purpose** | A payment processor's orchestration layer — payment lifecycle FSM, double-entry ledger, and asynchronous state propagation — built across independently deployable microservices. A portfolio/engineering project, not a production payment system. |
 | **Repository version** | V2 in progress (V1 complete and frozen) |
 | **Development phase** | Phase B complete — *Product surface*; Phase C in progress: M22 done, **M23 under way (M23.0 complete)** (see §3) |
-| **Current milestone** | **M23 — developer portal, part 1.** M23.0 (backend enablement) and M23.1 (portal foundation) complete; M23.2 (authentication) next |
+| **Current milestone** | **M23 — developer portal, part 1.** M23.0 (backend enablement), M23.1 (foundation), M23.2 (authentication) and M23.2a (public entry flow) complete; M23.3 (shell and data layer) next |
 | **Branch** | `main` |
 | **Latest commit** | *feat(m23.1): the portal, its design system, and the contract it reads* |
 | **Repository health** | Healthy |
@@ -125,7 +125,8 @@ M23.0 touches the backend.
 |---|---|---|
 | M23.0 | Backend enablement — the session-derived internal context | ✅ |
 | M23.1 | Portal foundation — scaffold, tokens, Docker, CI, generated types | ✅ |
-| M23.2 | Authentication — session cookie, auth flows, middleware, CSRF | ⬜ |
+| M23.2 | Authentication — session cookie, auth flows, middleware, CSRF | ✅ |
+| M23.2a | Public entry flow — landing, signup, onboarding, dashboard entry (no backend change) | ✅ |
 | M23.3 | Shell and data layer — chrome, mode toggle, transport, query keys | ⬜ |
 | M23.4 | Onboarding and merchant settings | ⬜ |
 | M23.5 | API keys — create, reveal-once, rotate, revoke | ⬜ |
@@ -1100,7 +1101,7 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 
 ---
 
-## 17. Current Milestone — M23.0, M23.1 and M23.2 (complete); M23.3 next
+## 17. Current Milestone — M23.0, M23.1, M23.2 and M23.2a (complete); M23.3 next
 
 **Objective (M23).** The Merchant Developer Portal: one Next.js App Router application that
 turns this platform into something a merchant can use — sign up, onboard, manage API keys, and
@@ -1244,6 +1245,45 @@ gateway). Both browser suites assert their own instrument — visibility and fra
 before anything else, and both now run in CI. Proven to fail on bad input: removing the refresh
 coordination fails three tests; removing the CSRF comparison fails `the session survived a forged
 CSRF token`.
+
+### M23.2a — the public entry flow ✅
+
+**Why it exists.** M23.2 built authentication and stopped there, which left the portal able to
+*verify* an account and unable to *create* one. There was no signup route, `/onboarding` onboarded
+nobody, `/dashboard` did not exist, and `/` was a milestone announcement whose only link went to
+the component gallery. A new merchant's path to the product ran through `curl`.
+
+**The audit came first, and it decided the shape.** Every step was already served:
+`POST /api/v1/auth/register` (email, password 8–72, optional `fullName`; 409 on duplicate; no
+tokens), `POST /api/v1/merchants` (businessName, contactEmail; 409 if the owner has one), and
+`GET /api/v1/merchants/me` (404 = not onboarded). `AuthService.login` checks `enabled` and
+**not** `emailVerified`, so a fresh account signs in immediately. **No backend change was made or
+needed** — this was a UX gap, not a missing capability.
+
+| Piece | Note |
+|---|---|
+| `lib/platform/merchants.ts` | The account plane's own client. `/api/v1` has no generated descriptors (D98/D182) so it cannot go through `lib/api/transport`, and `/v1` cannot serve a user with no merchant at all — M23.0's filter answers 403. Every outcome is a value, never a throw: `found`/`absent`/`unavailable`, because confusing an outage with "no merchant" marches an onboarded merchant into a 409 |
+| `lib/session/merchant.ts` | Now delegates to that module, so login-time resolution and the onboarding form share one request shape |
+| `(auth)/signup` | Server Action, three CSRF defences, platform bounds validated before a round trip. Does not authenticate (D201) |
+| `(setup)/onboarding` | Its own route group, not `(app)`: the app shell would frame the one task this user must do with ten they cannot. Reseals the session with the new `merchantId` — the write without which `/dashboard` bounces them straight back — and recovers from a 409 by re-reading rather than reporting an error |
+| `(app)/dashboard` | The authenticated entry point §6.1 fixes, and `requireMerchant`'s first caller. **Not one fabricated number on it**: the merchant, the mode, and a quickstart whose base URL and revision come from `@/generated/contract`, so the sample cannot drift from what the platform serves |
+| `(marketing)` | A real product landing page and a public navbar. Every claim traces to code in this repository; the nav points only at sections that exist, because `/docs` and `/reference` are M25's and a "coming soon" link is how a payments API loses a developer in ten seconds |
+
+**The one thing that surprised.** Enabling the first reachable sidebar destination turned on
+Next.js **prefetching**, and a prefetch is an ordinary request through D198's single refresh
+point — so the browser suite's `rotations <= 1` assertion began failing at three or four with the
+coordinator working perfectly. It had stopped measuring coordination and started measuring how
+many links are on the page. Diagnosed by bisecting against the committed baseline, then fixed by
+measurement rather than argument: with the mutex removed, ten navigations produce eighteen
+rotations, **nine 401s and nine sign-outs**; with it, rejected rotations stay at zero at any
+traffic level. The suite now asserts the rejection count, which is the failure D197 exists to
+prevent (D203).
+
+**Testing.** 107 unit tests (32 new, across registration and onboarding), 47 browser
+authentication checks — unchanged in number and none weakened — and **61 new public-flow checks**
+walking a genuinely new user from `/` to a working dashboard, plus mobile navigation, both themes
+with measured contrast, and reduced motion. Proven to fail on bad input: the new race assertion
+was verified against a deliberately sabotaged coordinator before being trusted.
 
 ### What M23.3 needs from here
 

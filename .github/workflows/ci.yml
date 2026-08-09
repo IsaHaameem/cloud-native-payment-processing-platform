@@ -501,6 +501,23 @@ jobs:
           STUB: http://localhost:4600
         run: node scripts/verify-auth.mjs
 
+      # M23.2a. The unit suite proves each step of the entry flow in isolation, with the
+      # step before it mocked; what it structurally cannot prove is the join —
+      # that a browser which has never seen this application can start on the
+      # landing page and reach a working dashboard with nobody intervening. That
+      # is one continuous journey through five routes, three redirects and two
+      # cookie rewrites, and it is the milestone's stated completion criterion.
+      #
+      # It runs after the authentication suite rather than before it: both reset
+      # the stub, and the authentication suite's refresh checks are the ones that
+      # care about a quiet starting state.
+      - name: Public entry flow
+        working-directory: developer-portal
+        env:
+          BASE: http://localhost:3601
+          STUB: http://localhost:4600
+        run: node scripts/verify-public.mjs
+
       - name: Interaction and animation behaviour
         working-directory: developer-portal
         env:

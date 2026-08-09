@@ -40,17 +40,30 @@ import { submitById } from '@/lib/security/submit';
  * The form element still earns its place by carrying the token and the method, so the request
  * that leaves the browser is an ordinary, guarded form post.
  *
- * ── The email is the identity, and it is all the client gets ──────────────────────────
+ * ── The identity is the client's whole share of the session ───────────────────────────
  *
- * Rendered from `PublicSession`, which by construction cannot carry a token. This component is
- * the reason that type exists: it is the first client component in the portal that displays
- * anything about the signed-in user, and the boundary had to be somewhere it could not be
- * crossed by accident.
+ * Rendered from `PublicSession` plus a business name the layout looked up separately. Neither
+ * can carry a token by construction. This component is the reason `PublicSession` exists: it is
+ * the first client component in the portal that displays anything about the signed-in user, and
+ * the boundary had to be somewhere it could not be crossed by accident.
+ *
+ * The business name sits above the email because it answers the question a merchant with two
+ * accounts actually has — *which business am I acting as* — and the email only says which login
+ * they used. It is absent for a user who has not onboarded, which is a state this menu can be
+ * rendered in.
  */
 
 const LOGOUT_FORM_ID = 'pf-logout-form';
 
-export function AccountMenu({ email, csrfToken }: { email: string; csrfToken: string }) {
+export function AccountMenu({
+  email,
+  businessName,
+  csrfToken,
+}: {
+  email: string;
+  businessName?: string | undefined;
+  csrfToken: string;
+}) {
   return (
     <>
       {/* Hidden, but in the document: it is what `submitById` submits. */}
@@ -68,7 +81,8 @@ export function AccountMenu({ email, csrfToken }: { email: string; csrfToken: st
 
         <DropdownMenuContent align="end" className="min-w-56">
           <DropdownMenuLabel>
-            <span className="block truncate text-fg-subtle">{email}</span>
+            {businessName ? <span className="block truncate text-fg">{businessName}</span> : null}
+            <span className="block truncate font-normal text-fg-subtle">{email}</span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
 

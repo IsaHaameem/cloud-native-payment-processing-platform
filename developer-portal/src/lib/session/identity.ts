@@ -24,6 +24,22 @@ import { env } from '@/lib/env';
 
 export class InvalidCredentialsError extends Error {}
 
+/**
+ * `POST /register` answered 409 — `EmailAlreadyExistsException`.
+ *
+ * ── This does leak whether an address has an account, and that is the backend's answer ──
+ *
+ * Login is carefully non-enumerable; registration cannot be, because the platform has to refuse
+ * a second account on one address and the caller has to be told why. Inventing a fake success
+ * would leave the user staring at a sign-in page for an account they believe they just made.
+ * So the portal reports what identity-service reports, and pairs it with the useful next step —
+ * a link to sign in — rather than pretending the request succeeded.
+ */
+export class EmailAlreadyRegisteredError extends Error {}
+
+/** `POST /register` answered 400 — bean validation refused the payload. */
+export class RegistrationRejectedError extends Error {}
+
 /** identity-service rejected the refresh token: revoked, rotated already, or unknown. */
 export class RejectedTokenError extends Error {}
 
@@ -49,6 +65,47 @@ interface AuthResponseBody {
   accessToken?: unknown;
   refreshToken?: unknown;
   expiresIn?: unknown;
+}
+
+/**
+ * Creates an account.
+ *
+ * ── It does not sign anyone in, and that is the backend's shape, not a choice here ────
+ *
+ * `AuthController.register` answers 201 with a `UserResponse` — no token pair. So the portal
+ * cannot establish a session from a registration, and the signup action deliberately does not
+ * try to by replaying the password into `login`: that would turn one user action into two
+ * credential submissions, and would have to hold the password across them.
+ *
+ * `fullName` is optional in `RegisterRequest` (`@Size(max = 150)` and nothing more), so it is
+ * omitted from the body rather than sent empty when the user leaves it blank.
+ *
+ * @throws {EmailAlreadyRegisteredError} 409 — the address already has an account
+ * @throws {RegistrationRejectedError}   400 — the platform refused the payload
+ * @throws {IdentityUnavailableError}    unreachable, 5xx, or an answer we cannot describe
+ */
+export async function register(
+  email: string,
+  password: string,
+  fullName: string | undefined,
+): Promise<void> {
+  const response = await post('/api/v1/auth/register', {
+    email,
+    password,
+    ...(fullName !== undefined && fullName.length > 0 ? { fullName } : {}),
+  });
+
+  if (response.status === 409) {
+    throw new EmailAlreadyRegisteredError('An account with that email already exists.');
+  }
+  if (response.status === 400) {
+    // The platform's own field messages are not forwarded: they name Java bean-validation
+    // constraints, and the form already states every rule in language a person can act on.
+    throw new RegistrationRejectedError('Those details were not accepted.');
+  }
+  if (response.status !== 201 && (response.status < 200 || response.status >= 300)) {
+    throw new IdentityUnavailableError(`Unexpected ${response.status} from register.`);
+  }
 }
 
 export async function login(email: string, password: string): Promise<IssuedTokens> {

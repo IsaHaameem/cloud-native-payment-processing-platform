@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { env } from '@/lib/env';
+import { lookupMerchant } from '@/lib/platform/merchants';
 
 /**
  * Resolving the signed-in user's merchant, once, at login (M23.2).
@@ -12,31 +12,26 @@ import { env } from '@/lib/env';
  * So `/v1` cannot tell the portal which merchant a user has; it can only refuse to serve a user
  * who has none.
  *
- * `GET /api/v1/merchants/me` is the dashboard-tier endpoint that answers the question directly.
+ * `GET /api/v1/merchants/me` is the account-plane endpoint that answers the question directly.
  * It takes the user's own JWT through the gateway's OAuth2 resource server, so no new trust
  * relationship is introduced: the portal is asking, with the user's credential, for the user's
- * own merchant.
+ * own merchant. The request itself lives in `lib/platform/merchants.ts`, which owns every call
+ * to that plane; this module is the login-time reading of it.
  *
  * ── Resolved at login, not per request ────────────────────────────────────────────────
  *
  * A user's merchant does not change during a session — a second one cannot be created for the
  * same owner, and `merchant-service` caches the lookup anyway. Reading it once and sealing it in
  * the cookie keeps it off the hot path entirely; onboarding, which is the one thing that changes
- * the answer, ends by writing a fresh session.
+ * the answer, ends by writing a fresh session (M23.2a).
  *
  * ── 404 is a state, not a failure ─────────────────────────────────────────────────────
  *
  * `MerchantService.getMine` throws `ResourceNotFoundException` for a user who has not onboarded,
- * and the gateway returns 404. That is the ordinary state of a freshly verified account, so it
+ * and the gateway returns 404. That is the ordinary state of a freshly registered account, so it
  * maps to `undefined` rather than to an error — the state `requireMerchant` exists to route to
  * onboarding.
  */
-
-const TIMEOUT_MS = 10_000;
-
-interface MerchantResponseBody {
-  id?: unknown;
-}
 
 /**
  * @returns the merchant's id, or `undefined` when the user has not onboarded one.
@@ -44,22 +39,11 @@ interface MerchantResponseBody {
  * Never throws. A lookup that fails for any other reason — the service is down, the response is
  * a shape we do not recognise — also yields `undefined`, and that choice is deliberate: the
  * alternative is refusing to complete a login because a *secondary* fact could not be
- * established. The user lands on onboarding, which re-checks; an unnecessary trip there is a far
- * better failure than an unnecessary failure to sign in.
+ * established. The user lands on onboarding, which re-checks against the platform before showing
+ * a form; an unnecessary trip there is a far better failure than an unnecessary failure to sign
+ * in.
  */
 export async function resolveMerchantId(accessToken: string): Promise<string | undefined> {
-  try {
-    const response = await fetch(`${env.gatewayUrl}/api/v1/merchants/me`, {
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-
-    if (!response.ok) return undefined;
-
-    const body = (await response.json()) as MerchantResponseBody;
-    return typeof body.id === 'string' && body.id.length > 0 ? body.id : undefined;
-  } catch {
-    return undefined;
-  }
+  const lookup = await lookupMerchant(accessToken);
+  return lookup.status === 'found' ? lookup.merchant.id : undefined;
 }
