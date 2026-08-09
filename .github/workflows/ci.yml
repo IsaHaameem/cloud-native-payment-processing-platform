@@ -550,6 +550,18 @@ jobs:
           STUB: http://localhost:4600
         run: node scripts/verify-settings.mjs
 
+      # M23.5. The one screen in the product that shows a secret. The unit suite proves the
+      # lifecycle; only a browser can prove the property the screen exists for — that the raw key
+      # appears once and is then genuinely unreachable. This reads the real value out of the reveal
+      # and goes looking for it in the page source, the URL, the cookies, both storages, and a
+      # fresh load of the same route.
+      - name: API key management
+        working-directory: developer-portal
+        env:
+          BASE: http://localhost:3601
+          STUB: http://localhost:4600
+        run: node scripts/verify-api-keys.mjs
+
       - name: Interaction and animation behaviour
         working-directory: developer-portal
         env:

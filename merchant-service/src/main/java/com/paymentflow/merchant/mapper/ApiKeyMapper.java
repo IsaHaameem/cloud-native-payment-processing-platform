@@ -12,7 +12,8 @@ public class ApiKeyMapper {
     public ApiKeyResponse toResponse(ApiKey key) {
         return new ApiKeyResponse(
                 key.getId(), key.getKeyType(), key.getMode(), key.getName(), key.getKeyPrefix(),
-                key.getScopes(), key.getLastUsedAt(), key.getExpiresAt(), key.getRevokedAt(), key.getCreatedAt());
+                key.getScopes(), key.getLastUsedAt(), key.getExpiresAt(), key.getGraceExpiresAt(),
+                key.getRevokedAt(), key.getCreatedAt());
     }
 
     public ApiKeyIssuedResponse toIssuedResponse(IssuedApiKey issued) {

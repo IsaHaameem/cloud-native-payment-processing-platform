@@ -58,6 +58,84 @@ let nextUserId = 0;
 let nextMerchantId = 0;
 
 /**
+ * API keys, keyed by merchant id (M23.5).
+ *
+ * Modelled on `ApiKeyService` rather than on what the screen happens to need, because the two
+ * disagree in ways that matter: keys are **never deleted**, both modes live in one list, and a
+ * rotation leaves the old key alive with a `graceExpiresAt` deadline instead of removing it. A
+ * stub that dropped rotated keys would let a portal bug — losing the retiring row — pass.
+ *
+ * Only the SHA-256 hash is stored in the real service, so the raw value here exists solely inside
+ * the response that issues it and is deliberately not retained: a test asking this stub "what is
+ * the secret for key X" must be impossible, exactly as it is against merchant-service.
+ */
+const apiKeys = new Map();
+
+let nextKeyId = 0;
+
+/** Milliseconds. Mirrors `paymentflow.merchant.api-key.rotation-grace-period` (24h). */
+const GRACE_MS = 24 * 60 * 60 * 1000;
+
+function keysOf(merchantId) {
+  if (!apiKeys.has(merchantId)) apiKeys.set(merchantId, []);
+  return apiKeys.get(merchantId);
+}
+
+/** `ApiKeyResponse` — the management view, which never carries a secret. */
+function keyResponse(key) {
+  return {
+    id: key.id,
+    type: key.type,
+    mode: key.mode,
+    name: key.name,
+    keyPrefix: key.keyPrefix,
+    scopes: key.scopes,
+    lastUsedAt: key.lastUsedAt ?? null,
+    expiresAt: null,
+    graceExpiresAt: key.graceExpiresAt ?? null,
+    revokedAt: key.revokedAt ?? null,
+    createdAt: key.createdAt,
+  };
+}
+
+/**
+ * Issues a key and returns `[storedKey, ApiKeyIssuedResponse]`.
+ *
+ * The raw value is generated here and handed straight back; the stored record keeps only the
+ * 12-character visible prefix, as `ApiKeyService.issue` does.
+ */
+function issueKey(merchantId, { type, mode, name, scopes }) {
+  const id = `aaaaaaaa-bbbb-4ccc-8ddd-${String(++nextKeyId).padStart(12, '0')}`;
+  const secretBody = `stub${String(nextKeyId).padStart(4, '0')}${Math.random().toString(36).slice(2, 18)}`;
+  const raw = `${type === 'SECRET' ? 'sk' : 'pk'}_${mode}_${secretBody}`;
+  const stored = {
+    id,
+    type,
+    mode,
+    name:
+      name && name.trim().length > 0 ? name.trim() : `Default ${mode} ${type.toLowerCase()} key`,
+    keyPrefix: raw.slice(0, 12),
+    scopes: scopes && scopes.length > 0 ? scopes : type === 'SECRET' ? ['*'] : ['payments:read'],
+    createdAt: new Date().toISOString(),
+  };
+  keysOf(merchantId).push(stored);
+  return [
+    stored,
+    {
+      id: stored.id,
+      apiKey: raw,
+      keyPrefix: stored.keyPrefix,
+      type: stored.type,
+      mode: stored.mode,
+      name: stored.name,
+      scopes: stored.scopes,
+      expiresAt: null,
+      issuedAt: stored.createdAt,
+    },
+  ];
+}
+
+/**
  * The handful of `/v1` objects the shell suite looks up (M23.3).
  *
  * Ids match the contract's own shapes — UUIDs for payments and refunds, `evt_` plus 32 hex for
@@ -300,6 +378,8 @@ const server = createServer(async (request, response) => {
     maxRefreshesInFlight = 0;
     refreshRejections = 0;
     passwordResets.clear();
+    apiKeys.clear();
+    nextKeyId = 0;
     // Accounts created by a previous test are cleared too, so a suite that registers
     // `new@example.com` twice does not fail the second time with a 409 it did not ask for.
     seedUsers();
@@ -324,6 +404,20 @@ const server = createServer(async (request, response) => {
     const email = (url.searchParams.get('email') ?? '').toLowerCase();
     const user = users.get(email);
     return send(response, 200, user?.merchantId ? merchantResponse(user) : null);
+  }
+
+  /**
+   * The stored keys, for tests (M23.5).
+   *
+   * Deliberately the *management* view: this endpoint cannot return a secret, because the stub
+   * does not keep one. A test that wants to check a revealed secret has to read it off the screen,
+   * which is exactly the constraint a real developer works under.
+   */
+  if (path === '/__stub/keys') {
+    const email = (url.searchParams.get('email') ?? '').toLowerCase();
+    const user = users.get(email);
+    const stored = user?.merchantId ? keysOf(user.merchantId) : [];
+    return send(response, 200, stored.map(keyResponse));
   }
 
   /**
@@ -591,6 +685,105 @@ const server = createServer(async (request, response) => {
   }
 
   /*
+   * `ApiKeyController` — the whole of key management (M23.5).
+   *
+   * Ownership comes from the token on every one of these, exactly as merchant-service derives it
+   * from the JWT subject: nothing the caller says about identity is read. A key id belonging to
+   * another merchant is therefore **404**, not 403, because `findByIdAndMerchantId` resolves the
+   * pair together and cannot distinguish "someone else's" from "no such thing".
+   */
+  if (path === '/api/v1/merchants/me/api-keys' && request.method === 'GET') {
+    const user = userFromAuthorization(request.headers.authorization);
+    if (!user) {
+      return send(response, 401, { type: 'authentication_error', code: 'unauthorized' });
+    }
+    if (user.merchantId === undefined) {
+      return send(response, 404, { type: 'invalid_request_error', code: 'not_found' });
+    }
+    // Newest first, as `findByMerchantIdOrderByCreatedAtDesc` returns them. Every key, both
+    // modes, revoked ones included — the narrowing is the portal's job and must be testable.
+    return send(response, 200, [...keysOf(user.merchantId)].reverse().map(keyResponse));
+  }
+
+  if (path === '/api/v1/merchants/me/api-keys' && request.method === 'POST') {
+    const user = userFromAuthorization(request.headers.authorization);
+    if (!user) {
+      return send(response, 401, { type: 'authentication_error', code: 'unauthorized' });
+    }
+    if (user.merchantId === undefined) {
+      return send(response, 404, { type: 'invalid_request_error', code: 'not_found' });
+    }
+
+    const body = await readJson(request);
+    // `CreateApiKeyRequest`: type and mode are `@NotNull`, name is `@Size(max = 100)`.
+    const type = body.type;
+    const mode = String(body.mode ?? '').toLowerCase();
+    if (
+      (type !== 'SECRET' && type !== 'PUBLISHABLE') ||
+      (mode !== 'test' && mode !== 'live') ||
+      String(body.name ?? '').length > 100
+    ) {
+      return send(response, 400, { type: 'invalid_request_error', code: 'validation_error' });
+    }
+
+    const [, issued] = issueKey(user.merchantId, {
+      type,
+      mode,
+      name: body.name,
+      scopes: Array.isArray(body.scopes) ? body.scopes : undefined,
+    });
+    return send(response, 201, issued);
+  }
+
+  const rotateMatch = path.match(/^\/api\/v1\/merchants\/me\/api-keys\/([^/]+)\/rotate$/);
+  if (rotateMatch && request.method === 'POST') {
+    const user = userFromAuthorization(request.headers.authorization);
+    if (!user) {
+      return send(response, 401, { type: 'authentication_error', code: 'unauthorized' });
+    }
+    if (user.merchantId === undefined) {
+      return send(response, 404, { type: 'invalid_request_error', code: 'not_found' });
+    }
+
+    const existing = keysOf(user.merchantId).find((key) => key.id === rotateMatch[1]);
+    if (!existing) {
+      return send(response, 404, { type: 'invalid_request_error', code: 'not_found' });
+    }
+
+    // `rotateWithGrace`: the old key gets a deadline and stays in the list; the replacement
+    // inherits type, mode, name and scopes. Both halves matter to the screen.
+    existing.graceExpiresAt = new Date(Date.now() + GRACE_MS).toISOString();
+    const [, issued] = issueKey(user.merchantId, {
+      type: existing.type,
+      mode: existing.mode,
+      name: existing.name,
+      scopes: existing.scopes,
+    });
+    return send(response, 200, issued);
+  }
+
+  const revokeMatch = path.match(/^\/api\/v1\/merchants\/me\/api-keys\/([^/]+)$/);
+  if (revokeMatch && request.method === 'DELETE') {
+    const user = userFromAuthorization(request.headers.authorization);
+    if (!user) {
+      return send(response, 401, { type: 'authentication_error', code: 'unauthorized' });
+    }
+    if (user.merchantId === undefined) {
+      return send(response, 404, { type: 'invalid_request_error', code: 'not_found' });
+    }
+
+    const existing = keysOf(user.merchantId).find((key) => key.id === revokeMatch[1]);
+    if (!existing) {
+      return send(response, 404, { type: 'invalid_request_error', code: 'not_found' });
+    }
+
+    // Marked, never removed: a revoked key is the record that it once existed.
+    existing.revokedAt = new Date().toISOString();
+    response.writeHead(204).end();
+    return undefined;
+  }
+
+  /*
    * `UserController.currentUser` — the account section's read (M23.4).
    */
   if (path === '/api/v1/users/me' && request.method === 'GET') {
@@ -635,12 +828,25 @@ const server = createServer(async (request, response) => {
     user.businessName = body.businessName;
     user.contactEmail = body.contactEmail;
 
+    /*
+     * The four starter keys `ApiKeyService.issueDefaultSet` mints in the same transaction (M15,
+     * §3.1 step 2) are **stored**, not merely echoed. They are what a real merchant finds waiting
+     * on the API-keys screen, and their secrets are discarded by the portal here exactly as they
+     * are in production — so the state M23.5's screen has to explain is the state this produces.
+     */
+    const starters = [
+      ['PUBLISHABLE', 'test'],
+      ['SECRET', 'test'],
+      ['PUBLISHABLE', 'live'],
+      ['SECRET', 'live'],
+    ].map(([type, mode]) => issueKey(user.merchantId, { type, mode }));
+
     return send(response, 201, {
       merchant: merchantResponse(user),
-      apiKeys: ['pk_test', 'sk_test', 'pk_live', 'sk_live'].map((prefix) => ({
-        id: randomUUID(),
-        prefix,
-        secret: `${prefix}_stub_secret_never_shown`,
+      apiKeys: starters.map(([, issued]) => ({
+        id: issued.id,
+        prefix: issued.keyPrefix,
+        secret: issued.apiKey,
       })),
     });
   }

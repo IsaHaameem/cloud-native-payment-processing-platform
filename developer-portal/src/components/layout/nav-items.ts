@@ -70,11 +70,13 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   {
     label: 'Developers',
     items: [
+      // Turned on by M23.5. Create, reveal-once, rotate and revoke are all real; the secret is
+      // shown at the one moment it exists and never reconstructible afterwards.
       {
         label: 'API keys',
         href: '/developers/api-keys',
         icon: KeyRound,
-        enabled: false,
+        enabled: true,
         milestone: 'M23.5',
       },
       {

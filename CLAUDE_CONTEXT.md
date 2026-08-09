@@ -25,12 +25,12 @@
 | **Purpose** | A payment processor's orchestration layer — payment lifecycle FSM, double-entry ledger, and asynchronous state propagation — built across independently deployable microservices. A portfolio/engineering project, not a production payment system. |
 | **Repository version** | V2 in progress (V1 complete and frozen) |
 | **Development phase** | Phase B complete — *Product surface*; Phase C in progress: M22 done, **M23 under way (M23.0 complete)** (see §3) |
-| **Current milestone** | **M23 — developer portal, part 1.** M23.0–M23.4 complete (backend enablement, foundation, authentication, public entry flow, origin fix + password recovery, shell and data layer, merchant settings); M23.5 (payments list and detail) next |
+| **Current milestone** | **M23 — developer portal, part 1.** M23.0–M23.5 complete (backend enablement, foundation, authentication, public entry flow, origin fix + password recovery, shell and data layer, merchant settings, API keys); M23.6 (payments list and detail) next |
 | **Branch** | `main` |
 | **Latest commit** | *feat(m23.1): the portal, its design system, and the contract it reads* |
 | **Repository health** | Healthy |
 | **Build status** | `./gradlew build --max-workers=2` — **BUILD SUCCESSFUL** |
-| **Test status** | **1082 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18), plus 108 Node and 193 Python |
+| **Test status** | **1087 tests, 0 failures, 0 errors, 0 skipped** (13 modules — §18), plus 108 Node and 193 Python |
 | **Working tree** | Clean |
 | **Public API revision** | `2026-08-01` current; `2026-07-27` superseded (sunset 2027-08-01) |
 
@@ -130,7 +130,7 @@ M23.0 touches the backend.
 | M23.2b | CSRF origin fix + password recovery against the M15 contract (no backend change) | ✅ |
 | M23.3 | Shell and data layer — chrome, mode toggle, transport, query keys | ✅ |
 | M23.4 | Onboarding and merchant settings | ✅ |
-| M23.5 | API keys — create, reveal-once, rotate, revoke | ⬜ |
+| M23.5 | API keys — create, reveal-once, rotate, revoke | ✅ |
 | M23.6 | Payments list — filters, saved views, cursor pagination, CSV | ⬜ |
 | M23.7 | Payment detail, capture/refund/void, refunds | ⬜ |
 | M23.8 | Overview | ⬜ |
@@ -1102,7 +1102,7 @@ unknown fields and unknown enum values — a tested requirement of the SDK contr
 
 ---
 
-## 17. Current Milestone — M23.0 through M23.4 (complete); M23.5 next
+## 17. Current Milestone — M23.0 through M23.5 (complete); M23.6 next
 
 **Objective (M23).** The Merchant Developer Portal: one Next.js App Router application that
 turns this platform into something a merchant can use — sign up, onboard, manage API keys, and
@@ -1395,7 +1395,40 @@ not authorise. Account details are read-only because `UserController` has no upd
 the password control says it emails a link because identity-service has no authenticated
 change-password path.
 
-### What M23.5 needs from here
+### M23.5 — API keys ✅
+
+**What it is.** `/developers/api-keys`: create, reveal-once, rotate with grace, revoke with typed
+confirmation. The account plane again — `ApiKeyController` is `/api/v1`, which
+`PublicApiDocumentContract` asserts out of the published spec, so this is a hand-written client
+over `callAs`-style fetches and Server Actions, not M23.3's generated read route (which resolves
+GETs only, by design).
+
+| Piece | What it settles |
+|---|---|
+| `lib/platform/api-keys.ts` | List, create, rotate, revoke. `cache: 'no-store'` at every site — a cached list is a cached credential inventory. The raw secret is passed straight through and stored nowhere |
+| `lib/api-keys/status.ts` | Three nullable instants → one status, in the same order `ApiKey.isActive` uses, so the badge and the gateway cannot disagree about a key that is both revoked and expired |
+| `api-keys/actions.ts` | All three guarded by `guardFormRequest` before anything else. Scopes are allow-listed here because merchant-service does not validate them. Revocation re-reads the key and compares the typed name to the **stored** one (D212) |
+| `api-keys/key-list.tsx` | The reveal: undismissable by click or Escape while a secret is on screen, gated behind an acknowledgement, and it leaves through `POST /api/session/mode` so a key made in the other mode lands where it is visible (D214) |
+
+**One backend change, and only one.** `ApiKeyResponse` gained `graceExpiresAt` (D213). Without it a
+rotated-out key is indistinguishable from its own replacement — both come back with `revokedAt`
+and `expiresAt` null — so the screen could not say which of two identically named keys was dying.
+Additive, account-plane only; all three OpenAPI gates and the parity diff confirm `docs/openapi.yaml`,
+both SDKs and the generated trees are untouched.
+
+**The defect the stub could not have found.** Resealing the session inside `createKeyAction` — the
+obvious way to make a live key appear after creating it from test mode — destroyed the secret every
+time on the real stack, and passed against the stub. Setting a cookie makes Next re-render the route
+inside the action's own response, onto the tree holding the `useActionState` that is waiting for the
+secret. Everything logged green: reseal, storage, HTTP 200, a completed render. The reveal never
+appeared and the key was already unrecoverable. This is D210 arriving by a second route, and it is
+the concrete argument for the repository rule about not using a stub as the final proof.
+
+**Proof it is a credential, not a string.** The value read off the reveal authenticates
+`GET /v1/payments` (200). After rotation the old key still returns 200 inside its 24-hour window;
+after revocation the new key returns 401 on the very next request.
+
+### What M23.6 needs from here
 
 `callAs()` and nothing else. It is the only function in the portal that puts a token on a
 request, and the guards in `lib/session/require.ts` are the only source of a credential — so a
@@ -1409,7 +1442,7 @@ page that forgets to ask for a session has nothing to fetch merchant data with. 
 | Signal | Status | Detail |
 |---|---|---|
 | **Build** | ✅ | `./gradlew build --max-workers=2` — BUILD SUCCESSFUL |
-| **Tests** | ✅ | **1082 / 1082** Gradle, 0 failures, 0 errors, 0 skipped, across 13 modules. Plus the portal: **217** unit (vitest), and 217 browser checks across five suites — 47 authentication, 81 public flow, 30 shell, 34 settings, 25 interaction |
+| **Tests** | ✅ | **1087 / 1087** Gradle, 0 failures, 0 errors, 0 skipped, across 13 modules. Plus the portal: **267** unit (vitest), and 280 browser checks across six suites — 47 authentication, 81 public flow, 30 shell, 34 settings, 63 API keys, 25 interaction |
 | **Working tree** | ✅ | Clean |
 | **OpenAPI baseline** | ✅ | `verifyOpenApiBaseline` — in sync |
 | **OpenAPI compatibility** | ✅ | 0 breaking, 0 accepted, **0 additive** — no M23 sub-milestone has touched a platform contract |
@@ -1432,7 +1465,7 @@ derivation CI's proof step performs, so the two cannot disagree.
 | gateway-service | 147 | transaction-service | 52 |
 | common-lib | 143 | audit-service | 42 |
 | sandbox-service | 107 | common-dto | 35 |
-| | | merchant-service | 34 |
+| | | merchant-service | 38 |
 | | | `sdks/shared` | 32 |
 | | | identity-service | 12 |
 
