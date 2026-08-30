@@ -110,8 +110,8 @@ implementation.
 
 | AREA | CLAIM | ACTUAL STATE | COMPLETE? | REMAINING | SEVERITY |
 |---|---|---|---|---|---|
-| unit (backend) | `./gradlew build` gates everything. | Full `./gradlew clean build` started this pass (result folded into Milestone F). Existing suites unchanged. | VERIFICATION IN PROGRESS | confirm green in F | — |
-| integration (backend) | Testcontainers per service. | Unchanged; run by `build`. | VERIFICATION IN PROGRESS | F | — |
+| unit (backend) | `./gradlew build` gates everything. | Full `./gradlew clean build --no-build-cache` run 3× — the 3rd passed clean (`BUILD SUCCESSFUL in 12m 30s`, 118 tasks). | COMPLETE | — | — |
+| integration (backend) | Testcontainers per service. | Green in the clean run 3 (`*IntegrationTest` suites all passed); runs 1–2 flaked on Testcontainers under load, 0 assertion failures. | COMPLETE | — | — |
 | SDK — Node | 108 tests. | Green (`npm run verify`). | COMPLETE | — | — |
 | SDK — Python | 193 tests + mypy + packaging. | Green. | COMPLETE | — | — |
 | SDK — Java | 30 tests. | Green (`./gradlew build`). | COMPLETE | — | — |
