@@ -37,8 +37,15 @@ desktop.ini
 .env
 *.env
 !.env.example
+# Framework-local env files that `*.env` does not match (they end `.local`, not `.env`).
+.env.local
+.env.*.local
 *.pem
 *.key
+# Registry credential files. The SDK release workflows publish over OIDC and never
+# create these, but a manual `npm publish` / `twine upload` can leave a token behind.
+.npmrc
+.pypirc
 # Anchored to the repo root only — an unanchored "secrets/" also matched
 # terraform/modules/secrets/ (a legitimate Terraform module defining secret
 # *infrastructure*, no real secret values) and silently kept it out of every
