@@ -352,10 +352,25 @@ async function verifyRefreshRace() {
     rendered.every(Boolean),
     `${rendered.filter(Boolean).length} of 10 rendered`,
   );
-  check(
-    'the race left exactly one live refresh token',
-    (await stub('/__stub/calls')).liveRefreshTokens === 1,
-  );
+  /*
+   * `liveRefreshTokens` reads 0 for the ~40ms a rotation spends between deleting the token it was
+   * handed and issuing the replacement (the deliberate latency in `stub-platform.mjs`). Under
+   * `STUB_ACCESS_TTL=60` the ten pages' prefetches keep rotating for a beat after the `wait(600)`
+   * above, so a single sample can land in that gap and read a transient 0 — which is not the
+   * failure this checks for.
+   *
+   * The count is provably never above 1 here: `refreshRejections === 0` (asserted above) means
+   * every rotation deleted exactly one token and added exactly one, from a base of one. So the
+   * only genuine failures are a *persistent* 0 (a session rotated into nothing) or a count above
+   * 1 (an orphan left beside the live token), and neither is transient. A single reading of 1 is
+   * therefore conclusive — poll for one, and only fail if it never appears.
+   */
+  let liveAfterRace = -1;
+  for (let attempt = 0; attempt < 50 && liveAfterRace !== 1; attempt += 1) {
+    liveAfterRace = (await stub('/__stub/calls')).liveRefreshTokens;
+    if (liveAfterRace !== 1) await wait(50);
+  }
+  check('the race left exactly one live refresh token', liveAfterRace === 1, String(liveAfterRace));
   const redirectedToLogin = pages.filter((p) => p.url().includes('/login')).length;
   check(
     'no request was signed out by the race',

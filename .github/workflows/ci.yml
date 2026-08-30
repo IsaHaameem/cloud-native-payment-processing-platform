@@ -154,6 +154,20 @@ jobs:
           # twelve modules and reported no problem, so the gap would have looked exactly
           # like success — the derivation was there precisely so a new module could not be
           # forgotten, and it had quietly stopped covering one.
+          #
+          # A nested settings.gradle[.kts] marks a *separate* Gradle build that the
+          # `./gradlew clean build` above does not build. sdks/java (M26) is one:
+          # `rootProject.name = "paymentflow-java"`, deliberately outside the monorepo's
+          # settings.gradle.kts (D136), compiled and tested by its own leg of the `sdks`
+          # job. Its src/test/java would otherwise always read here as "produced no
+          # results", because this build never runs it. Exclude any module that is, or
+          # sits under, such a build.
+          standalone_builds = [
+              os.path.dirname(path).replace(os.sep, "/")
+              for path in glob.glob("**/settings.gradle*", recursive=True)
+              if os.path.dirname(path)  # the repo-root settings file has no dirname
+          ]
+
           missing = [
               module
               for module in (
@@ -161,6 +175,7 @@ jobs:
                   for path in glob.glob("**/src/test/java", recursive=True)
               )
               if per_module.get(module, 0) == 0
+              and not any(module == b or module.startswith(b + "/") for b in standalone_builds)
           ]
 
           print("### Test execution")
