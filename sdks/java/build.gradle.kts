@@ -20,8 +20,12 @@
  */
 plugins {
     `java-library`
-    `maven-publish`
-    signing
+    // Central Portal publishing (publish-ready, not published). It reads credentials from
+    // Gradle properties `mavenCentralUsername`/`mavenCentralPassword` and the signing key from
+    // `signingInMemoryKey`; with none of those set — every local run — it configures the
+    // publication and `publishToMavenLocal` but publishes nothing. The release workflow sets
+    // them from repository secrets. See sdks/PUBLISHING.md.
+    id("com.vanniktech.maven.publish") version "0.30.0"
 }
 
 group = "dev.paymentflow"
@@ -38,10 +42,9 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-java {
-    withSourcesJar()
-    withJavadocJar()
-}
+// The sources and javadoc jars are added by the maven-publish plugin (see mavenPublishing
+// below), so they are not declared here — declaring both produces two jars with the same
+// classifier and the publication is rejected.
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
@@ -84,47 +87,43 @@ tasks.named("check") { dependsOn("compileExamplesJava") }
 
 // ── publishing (publish-ready, not published) ───────────────────────────────────────────────
 //
-// `./gradlew publishToMavenLocal` stages a complete artifact — jar, sources, javadoc, a POM
-// with the metadata Maven Central requires — into ~/.m2 for inspection. Nothing here pushes to
-// a remote: the release workflow in `.github/workflows/` does that, only on a tag, only with
-// credentials that live in repository secrets. See `sdks/PUBLISHING.md`.
-publishing {
-    publications {
-        create<MavenPublication>("maven") {
-            from(components["java"])
-            artifactId = "paymentflow"
-            pom {
-                name.set("PaymentFlow Java SDK")
-                description.set(project.description)
+// `./gradlew publishToMavenLocal` stages a complete artifact — jar, sources, javadoc, and a POM
+// with everything Maven Central requires — into ~/.m2 for inspection. Nothing here pushes to a
+// remote: `publishAndReleaseToMavenCentral` (run by the release workflow) does that, only with
+// the credentials and signing key the workflow sets from repository secrets. See
+// `sdks/PUBLISHING.md`.
+//
+// Signing runs only when `signingInMemoryKey` is present, so every local build and the CI build
+// skip it; a release supplies it and it becomes required, which is Central's rule.
+mavenPublishing {
+    coordinates("dev.paymentflow", "paymentflow", version.toString())
+    publishToMavenCentral(automaticRelease = false)
+    if (providers.gradleProperty("signingInMemoryKey").isPresent) {
+        signAllPublications()
+    }
+    pom {
+        name.set("PaymentFlow Java SDK")
+        description.set(project.description)
+        url.set("https://github.com/IsaHaameem/cloud-native-payment-processing-platform")
+        inceptionYear.set("2026")
+        licenses {
+            license {
+                // Central requires a license entry. The repository is proprietary; this states
+                // that plainly rather than claiming an OSI license the code does not carry.
+                name.set("Proprietary — all rights reserved")
                 url.set("https://github.com/IsaHaameem/cloud-native-payment-processing-platform")
-                licenses {
-                    license {
-                        name.set("Proprietary — all rights reserved")
-                        url.set("https://github.com/IsaHaameem/cloud-native-payment-processing-platform")
-                    }
-                }
-                developers {
-                    developer {
-                        id.set("IsaHaameem")
-                        name.set("Isa Hameem")
-                    }
-                }
-                scm {
-                    url.set("https://github.com/IsaHaameem/cloud-native-payment-processing-platform")
-                    connection.set("scm:git:https://github.com/IsaHaameem/cloud-native-payment-processing-platform.git")
-                }
             }
         }
-    }
-}
-
-// Signing is required by Maven Central and is a no-op locally: it runs only when a signing key
-// is provided (the release workflow sets `ORG_GRADLE_PROJECT_signingInMemoryKey`).
-signing {
-    val signingKey: String? by project
-    val signingPassword: String? by project
-    if (signingKey != null) {
-        useInMemoryPgpKeys(signingKey, signingPassword)
-        sign(publishing.publications["maven"])
+        developers {
+            developer {
+                id.set("IsaHaameem")
+                name.set("Isa Hameem")
+            }
+        }
+        scm {
+            url.set("https://github.com/IsaHaameem/cloud-native-payment-processing-platform")
+            connection.set("scm:git:https://github.com/IsaHaameem/cloud-native-payment-processing-platform.git")
+            developerConnection.set("scm:git:ssh://git@github.com/IsaHaameem/cloud-native-payment-processing-platform.git")
+        }
     }
 }

@@ -340,7 +340,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sdk: [node, python]
+        sdk: [node, python, java, go]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -406,12 +406,59 @@ jobs:
         working-directory: sdks/python
         run: pytest
 
+      # ── Java (M26) ──────────────────────────────────────────────────────────
+      # Its own standalone Gradle build, not a module of the monorepo (same rule
+      # Node and Python follow). Runs on 21; the artifact is Java 17 bytecode via
+      # `options.release` in the build file. `build` compiles, tests, builds the
+      # javadoc/sources jars, and compiles the examples. ContractParityTest
+      # asserts the generated-equivalent layer against sdks/shared/fixtures.
+      - name: Set up Java
+        if: matrix.sdk == 'java'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build (Java)
+        if: matrix.sdk == 'java'
+        working-directory: sdks/java
+        run: ./gradlew --no-daemon build
+
+      - name: Stage the artifact (Java)
+        if: matrix.sdk == 'java'
+        working-directory: sdks/java
+        run: ./gradlew --no-daemon publishToMavenLocal
+
+      # ── Go (M26) ────────────────────────────────────────────────────────────
+      # A module inside the monorepo at .../sdks/go, released by a git tag
+      # sdks/go/vX.Y.Z. Zero dependencies. parity_test.go asserts the
+      # generated-equivalent layer against sdks/shared/fixtures.
+      - name: Set up Go
+        if: matrix.sdk == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: sdks/go/go.mod
+
+      - name: Build, vet, test, format (Go)
+        if: matrix.sdk == 'go'
+        working-directory: sdks/go
+        run: |
+          set -euo pipefail
+          go build ./...
+          go vet ./...
+          go test ./...
+          test -z "$(gofmt -l .)" || { echo "gofmt: files need formatting"; gofmt -l .; exit 1; }
+          # `go mod tidy` must be a no-op — the module has no dependencies.
+          cp go.mod go.mod.orig && go mod tidy && diff go.mod go.mod.orig && rm go.mod.orig
+
       - name: Summary
         if: always()
         run: |
           echo "### SDK — ${{ matrix.sdk }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Published: no (both packages are marked private; publishing needs explicit approval)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Published: no. Every SDK is publish-ready; a real release is a tag" >> "$GITHUB_STEP_SUMMARY"
+          echo "  \`sdks/<lang>/vX.Y.Z\` plus the deliberate flag flip in sdks/PUBLISHING.md." >> "$GITHUB_STEP_SUMMARY"
 
   developer-portal:
     name: Developer portal

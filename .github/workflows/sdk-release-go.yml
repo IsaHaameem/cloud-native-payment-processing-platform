@@ -1,0 +1,74 @@
+# "Release" the Go SDK (M26).
+#
+# Go has no registry account and no publish step: a module version is a git tag.
+# The module lives in a subdirectory, so its tags are `sdks/go/vX.Y.Z` — exactly
+# the scheme this repo uses for every SDK, and exactly what the Go proxy expects
+# for a subdirectory module.
+#
+# This workflow, on such a tag, re-runs the full check, confirms the tag matches
+# the version constant, creates a GitHub Release, and asks the public Go module
+# proxy to fetch the new version so `go get ...@latest` resolves immediately.
+# Nothing here needs a secret.
+
+name: SDK release — Go
+
+on:
+  push:
+    tags:
+      - "sdks/go/v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag to release (sdks/go/vX.Y.Z)"
+        required: true
+
+permissions:
+  contents: write # to create the GitHub Release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: sdks/go/go.mod
+
+      - name: The tag version matches version.go
+        working-directory: sdks/go
+        run: |
+          set -euo pipefail
+          ref="${{ github.event.inputs.ref || github.ref_name }}"
+          tag_version="${ref#sdks/go/v}"
+          code_version="$(grep -oP 'Version = "\K[^"]+' version.go)"
+          echo "tag=$tag_version code=$code_version"
+          test "$tag_version" = "$code_version" || { echo "::error::tag $tag_version != version.go $code_version"; exit 1; }
+
+      - name: Build, vet, test, format
+        working-directory: sdks/go
+        run: |
+          set -euo pipefail
+          go build ./...
+          go vet ./...
+          go test ./...
+          test -z "$(gofmt -l .)"
+
+      - name: Create the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Go SDK ${{ github.ref_name }}"
+          generate_release_notes: true
+
+      - name: Warm the Go module proxy
+        env:
+          GOPROXY: https://proxy.golang.org
+        run: |
+          set -euo pipefail
+          ref="${{ github.event.inputs.ref || github.ref_name }}"
+          version="v${ref#sdks/go/v}"
+          module="github.com/IsaHaameem/cloud-native-payment-processing-platform/sdks/go"
+          go list -m "$module@$version" || echo "proxy will pick it up shortly"

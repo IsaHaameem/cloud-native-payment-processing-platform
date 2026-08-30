@@ -1,0 +1,115 @@
+# Publish the Node SDK to npm (M26).
+#
+# Trigger: a tag `sdks/node/vX.Y.Z`. The tag's version must equal the version in
+# sdks/node/package.json, or the run fails before anything is published.
+#
+# Credentials: this workflow uses npm **trusted publishing** (OIDC) — no
+# long-lived token in the repo. To arm it, configure a trusted publisher on
+# npmjs.com for the `paymentflow` package:
+#   npmjs.com -> package Settings -> Publishing access -> "Trusted publisher"
+#   Repository: IsaHaameem/cloud-native-payment-processing-platform
+#   Workflow:   .github/workflows/sdk-release-node.yml
+#   Environment: npm
+# A fallback token path is present but commented out; prefer OIDC.
+#
+# Safety: sdks/node/package.json still carries `"private": true`. `npm publish`
+# refuses a private package, so this workflow cannot publish until that flag is
+# deliberately removed (see sdks/PUBLISHING.md). Everything up to that point —
+# build, test, pack, version check — runs and is the "publish-ready" gate.
+
+name: SDK release — Node
+
+on:
+  push:
+    tags:
+      - "sdks/node/v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag to publish (sdks/node/vX.Y.Z)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify and pack
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: sdks/node/package-lock.json
+
+      - name: The tag version matches package.json
+        id: version
+        working-directory: sdks/node
+        run: |
+          set -euo pipefail
+          ref="${{ github.event.inputs.ref || github.ref_name }}"
+          tag_version="${ref#sdks/node/v}"
+          pkg_version="$(node -p "require('./package.json').version")"
+          echo "tag=$tag_version pkg=$pkg_version"
+          test "$tag_version" = "$pkg_version" || { echo "::error::tag $tag_version != package.json $pkg_version"; exit 1; }
+          echo "version=$pkg_version" >> "$GITHUB_OUTPUT"
+
+      - name: Install
+        working-directory: sdks/node
+        run: npm ci
+
+      - name: Verify (type-check, dual build, tests, examples, README snippets)
+        working-directory: sdks/node
+        run: npm run verify
+
+      - name: Pack (validate the tarball an integrator would install)
+        working-directory: sdks/node
+        run: |
+          npm pack --dry-run
+          npm pack
+          tar -tzf paymentflow-*.tgz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: sdks/node/paymentflow-*.tgz
+
+  publish:
+    name: Publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: npm # a manual approval gate; configure required reviewers on GitHub
+    permissions:
+      contents: read
+      id-token: write # OIDC, for npm trusted publishing and provenance
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm (trusted publishing needs >= 11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Install
+        working-directory: sdks/node
+        run: npm ci
+
+      - name: Publish
+        working-directory: sdks/node
+        run: npm publish --provenance --access public
+        # Fallback if a trusted publisher is not configured on npmjs.com:
+        # env:
+        #   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

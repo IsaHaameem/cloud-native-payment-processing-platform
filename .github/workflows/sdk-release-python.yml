@@ -1,0 +1,96 @@
+# Publish the Python SDK to PyPI (M26).
+#
+# Trigger: a tag `sdks/python/vX.Y.Z`, matching the version in
+# sdks/python/pyproject.toml.
+#
+# Credentials: PyPI **Trusted Publishing** (OIDC) — no token in the repo. To arm
+# it, create a trusted publisher on pypi.org for the `paymentflow` project:
+#   pypi.org -> your projects -> paymentflow -> Publishing -> "Add a pending publisher"
+#   Owner:       IsaHaameem
+#   Repository:  cloud-native-payment-processing-platform
+#   Workflow:    sdk-release-python.yml
+#   Environment: pypi
+#
+# Safety: sdks/python/pyproject.toml still carries the
+# `Private :: Do Not Upload` classifier. `twine`/`pypi-publish` refuse a
+# distribution that has it, so nothing is published until it is deliberately
+# removed (see sdks/PUBLISHING.md). Build + twine check + version check are the
+# publish-ready gate and always run.
+
+name: SDK release — Python
+
+on:
+  push:
+    tags:
+      - "sdks/python/v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag to publish (sdks/python/vX.Y.Z)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: The tag version matches pyproject.toml
+        working-directory: sdks/python
+        run: |
+          set -euo pipefail
+          ref="${{ github.event.inputs.ref || github.ref_name }}"
+          tag_version="${ref#sdks/python/v}"
+          pkg_version="$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          echo "tag=$tag_version pkg=$pkg_version"
+          test "$tag_version" = "$pkg_version" || { echo "::error::tag $tag_version != pyproject $pkg_version"; exit 1; }
+
+      - name: Build wheel and sdist
+        working-directory: sdks/python
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          twine check dist/*
+
+      - name: Run the suite against the built package
+        working-directory: sdks/python
+        run: |
+          python -m pip install -e ".[dev]"
+          mypy
+          pytest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: sdks/python/dist/*
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi # a manual approval gate; configure required reviewers on GitHub
+    permissions:
+      contents: read
+      id-token: write # OIDC, for PyPI Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          # Fallback if Trusted Publishing is not configured:
+          # password: ${{ secrets.PYPI_API_TOKEN }}
