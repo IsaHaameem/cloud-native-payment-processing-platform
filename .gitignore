@@ -96,3 +96,10 @@ load-tests/src/gatling/resources/data/
 
 # Design source archive — not part of the build, kept locally only.
 Design palette and scope.zip
+
+# ── Local-only Knitt mock merchant ─────────────────────────────────────
+# mock-project/ is a local demonstration storefront kept on disk for E2E testing
+# against PaymentFlow. It is deliberately NOT part of this repository: it has its
+# own dependencies, its own .env with local credentials, and its own build
+# output, none of which should ever be committed.
+mock-project/
