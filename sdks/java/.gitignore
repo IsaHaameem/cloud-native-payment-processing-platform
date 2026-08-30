@@ -1,0 +1,5 @@
+# Build output. The generated-equivalent sources under src/main/java/dev/paymentflow/model
+# are hand-written and committed — see settings.gradle.kts — so nothing here excludes them.
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar

@@ -4,9 +4,10 @@ The client libraries for the public `/v1` API, and the generator that keeps them
 
 ```
 sdks/
-├── shared/     the code generator (a Gradle module) and the golden fixtures both SDKs test against
+├── shared/     the code generator (a Gradle module) and the golden fixtures every SDK tests against
 ├── node/       the TypeScript / Node package
-└── python/     the Python package
+├── python/     the Python package
+└── java/       the Java package — its own Gradle build, not a module of this monorepo
 ```
 
 ## The shape of the thing
@@ -22,6 +23,14 @@ is written by hand, per language, because those are exactly what generators do b
 differ in how they spell it. `sdks/shared/fixtures` is that same representation serialized as
 language-neutral JSON; both test suites assert against it, which is what turns "the two SDKs
 are equivalent" from a claim into a test.
+
+**Java is fixture-verified, not generator-emitted (M26).** `sdks/java` has no emitter in
+`:sdks:shared` yet. Its generated-equivalent layer — `dev.paymentflow.model.Contract`,
+`Operations`, `Vocabularies`, and the response records — is hand-written and asserted against
+`sdks/shared/fixtures/*.json` by `ContractParityTest` in the SDK's own suite. That gives the
+same guarantee the Node/Python freshness gate does ("this SDK matches the frozen contract")
+without expanding the monorepo build's blast radius; a `JavaEmitter` is a possible later
+refinement.
 
 **Generated code is never part of the public API.** `sdks/node/src/generated` and
 `sdks/python/src/paymentflow/_generated` are implementation details. What an integrator may
@@ -54,13 +63,15 @@ the constraint D136 established and this milestone keeps.
 ```bash
 cd sdks/node   && npm ci && npm run verify     # type-check, dual build, tests, examples, README snippets
 cd sdks/python && pip install -e ".[dev]" && mypy && pytest  # types, tests, examples, packaging
+cd sdks/java   && ./gradlew build              # compile, test, javadoc, jars, compile the examples
 ```
 
-CI runs both in jobs of their own (`.github/workflows/ci.yml`).
+CI runs each in a job of its own (`.github/workflows/ci.yml`).
 
 ## Status
 
-**M22 is complete.** Both SDKs are feature-complete and neither is published.
+**M22 is complete** (Node, Python). **M26 adds Java** (and, next, Go). No SDK is published —
+every package is publish-ready and explicitly marked so. The publishing workflows and the exact secrets each needs are added in the next milestone.
 
 **M22.1 — the foundation.** The generator, the pipeline, the freshness gate, both package
 skeletons, and the cross-language parity harness.
