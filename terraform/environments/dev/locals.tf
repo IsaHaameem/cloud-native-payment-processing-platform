@@ -34,42 +34,57 @@ locals {
   # what resolves it.
   service_environment_variables = {
     identity-service = {
-      SPRING_DATASOURCE_URL = local.rds_jdbc_url
+      SPRING_DATASOURCE_URL                      = local.rds_jdbc_url
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "5"
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE      = "1"
     }
     merchant-service = {
-      SPRING_DATASOURCE_URL                  = local.rds_jdbc_url
-      SPRING_DATA_REDIS_HOST                 = module.elasticache.primary_endpoint_address
-      SPRING_DATA_REDIS_PORT                 = tostring(module.elasticache.port)
-      SPRING_DATA_REDIS_SSL_ENABLED          = "true"
-      PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI = "http://identity-service:${local.services["identity-service"].port}/oauth2/jwks"
+      SPRING_DATASOURCE_URL                      = local.rds_jdbc_url
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "5"
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE      = "1"
+      SPRING_DATA_REDIS_HOST                     = module.elasticache.primary_endpoint_address
+      SPRING_DATA_REDIS_PORT                     = tostring(module.elasticache.port)
+      SPRING_DATA_REDIS_SSL_ENABLED              = "true"
+      PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI     = "http://identity-service:${local.services["identity-service"].port}/oauth2/jwks"
     }
     payment-service = {
-      SPRING_DATASOURCE_URL                  = local.rds_jdbc_url
-      SPRING_DATA_REDIS_HOST                 = module.elasticache.primary_endpoint_address
-      SPRING_DATA_REDIS_PORT                 = tostring(module.elasticache.port)
-      SPRING_DATA_REDIS_SSL_ENABLED          = "true"
-      SPRING_KAFKA_BOOTSTRAP_SERVERS         = module.kafka_broker.bootstrap_brokers
-      PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI = "http://identity-service:${local.services["identity-service"].port}/oauth2/jwks"
-      PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI = "http://merchant-service:${local.services["merchant-service"].port}"
+      SPRING_DATASOURCE_URL                      = local.rds_jdbc_url
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "5"
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE      = "1"
+      SPRING_DATA_REDIS_HOST                     = module.elasticache.primary_endpoint_address
+      SPRING_DATA_REDIS_PORT                     = tostring(module.elasticache.port)
+      SPRING_DATA_REDIS_SSL_ENABLED              = "true"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS             = module.kafka_broker.bootstrap_brokers
+      PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI     = "http://identity-service:${local.services["identity-service"].port}/oauth2/jwks"
+      PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI     = "http://merchant-service:${local.services["merchant-service"].port}"
     }
     transaction-service = {
-      SPRING_DATASOURCE_URL          = local.rds_jdbc_url
-      SPRING_KAFKA_BOOTSTRAP_SERVERS = module.kafka_broker.bootstrap_brokers
+      SPRING_DATASOURCE_URL                      = local.rds_jdbc_url
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "5"
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE      = "1"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS             = module.kafka_broker.bootstrap_brokers
     }
     audit-service = {
-      SPRING_DATASOURCE_URL          = local.rds_jdbc_url
-      SPRING_KAFKA_BOOTSTRAP_SERVERS = module.kafka_broker.bootstrap_brokers
+      SPRING_DATASOURCE_URL                      = local.rds_jdbc_url
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "5"
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE      = "1"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS             = module.kafka_broker.bootstrap_brokers
     }
     notification-service = {
-      SPRING_DATASOURCE_URL          = local.rds_jdbc_url
-      SPRING_KAFKA_BOOTSTRAP_SERVERS = module.kafka_broker.bootstrap_brokers
+      SPRING_DATASOURCE_URL                      = local.rds_jdbc_url
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "5"
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE      = "1"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS             = module.kafka_broker.bootstrap_brokers
     }
     analytics-service = {
-      SPRING_DATASOURCE_URL          = local.rds_jdbc_url
-      SPRING_KAFKA_BOOTSTRAP_SERVERS = module.kafka_broker.bootstrap_brokers
+      SPRING_DATASOURCE_URL                      = local.rds_jdbc_url
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "5"
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE      = "1"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS             = module.kafka_broker.bootstrap_brokers
     }
     gateway-service = {
       SPRING_PROFILES_ACTIVE                 = "local"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS         = module.kafka_broker.bootstrap_brokers
       SPRING_DATA_REDIS_HOST                 = module.elasticache.primary_endpoint_address
       SPRING_DATA_REDIS_PORT                 = tostring(module.elasticache.port)
       SPRING_DATA_REDIS_SSL_ENABLED          = "true"

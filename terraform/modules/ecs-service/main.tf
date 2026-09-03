@@ -104,7 +104,7 @@ resource "aws_ecs_service" "this" {
   # Only meaningful with a load balancer attached (gives a freshly-started
   # gateway-service task time to pass its actuator health check before the
   # ALB starts routing real traffic to it); harmless/unused otherwise.
-  health_check_grace_period_seconds = var.enable_load_balancer ? 60 : null
+  health_check_grace_period_seconds = var.enable_load_balancer ? 180 : null
 
   deployment_controller {
     type = "ECS"
