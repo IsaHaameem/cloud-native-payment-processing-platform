@@ -83,7 +83,23 @@ public final class RequestOptions {
             return this;
         }
 
+        /**
+         * @throws PaymentFlowConfigurationException if a supplied timeout is not positive, or a
+         *                                            supplied retry budget is negative — the same
+         *                                            two checks the client's own construction
+         *                                            applies to its defaults, applied here so a
+         *                                            per-call override fails on the line that built
+         *                                            it rather than on the first request it is used
+         *                                            for. Neither field is required: one left unset
+         *                                            stays {@code null} and defers to the client.
+         */
         public RequestOptions build() {
+            if (timeout != null && (timeout.isZero() || timeout.isNegative())) {
+                throw new PaymentFlowConfigurationException("timeout must be a positive duration.");
+            }
+            if (maxRetries != null && maxRetries < 0) {
+                throw new PaymentFlowConfigurationException("maxRetries must not be negative.");
+            }
             return new RequestOptions(this);
         }
     }

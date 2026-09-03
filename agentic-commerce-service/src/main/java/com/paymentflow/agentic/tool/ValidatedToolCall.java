@@ -1,5 +1,6 @@
 package com.paymentflow.agentic.tool;
 
+import java.util.Collections;
 import java.util.Map;
 
 /**
@@ -27,7 +28,12 @@ public final class ValidatedToolCall {
         // ToolRegistry is the only caller, and it never pairs an input with a different tool.
         this.tool = (AgentTool<Object>) tool;
         this.input = input;
-        this.arguments = arguments;
+        // Wraps, not copies: ToolRegistry.validate() already handed us a defensive copy of
+        // whatever the caller passed in, so this map is already ours alone. Wrapping it — rather
+        // than trusting every future reader of arguments() to treat a live Map as read-only —
+        // is what makes that "alone" durable: nothing reachable from this object can put a
+        // second reference to a mutable map into a caller's hands.
+        this.arguments = Collections.unmodifiableMap(arguments);
     }
 
     public ToolSpec spec() {
@@ -38,7 +44,12 @@ public final class ValidatedToolCall {
         return tool.spec().name();
     }
 
-    /** The validated arguments, for the action log's redacted summary. */
+    /**
+     * The validated arguments, for the action log's redacted summary.
+     *
+     * <p>Unmodifiable: a mutation attempt throws {@link UnsupportedOperationException} rather
+     * than silently changing what this call is a record of.
+     */
     public Map<String, Object> arguments() {
         return arguments;
     }
