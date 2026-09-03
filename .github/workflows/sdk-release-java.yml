@@ -1,0 +1,87 @@
+# Publish the Java SDK to Maven Central (M26).
+#
+# Trigger: a tag `sdks/java/vX.Y.Z`, matching `version` in
+# sdks/java/build.gradle.kts.
+#
+# Credentials (repository secrets, wired below as ORG_GRADLE_PROJECT_* env vars):
+#   MAVEN_CENTRAL_USERNAME   Central Portal user token name  (central.sonatype.com -> Account -> Generate User Token)
+#   MAVEN_CENTRAL_PASSWORD   Central Portal user token value
+#   SIGNING_KEY              ASCII-armoured PGP private key (the whole block)
+#   SIGNING_PASSWORD         its passphrase
+# The `dev.paymentflow` namespace must be verified on central.sonatype.com first
+# (add a TXT record or verify the GitHub org). See sdks/PUBLISHING.md.
+#
+# Safety: `publishToMavenLocal` and the local build run with no credentials and
+# publish nothing. The real upload step (`publishAndReleaseToMavenCentral`) needs
+# all four secrets and the verified namespace; without them it fails loudly
+# rather than publishing.
+
+name: SDK release — Java
+
+on:
+  push:
+    tags:
+      - "sdks/java/v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag to publish (sdks/java/vX.Y.Z)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Build and stage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: The tag version matches the build file
+        working-directory: sdks/java
+        run: |
+          set -euo pipefail
+          ref="${{ github.event.inputs.ref || github.ref_name }}"
+          tag_version="${ref#sdks/java/v}"
+          build_version="$(grep -oP '^version = "\K[^"]+' build.gradle.kts)"
+          echo "tag=$tag_version build=$build_version"
+          test "$tag_version" = "$build_version" || { echo "::error::tag $tag_version != build.gradle.kts $build_version"; exit 1; }
+
+      - name: Build, test, stage
+        working-directory: sdks/java
+        run: ./gradlew --no-daemon build publishToMavenLocal
+
+      - name: Inspect the staged artifact
+        run: find ~/.m2/repository/dev/paymentflow -type f | sort
+
+  publish:
+    name: Publish to Maven Central
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: maven-central # a manual approval gate; configure required reviewers on GitHub
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Publish and release
+        working-directory: sdks/java
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+        run: ./gradlew --no-daemon publishAndReleaseToMavenCentral

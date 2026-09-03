@@ -50,6 +50,12 @@ COPY audit-service/build.gradle.kts audit-service/build.gradle.kts
 COPY notification-service/build.gradle.kts notification-service/build.gradle.kts
 COPY analytics-service/build.gradle.kts analytics-service/build.gradle.kts
 COPY sandbox-service/build.gradle.kts sandbox-service/build.gradle.kts
+# agentic-commerce-service (Project 3). Unlike the four build-file-only modules below, this
+# one is a real deployable and its source is copied by the parameterised COPY further down
+# when SERVICE_MODULE names it — this line exists for the same configuration-phase reason as
+# every other service above: settings.gradle.kts names it, so Gradle configures it on every
+# invocation whichever module is actually being built.
+COPY agentic-commerce-service/build.gradle.kts agentic-commerce-service/build.gradle.kts
 # load-tests (M14) is declared in settings.gradle.kts, so Gradle configures it
 # on every invocation regardless of which module is actually being built —
 # its build.gradle.kts must exist even though its src (excluded from this

@@ -150,14 +150,23 @@ M23.0 touches the backend.
 | M22.6 | The Python resources — eleven namespaces, `snake_case`, iterable pages | ✅ |
 | M22.7 | Cross-language parity, packaging verification, dry-run release | ✅ |
 
+**M26 — Java & Go SDKs. ✅ Complete** (branch `feat/m26-sdks`, 2026-08-30).
+
+| Sub-milestone | Scope | Status |
+|---|---|---|
+| M26 · Java | `sdks/java` — standalone Gradle build, Java 17, zero deps, all 31 ops / 11 namespaces, typed exceptions, once-per-call idempotency, retry/`Retry-After`, cursor+offset pagination, `Webhooks.constructEvent` vs the shared vectors, `ContractParityTest` vs `sdks/shared/fixtures`. 30 tests. | ✅ |
+| M26 · Go | `sdks/go` — module `…/sdks/go`, Go 1.23, zero deps, `context.Context` on every call, `errors.As` typed errors, range-over-func pagination, `ConstructEvent`, `parity_test.go` vs the fixtures. 29 tests + `go vet` + `gofmt`. | ✅ |
+| M26 · publishing | Tag-triggered release workflows for all four SDKs (npm OIDC, PyPI Trusted Publishing, Maven Central via vanniktech, Go tag+proxy), version-gated, behind GitHub environments. `sdks/PUBLISHING.md`. All four at `0.1.0`; tag scheme `sdks/<lang>/vX.Y.Z`. **None published.** | ✅ |
+| M26 · developer experience | Quickstart made truthful for all five languages (Node/Python/Java/Go/cURL) with real coordinates and "publish-ready, not published" labels; SDKs page + AI-integration prompt extended to Java and Go. (Edits sit on the uncommitted portal build.) | ✅ |
+
 ### Remaining roadmap
 
 | Milestone | Phase | Summary |
 |---|---|---|
-| M23 | C | Developer portal part 1 — auth, merchants, keys, payments |
-| M24 | C | Developer portal part 2 — webhooks, logs, analytics, admin |
-| M25 | C | Documentation site & developer experience |
-| M26 | C | Java & Go SDKs |
+| M23 | C | Developer portal part 1 — auth, merchants, keys, payments. M23.0–M23.6 committed; M23.7–M23.9 implemented in the working tree, not yet committed. |
+| M24 | C | Developer portal part 2 — webhooks, logs, analytics, admin. Implemented in the working tree, not yet committed. |
+| M25 | C | Documentation site & developer experience. Quickstart + AI-integration + SDKs pages implemented in the working tree; the quickstart/AI-prompt truthfulness pass landed with M26. |
+| M26 | C | **Java & Go SDKs — ✅ done** (branch `feat/m26-sdks`, 2026-08-30). `dev.paymentflow:paymentflow` (Java 17) and `github.com/IsaHaameem/…/sdks/go` (Go 1.23), both zero-dependency, both fixture-verified against `sdks/shared/fixtures`. All four SDKs publish-ready at 0.1.0 with tag-triggered release workflows (`sdks/<lang>/vX.Y.Z`); **none published**. See `sdks/PUBLISHING.md`. |
 | M27 | D | Security hardening & multi-tenancy review |
 | M28 | D | V2 performance engineering |
 | M29 | D | AWS deployment of V2 (the only V2 infra milestone) |
@@ -167,10 +176,13 @@ M23.0 touches the backend.
 
 Every service is bootable and tested; the public API is complete, documented, versioned and
 machine-readable down to its transport headers; the SDK generation pipeline exists and is gated;
-and **both SDKs are finished** — every published operation is callable from either language,
-with idempotency, retries, pagination, typed errors, webhook verification, packaging checks and
-documentation whose snippets compile. Neither is published. The one thing M22 planned and did not
-deliver is the async Python client (D181, §16).
+and **all four SDKs are finished** — every published operation is callable from Node, Python,
+Java or Go, with idempotency, retries, pagination, typed errors, webhook verification,
+packaging/publish checks and documentation whose snippets compile. Node and Python are
+generator-emitted (M22); Java and Go are hand-written and fixture-verified (M26). **None is
+published** — each is publish-ready with a tag-triggered workflow and a documented deliberate
+flag flip (`sdks/PUBLISHING.md`). The one thing M22 planned and did not deliver is the async
+Python client (D181, §16).
 
 ---
 
@@ -189,10 +201,12 @@ deliver is the async Python client (D181, §16).
 ├── openapi-tools/              OpenAPI merge, diff and validation tooling (M21)
 ├── test-support/               Shared contract-test scaffold (M21.7)
 ├── developer-portal/           The merchant developer portal — Next.js (M23.1)
-├── sdks/                       Node & Python SDKs + the shared generator (M22)
+├── sdks/                       Node, Python (M22) + Java, Go (M26) + the shared generator
 │   ├── shared/                 :sdks:shared — the Java generator and the golden fixtures
 │   ├── node/                   npm package (not a Gradle project)
-│   └── python/                 PyPI package (not a Gradle project)
+│   ├── python/                 PyPI package (not a Gradle project)
+│   ├── java/                   Maven package — its own standalone Gradle build (M26)
+│   └── go/                     Go module …/sdks/go, released by a sdks/go/vX.Y.Z tag (M26)
 ├── load-tests/                 Gatling suite (M14)
 ├── gateway-service/            :8080  reactive edge
 ├── identity-service/           :8081
@@ -227,7 +241,7 @@ deliver is the async Python client (D181, §16).
 | `observability/` | Compose-mounted configuration for the monitoring stack. | Local only; nothing is deployed (D84). |
 | `load-tests/` | 7 Gatling simulations, a seeded merchant pool. | Black-box HTTP against a running platform; deliberately does **not** depend on `common-dto`/`common-lib` so it exercises the real contract. |
 | `developer-portal/` | The portal: Next.js 15 / React 19 / TypeScript strict / Tailwind v4. **Not a Gradle module** and not in `settings.gradle.kts` — its own toolchain, its own Dockerfile, its own CI job, exactly like `sdks/node`. Excluded from the root Docker build context; `src/generated` is emitted by `:sdks:shared` (D189). |
-| `sdks/` | The Node and Python client libraries, and the one generator that feeds both. | Only `sdks/shared` is a Gradle project (`:sdks:shared`). `sdks/node` and `sdks/python` have their own toolchains and their own CI job — **neither Node nor Python is a prerequisite for `./gradlew build`** (D164). |
+| `sdks/` | Four client libraries (`node`, `python`, `java`, `go`), and the one generator that feeds Node and Python. Java and Go are hand-written and fixture-verified against `sdks/shared/fixtures` (M26). | Only `sdks/shared` is a root Gradle project (`:sdks:shared`); `sdks/java` is its **own standalone** Gradle build. Each SDK has its own toolchain and its own CI matrix leg — **no SDK toolchain is a prerequisite for `./gradlew build`** (D164). |
 
 ---
 

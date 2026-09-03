@@ -1,0 +1,251 @@
+spring:
+  application:
+    name: agentic-commerce-service
+  datasource:
+    # Local default points at the compose Postgres (host port 55432). Overridden by
+    # SPRING_DATASOURCE_* env vars in containers, exactly as every other service.
+    url: jdbc:postgresql://localhost:55432/paymentflow
+    username: paymentflow
+    password: paymentflow
+  jpa:
+    hibernate:
+      ddl-auto: validate        # Flyway owns the schema; Hibernate only validates it.
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: agentic
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    schemas: agentic
+    default-schema: agentic
+    locations: classpath:db/migration
+
+server:
+  port: 8095
+
+paymentflow:
+  internal-context:
+    # The same shared HMAC secret every service verifies a signed context against (D100).
+    # This service is a VERIFIER only: payment-service signs the provider-decision call and
+    # common-lib's InternalContextFilter checks it here. This service never signs anything.
+    secret: ${PAYMENTFLOW_INTERNAL_CONTEXT_SECRET:dev-only-insecure-shared-secret-change-me}
+    max-clock-skew-seconds: 30
+
+  agentic:
+    # ── The platform credential ───────────────────────────────────────────────────────
+    #
+    # This service is an ordinary external consumer of the public /v1 API. It holds ONE
+    # merchant API key, server-side, and every money action it takes is bounded by exactly
+    # what that key can do: its scopes, its merchant, and its mode.
+    #
+    # The key is deliberately not defaulted to anything usable. A blank key means the
+    # platform client refuses to start a money action rather than silently failing later,
+    # and the failure names the missing configuration.
+    platform:
+      base-uri: ${PAYMENTFLOW_GATEWAY_URI:http://localhost:8080}
+      api-key: ${PAYMENTFLOW_AGENT_API_KEY:}
+      connect-timeout-ms: 2000
+      read-timeout-ms: 10000
+
+    # ── Policy ────────────────────────────────────────────────────────────────────────
+    #
+    # Every number here is a business threshold, and none of them is hard-coded anywhere in
+    # the codebase (project_3_context.md §42.2 Q16 left them open, so they are configuration
+    # by decision rather than by accident). Values are in the currency's MINOR unit.
+    #
+    # The defaults are sized for the demo: high enough that an ordinary purchase completes,
+    # low enough that the refund approval gate fires on a realistic refund rather than
+    # needing a contrived one.
+    policy:
+      version: "2026-08-20.1"
+      currency: INR
+      # A single payment above this is refused outright — the agent has no business
+      # attempting it, whatever the conversation said.
+      max-payment-amount-minor: 5000000        # ₹50,000
+      # Cumulative spend across one conversation.
+      max-conversation-spend-minor: 10000000   # ₹1,00,000
+      # A refund at or below this executes on policy alone.
+      refund-approval-threshold-minor: 100000  # ₹1,000
+      # A single refund above this is refused outright, approval or not.
+      max-refund-amount-minor: 2000000         # ₹20,000
+      # Cumulative refund across one conversation.
+      max-conversation-refund-minor: 5000000   # ₹50,000
+      # A runaway agent exhausts this rather than the merchant's rate limit.
+      max-tool-calls-per-conversation: 60
+      approval-ttl-minutes: 30
+
+    checkout:
+      ttl-minutes: 30
+      max-line-items: 20
+
+    # ── LLM ───────────────────────────────────────────────────────────────────────────
+    #
+    # Provider-agnostic at the seam (LlmClient). Two adapters exist: Anthropic (the default)
+    # and OpenAI (opt-in via AGENTIC_LLM_PROVIDER=openai). With no credential configured for
+    # the selected provider the service starts normally and uses the deterministic scripted
+    # client instead, which is what lets CI run the full agent pipeline without a
+    # credential — see ScriptedLlmClient.
+    #
+    # Anthropic's three knobs are unchanged: ANTHROPIC_API_KEY, AGENTIC_LLM_MODEL, and the
+    # optional AGENTIC_LLM_BASE_URI. OpenAI has its own key and model so a host can carry both
+    # credentials at once and switch with a single variable; base-uri is shared and, when left
+    # blank, defaults per provider (api.anthropic.com / api.openai.com — see Llm.activeBaseUri).
+    llm:
+      provider: ${AGENTIC_LLM_PROVIDER:anthropic}
+      base-uri: ${AGENTIC_LLM_BASE_URI:}
+      api-key: ${ANTHROPIC_API_KEY:}
+      model: ${AGENTIC_LLM_MODEL:claude-opus-5}
+      # OpenAI, used only when provider=openai. Blank key -> scripted client, same as Anthropic.
+      openai-api-key: ${OPENAI_API_KEY:}
+      openai-model: ${OPENAI_MODEL:}
+      # Raised from 2048 in Phase 11. On current models thinking is on by default and its
+      # tokens count against this ceiling, so a budget sized for a short chat reply truncates
+      # the turn before the reply is reached — and a truncated turn is discarded, having
+      # executed nothing, which reads to a buyer as the assistant simply failing.
+      max-tokens: 16000
+      # Applied ONLY to models that still accept sampling parameters. Current models reject
+      # temperature outright with a 400, so AnthropicLlmClient omits it for them rather than
+      # sending a field that would fail the request. Nothing financial depends on this value:
+      # determinism where it matters is the policy engine's, not the model's.
+      temperature: 0.2
+      timeout-ms: 30000
+      max-tool-iterations: 8
+      # The wall-clock ceiling on one whole turn. max-tool-iterations bounds how many times the
+      # loop may go round; this bounds how long it may take, which is the limit an operator
+      # actually feels. Reaching it terminates the turn safely with a structured response.
+      max-turn-duration-ms: ${AGENTIC_LLM_MAX_TURN_DURATION_MS:120000}
+
+    # ── Razorpay (Depth 1) ────────────────────────────────────────────────────────────
+    #
+    # These credentials exist HERE and nowhere else in the repository. payment-service has
+    # no Razorpay configuration, no Razorpay dependency and no knowledge that Razorpay is
+    # what answers its provider-decision call.
+    #
+    # The default is an obviously-fake value in the same shape as every other local-dev
+    # secret in this platform (D18/D73). With it unset the provider reports itself
+    # unavailable and declines cleanly; it never fails in a way that could print a key.
+    razorpay:
+      enabled: ${RAZORPAY_ENABLED:false}
+      base-uri: ${RAZORPAY_BASE_URL:https://api.razorpay.com}
+      key-id: ${RAZORPAY_KEY_ID:rzp_test_dev-only-not-a-real-key}
+      key-secret: ${RAZORPAY_KEY_SECRET:dev-only-insecure-razorpay-secret-change-me}
+      connect-timeout-ms: 2000
+      read-timeout-ms: 8000
+      # THE most important setting in this file. See RazorpayPaymentProvider's class javadoc
+      # and project_3_context.md AD-11 for the verified Razorpay fact behind it: Razorpay has
+      # NO server-to-server "authorize this instrument now" call. POST /v1/orders creates a
+      # real order; a cardholder authorizes it later through Checkout, client-side.
+      #
+      # So when the order is created but no payment has been collected against it, there is
+      # no cardholder authorization to report, and this setting decides what the adapter
+      # says:
+      #
+      #   decline  (default) — honest. The payment fails with `razorpay_payment_not_collected`
+      #                        and the platform records exactly that.
+      #   approve            — demo only. Treats provider acceptance of the order as the
+      #                        authorization. The decision carries `source=order_accepted` so
+      #                        the audit trail states plainly that no cardholder authorized
+      #                        anything.
+      #
+      # Never set this to `approve` for anything a reader might mistake for a real payment.
+      uncollected-order-outcome: ${RAZORPAY_UNCOLLECTED_ORDER_OUTCOME:decline}
+
+    # ── Demo catalogue seeding ────────────────────────────────────────────────────────
+    #
+    # Off unless a merchant id is supplied. When set, an idempotent startup runner seeds the
+    # demo catalogue for that merchant if — and only if — it has no products yet. Seeding
+    # lives here rather than in a Flyway migration because a migration would have to bake a
+    # merchant UUID into an immutable file, and the demo merchant differs per environment.
+    demo:
+      merchant-id: ${AGENTIC_DEMO_MERCHANT_ID:}
+      seed-catalog: ${AGENTIC_DEMO_SEED_CATALOG:true}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      # The platform hop. A 4xx is a client-side outcome and must never count toward opening
+      # the circuit — the same D51 rule every other service in this platform applies.
+      paymentFlow:
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        slowCallDurationThreshold: 5s
+        slowCallRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        ignoreExceptions:
+          - com.paymentflow.agentic.platform.PaymentFlowClientException
+      # The Razorpay hop. Its own instance and its own budgets, deliberately not shared with
+      # the platform hop: an external host on the public internet has nothing in common with
+      # an in-cluster call, and a shared breaker would let one trip the other.
+      razorpay:
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        slowCallDurationThreshold: 4s
+        slowCallRateThreshold: 50
+        waitDurationInOpenState: 15s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        # A Razorpay 4xx is a verdict about the request, not about Razorpay's health.
+        ignoreExceptions:
+          - com.paymentflow.agentic.provider.razorpay.RazorpayRequestException
+  retry:
+    instances:
+      # Reads only. A money-moving platform call is NOT retried by this registry: it is
+      # retried, if at all, by re-executing the same tool with the same derived idempotency
+      # key, so the platform's own replay record decides what happens. See IdempotencyKeys.
+      paymentFlow:
+        maxAttempts: 3
+        waitDuration: 200ms
+        ignoreExceptions:
+          - com.paymentflow.agentic.platform.PaymentFlowClientException
+      razorpay:
+        maxAttempts: 2
+        waitDuration: 300ms
+        ignoreExceptions:
+          - com.paymentflow.agentic.provider.razorpay.RazorpayRequestException
+  timelimiter:
+    instances:
+      paymentFlow:
+        timeoutDuration: 12s
+        cancelRunningFuture: true
+      razorpay:
+        timeoutDuration: 10s
+        cancelRunningFuture: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    metrics:
+      export:
+        # Prometheus (pull-based scrape) is this platform's metrics backend; the OTLP push
+        # exporter has no receiver configured. Same as every other service.
+        enabled: false
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: http://localhost:4318/v1/traces
+
+logging:
+  pattern:
+    level: "%5p [correlationId=%X{correlationId:-},requestId=%X{requestId:-},traceId=%X{traceId:-},spanId=%X{spanId:-}]"

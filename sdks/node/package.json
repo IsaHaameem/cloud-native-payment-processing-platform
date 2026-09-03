@@ -3,8 +3,37 @@
   "version": "0.1.0",
   "description": "The official PaymentFlow API client for Node.js and TypeScript.",
   "license": "UNLICENSED",
+  "//private": [
+    "Still true, on purpose. `npm publish` refuses a private package, so this flag is the last",
+    "deliberate step before a real release (see sdks/PUBLISHING.md), and SdkParityTest asserts",
+    "it is here. Everything else a publish needs — the metadata below, the workflow, the",
+    "provenance config — is already in place."
+  ],
   "private": true,
   "type": "module",
+  "keywords": [
+    "paymentflow",
+    "payments",
+    "payment",
+    "api",
+    "sdk",
+    "webhooks",
+    "idempotency"
+  ],
+  "author": "Isa Hameem",
+  "homepage": "https://github.com/IsaHaameem/cloud-native-payment-processing-platform/tree/main/sdks/node#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IsaHaameem/cloud-native-payment-processing-platform.git",
+    "directory": "sdks/node"
+  },
+  "bugs": {
+    "url": "https://github.com/IsaHaameem/cloud-native-payment-processing-platform/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "engines": {
     "node": ">=18"
   },

@@ -154,6 +154,20 @@ jobs:
           # twelve modules and reported no problem, so the gap would have looked exactly
           # like success — the derivation was there precisely so a new module could not be
           # forgotten, and it had quietly stopped covering one.
+          #
+          # A nested settings.gradle[.kts] marks a *separate* Gradle build that the
+          # `./gradlew clean build` above does not build. sdks/java (M26) is one:
+          # `rootProject.name = "paymentflow-java"`, deliberately outside the monorepo's
+          # settings.gradle.kts (D136), compiled and tested by its own leg of the `sdks`
+          # job. Its src/test/java would otherwise always read here as "produced no
+          # results", because this build never runs it. Exclude any module that is, or
+          # sits under, such a build.
+          standalone_builds = [
+              os.path.dirname(path).replace(os.sep, "/")
+              for path in glob.glob("**/settings.gradle*", recursive=True)
+              if os.path.dirname(path)  # the repo-root settings file has no dirname
+          ]
+
           missing = [
               module
               for module in (
@@ -161,6 +175,7 @@ jobs:
                   for path in glob.glob("**/src/test/java", recursive=True)
               )
               if per_module.get(module, 0) == 0
+              and not any(module == b or module.startswith(b + "/") for b in standalone_builds)
           ]
 
           print("### Test execution")
@@ -340,7 +355,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sdk: [node, python]
+        sdk: [node, python, java, go]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -406,12 +421,59 @@ jobs:
         working-directory: sdks/python
         run: pytest
 
+      # ── Java (M26) ──────────────────────────────────────────────────────────
+      # Its own standalone Gradle build, not a module of the monorepo (same rule
+      # Node and Python follow). Runs on 21; the artifact is Java 17 bytecode via
+      # `options.release` in the build file. `build` compiles, tests, builds the
+      # javadoc/sources jars, and compiles the examples. ContractParityTest
+      # asserts the generated-equivalent layer against sdks/shared/fixtures.
+      - name: Set up Java
+        if: matrix.sdk == 'java'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build (Java)
+        if: matrix.sdk == 'java'
+        working-directory: sdks/java
+        run: ./gradlew --no-daemon build
+
+      - name: Stage the artifact (Java)
+        if: matrix.sdk == 'java'
+        working-directory: sdks/java
+        run: ./gradlew --no-daemon publishToMavenLocal
+
+      # ── Go (M26) ────────────────────────────────────────────────────────────
+      # A module inside the monorepo at .../sdks/go, released by a git tag
+      # sdks/go/vX.Y.Z. Zero dependencies. parity_test.go asserts the
+      # generated-equivalent layer against sdks/shared/fixtures.
+      - name: Set up Go
+        if: matrix.sdk == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: sdks/go/go.mod
+
+      - name: Build, vet, test, format (Go)
+        if: matrix.sdk == 'go'
+        working-directory: sdks/go
+        run: |
+          set -euo pipefail
+          go build ./...
+          go vet ./...
+          go test ./...
+          test -z "$(gofmt -l .)" || { echo "gofmt: files need formatting"; gofmt -l .; exit 1; }
+          # `go mod tidy` must be a no-op — the module has no dependencies.
+          cp go.mod go.mod.orig && go mod tidy && diff go.mod go.mod.orig && rm go.mod.orig
+
       - name: Summary
         if: always()
         run: |
           echo "### SDK — ${{ matrix.sdk }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Published: no (both packages are marked private; publishing needs explicit approval)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Published: no. Every SDK is publish-ready; a real release is a tag" >> "$GITHUB_STEP_SUMMARY"
+          echo "  \`sdks/<lang>/vX.Y.Z\` plus the deliberate flag flip in sdks/PUBLISHING.md." >> "$GITHUB_STEP_SUMMARY"
 
   developer-portal:
     name: Developer portal

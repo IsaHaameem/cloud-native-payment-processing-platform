@@ -1,0 +1,524 @@
+# PaymentFlow — Render Blueprint
+#
+# The complete backend: nine core services plus agentic-commerce-service, against one Render
+# Postgres and one Key Value instance, with Kafka supplied by an external managed broker.
+#
+# The architecture is NOT simplified. These stay ten independent Spring Boot services with their
+# own schemas and their own boundaries, exactly as they run under docker-compose. Nothing is
+# merged, and no service reaches into another's schema.
+#
+#   Developer Portal (Vercel)  ─┐
+#                               ├─► gateway-service (public) ─┬─► identity-service
+#   agentic-commerce-service ───┘                             ├─► merchant-service
+#     (public; see the note on its block)                     ├─► payment-service
+#                                                             └─► sandbox-service
+#                                                                      │
+#                          payment-service outbox relay ──► Kafka ─────┼─► transaction-service
+#                                                                      ├─► audit-service
+#                                                                      ├─► notification-service
+#                                                                      └─► analytics-service
+#
+# ── Prerequisites, before the first sync ─────────────────────────────────────────────────────
+#
+# 1. An environment group named `paymentflow-shared` in the Render dashboard, holding:
+#
+#      PAYMENTFLOW_INTERNAL_CONTEXT_SECRET        HMAC every service uses to trust a
+#                                                 gateway-asserted merchant context
+#      PAYMENTFLOW_WEBHOOK_SECRET_ENCRYPTION_KEY  webhook signing-secret encryption
+#
+#    Referenced below with `fromGroup` and deliberately not declared in this file: a
+#    Blueprint-declared group cannot hold a `sync: false` value, and these must never be
+#    committed. One group also guarantees every service sees the *same* secret — a per-service
+#    copy that drifts surfaces as a confusing 401 on internal-context verification.
+#
+# 2. An environment group named `paymentflow-kafka`, holding the managed-broker connection.
+#    See the Kafka note further down; the four consumers and the three producers all read it.
+#
+# Neither group is created by this file. Create both before the first Blueprint sync.
+
+databases:
+  # One database, ten schemas — the platform's existing model, unchanged. Each service's Flyway
+  # migrations create and own its schema on first boot (`schemas:`/`default-schema:` in each
+  # application.yaml: identity, merchant, payment, transaction, audit, notification, analytics,
+  # sandbox, agentic). Do not split this per service; the services are written against a shared
+  # instance with no cross-schema joins and no cross-service foreign keys.
+  - name: paymentflow-postgres
+    databaseName: paymentflow
+    user: paymentflow
+    plan: free
+    region: oregon
+
+services:
+  # ── Key Value (Valkey / Redis-compatible) ──────────────────────────────────────────────────
+  #
+  # One instance, three consumers: the gateway's rate-limit buckets and API-key cache,
+  # merchant-service's profile cache-aside, and payment-service's idempotency lock. The other
+  # seven services use no Redis at all.
+  - type: keyvalue
+    name: paymentflow-keyvalue
+    plan: free
+    region: oregon
+    # Empty list = no public internet access. Every consumer reaches it over the private
+    # network, so nothing needs allow-listing. This key is required by the Blueprint schema.
+    ipAllowList: []
+
+  # ═══ CORE — synchronous path ═══════════════════════════════════════════════════════════════
+
+  # ── identity-service (private) ─────────────────────────────────────────────────────────────
+  #
+  # Deploy first: everything else validates JWTs against the JWKS it publishes.
+  #
+  # numInstances is pinned to 1 on purpose. identity-service leaves `private-key`/`public-key`
+  # unset and mints an ephemeral RSA keypair at startup, so each replica would publish a
+  # different JWKS and validation would fail non-deterministically. The same property means a
+  # restart invalidates every JWT already issued — see README.
+  - type: pserv
+    name: identity-service
+    runtime: docker
+    region: oregon
+    dockerfilePath: ./render/identity.Dockerfile
+    dockerContext: .
+    numInstances: 1
+    envVars:
+      - key: SERVER_PORT
+        value: 8081
+      - key: SPRING_DATASOURCE_URL
+        sync: false            # jdbc:postgresql://<internal-host>/paymentflow — see README
+      - key: SPRING_DATASOURCE_USERNAME
+        fromDatabase:
+          name: paymentflow-postgres
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: paymentflow-postgres
+          property: password
+      - fromGroup: paymentflow-shared
+      - fromGroup: paymentflow-kafka
+
+  # ── merchant-service (private) ─────────────────────────────────────────────────────────────
+  #
+  # The gateway calls /internal/v1/api-keys/verify on this for every `sk_` request, so the whole
+  # SDK path depends on it. payment-service also resolves merchants through it.
+  - type: pserv
+    name: merchant-service
+    runtime: docker
+    region: oregon
+    dockerfilePath: ./render/merchant.Dockerfile
+    dockerContext: .
+    envVars:
+      - key: SERVER_PORT
+        value: 8082
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        fromDatabase:
+          name: paymentflow-postgres
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: paymentflow-postgres
+          property: password
+      # Redis as a single URL rather than host/port/password: `spring.data.redis.url` overrides
+      # all three, and it is the only form carrying the credential Render generates.
+      - key: SPRING_DATA_REDIS_URL
+        fromService:
+          name: paymentflow-keyvalue
+          type: keyvalue
+          property: connectionString
+      - key: PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI
+        value: http://identity-service:8081/oauth2/jwks
+      - fromGroup: paymentflow-shared
+      - fromGroup: paymentflow-kafka
+
+  # ── sandbox-service (private) ──────────────────────────────────────────────────────────────
+  #
+  # Not optional tooling. payment-service calls this over Feign for every authorization decision
+  # and throws SandboxServiceUnavailableException when it cannot be reached — there is no
+  # approve-anyway fallback, so no payment can be created without it. notification-service also
+  # reads test-mode overrides from it, though that dependency is deliberately ignorable.
+  - type: pserv
+    name: sandbox-service
+    runtime: docker
+    region: oregon
+    dockerfilePath: ./render/sandbox.Dockerfile
+    dockerContext: .
+    envVars:
+      - key: SERVER_PORT
+        value: 8094
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        fromDatabase:
+          name: paymentflow-postgres
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: paymentflow-postgres
+          property: password
+      - fromGroup: paymentflow-shared
+      - fromGroup: paymentflow-kafka
+
+  # ── payment-service (private) ──────────────────────────────────────────────────────────────
+  #
+  # Deploy after merchant and sandbox: it calls both synchronously on the create-payment path.
+  # Also the platform's main event producer — its transactional outbox relay publishes to Kafka,
+  # which is what the four consumers below project from.
+  - type: pserv
+    name: payment-service
+    runtime: docker
+    region: oregon
+    dockerfilePath: ./render/payment.Dockerfile
+    dockerContext: .
+    envVars:
+      - key: SERVER_PORT
+        value: 8083
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        fromDatabase:
+          name: paymentflow-postgres
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: paymentflow-postgres
+          property: password
+      - key: SPRING_DATA_REDIS_URL
+        fromService:
+          name: paymentflow-keyvalue
+          type: keyvalue
+          property: connectionString
+      - key: PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI
+        value: http://merchant-service:8082
+      - key: PAYMENTFLOW_SERVICES_SANDBOX_BASE_URI
+        value: http://sandbox-service:8094
+      - key: PAYMENTFLOW_SERVICES_IDENTITY_JWKS_URI
+        value: http://identity-service:8081/oauth2/jwks
+      # External acquirer routing (AD-8) stays OFF, which is the committed state. Enabling it
+      # points payment-service at agentic-commerce-service; the URI is set here so the wiring is
+      # correct if the flag is ever flipped, and inert while it is false.
+      - key: PAYMENTFLOW_EXTERNAL_PROVIDER_URI
+        value: http://agentic-commerce-service:8095
+      - fromGroup: paymentflow-shared
+      - fromGroup: paymentflow-kafka
+
+  # ═══ CORE — asynchronous projections (Kafka consumers) ═════════════════════════════════════
+  #
+  # These four consume payment.events and project it: the ledger, the audit trail, webhook
+  # deliveries and analytics. None is on the synchronous payment path, and none is reachable
+  # from outside — the gateway proxies to them for read APIs over the private network.
+  #
+  # They need a broker to do anything. With `paymentflow-kafka` unset they still start (nothing
+  # sets missing-topics-fatal and KafkaAdmin is not fatal-if-unavailable) and simply consume
+  # nothing, leaving /v1/balance, /v1/events, webhook deliveries and /v1/analytics empty.
+
+  - type: pserv
+    name: transaction-service
+    runtime: docker
+    region: oregon
+    dockerfilePath: ./render/transaction.Dockerfile
+    dockerContext: .
+    envVars:
+      - key: SERVER_PORT
+        value: 8084
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        fromDatabase:
+          name: paymentflow-postgres
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: paymentflow-postgres
+          property: password
+      - fromGroup: paymentflow-shared
+      - fromGroup: paymentflow-kafka
+
+  - type: pserv
+    name: audit-service
+    runtime: docker
+    region: oregon
+    dockerfilePath: ./render/audit.Dockerfile
+    dockerContext: .
+    envVars:
+      - key: SERVER_PORT
+        value: 8091
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        fromDatabase:
+          name: paymentflow-postgres
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: paymentflow-postgres
+          property: password
+      - fromGroup: paymentflow-shared
+      - fromGroup: paymentflow-kafka
+
+  - type: pserv
+    name: notification-service
+    runtime: docker
+    region: oregon
+    dockerfilePath: ./render/notification.Dockerfile
+    dockerContext: .
+    envVars:
+      - key: SERVER_PORT
+        value: 8092
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        fromDatabase:
+          name: paymentflow-postgres
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: paymentflow-postgres
+          property: password
+      # NOT PAYMENTFLOW_SERVICES_SANDBOX_BASE_URI. notification-service reads its sandbox URI
+      # from `paymentflow.webhooks.sandbox.base-uri`, a different property path from the
+      # `paymentflow.services.*` convention the other services use. The wrong name here binds
+      # nothing and silently leaves it pointing at localhost.
+      - key: PAYMENTFLOW_WEBHOOKS_SANDBOX_BASE_URI
+        value: http://sandbox-service:8094
+      - fromGroup: paymentflow-shared
+      - fromGroup: paymentflow-kafka
+
+  - type: pserv
+    name: analytics-service
+    runtime: docker
+    region: oregon
+    dockerfilePath: ./render/analytics.Dockerfile
+    dockerContext: .
+    envVars:
+      - key: SERVER_PORT
+        value: 8093
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        fromDatabase:
+          name: paymentflow-postgres
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: paymentflow-postgres
+          property: password
+      - fromGroup: paymentflow-shared
+      - fromGroup: paymentflow-kafka
+
+  # ═══ PUBLIC INGRESS ════════════════════════════════════════════════════════════════════════
+
+  # ── gateway-service (public) ───────────────────────────────────────────────────────────────
+  #
+  # The only public entry point to the core platform. Deploy last — it needs all eight private
+  # services reachable.
+  - type: web
+    name: gateway-service
+    runtime: docker
+    region: oregon
+    dockerfilePath: ./render/gateway.Dockerfile
+    dockerContext: .
+    # /health, never /actuator/health. Measured on the built image with no Redis reachable:
+    # /health returns 200 {"status":"ok"} while /actuator/health returns 503 DOWN, because
+    # spring-boot-starter-data-redis-reactive folds a Redis indicator into the aggregate and no
+    # indicator is disabled anywhere in the gateway's config. Pointing Render at the aggregate
+    # would restart a healthy gateway every time Key Value blipped.
+    healthCheckPath: /health
+    envVars:
+      - key: SERVER_PORT
+        value: 8080
+      - key: SPRING_DATA_REDIS_URL
+        fromService:
+          name: paymentflow-keyvalue
+          type: keyvalue
+          property: connectionString
+      # Private-network addresses, written as literals rather than `fromService` references:
+      # `fromService` yields a bare host / port / host:port and a Blueprint cannot concatenate
+      # a scheme onto it. The names and ports are fixed by this file, so the values are
+      # deterministic — confirm them against the dashboard on first deploy.
+      - key: PAYMENTFLOW_SERVICES_IDENTITY_BASE_URI
+        value: http://identity-service:8081
+      - key: PAYMENTFLOW_SERVICES_MERCHANT_BASE_URI
+        value: http://merchant-service:8082
+      - key: PAYMENTFLOW_SERVICES_PAYMENT_BASE_URI
+        value: http://payment-service:8083
+      - key: PAYMENTFLOW_SERVICES_SANDBOX_BASE_URI
+        value: http://sandbox-service:8094
+      - key: PAYMENTFLOW_SERVICES_TRANSACTION_BASE_URI
+        value: http://transaction-service:8084
+      - key: PAYMENTFLOW_SERVICES_AUDIT_BASE_URI
+        value: http://audit-service:8091
+      - key: PAYMENTFLOW_SERVICES_NOTIFICATION_BASE_URI
+        value: http://notification-service:8092
+      - key: PAYMENTFLOW_SERVICES_ANALYTICS_BASE_URI
+        value: http://analytics-service:8093
+      # Set to the developer portal's Vercel origin once it exists. Left as sync:false rather
+      # than a placeholder so no future URL is invented here. CORS is defence in depth: the
+      # portal calls the gateway server-side, so a wrong value will not obviously break it.
+      - key: PAYMENTFLOW_GATEWAY_CORS_ALLOWED_ORIGINS
+        sync: false
+      - fromGroup: paymentflow-shared
+      - fromGroup: paymentflow-kafka
+
+  # ── agentic-commerce-service ───────────────────────────────────────────────────────────────
+  #
+  # A detachable extension that sits ABOVE the platform: it owns no ledger and no payment
+  # correctness, and it reaches PaymentFlow only through the public gateway contract via
+  # PAYMENTFLOW_GATEWAY_URI. Nothing in the core depends on it — payment-service's external
+  # acquirer flag is off, which is the committed state.
+  #
+  # ⚠ DECISION REQUIRED — this is `web` (public), not `pserv`, and that is not free of tension
+  # with "prefer private". The developer portal calls it directly (AGENTIC_SERVICE_URL, via its
+  # own server-side proxy) and the gateway has no route to it. With the portal on Vercel —
+  # outside Render's private network — a `pserv` would be unreachable and the agentic demo would
+  # not work at all.
+  #
+  # It is not unprotected: its SecurityConfig authenticates every route through
+  # InternalContextFilter, and /api/agentic/** is explicitly `authenticated()`. The portal signs
+  # the same HMAC context the gateway signs. But public exposure does put that shared secret on
+  # an internet-facing surface.
+  #
+  # The alternative, if you would rather it stayed private: add a gateway route to it and have
+  # the portal call it through the gateway, then flip this to `pserv`. That is an application
+  # change (a new route plus scope handling), so it is not made here.
+  - type: web
+    name: agentic-commerce-service
+    runtime: docker
+    region: oregon
+    dockerfilePath: ./render/agentic.Dockerfile
+    dockerContext: .
+    # It has no /health of its own — HealthController is gateway-only. The liveness group is
+    # shallow (verified: UP while a dependency was unreachable) and /actuator/health/** is
+    # permitAll in its SecurityConfig, so this is the right probe without adding app code.
+    healthCheckPath: /actuator/health/liveness
+    envVars:
+      - key: SERVER_PORT
+        value: 8095
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        fromDatabase:
+          name: paymentflow-postgres
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: paymentflow-postgres
+          property: password
+      # The architectural rule, expressed as configuration: it talks to the platform through
+      # the gateway, never to an internal service. Points at the gateway's private address —
+      # both run on Render, so this call never leaves the private network.
+      - key: PAYMENTFLOW_GATEWAY_URI
+        value: http://gateway-service:8080
+      # A real PaymentFlow API key (sk_...), minted through the platform after seeding. It is a
+      # credential, so it is entered in the dashboard, never here.
+      - key: PAYMENTFLOW_AGENT_API_KEY
+        sync: false
+      # LLM provider. Blank keys make the service fall back to its scripted client rather than
+      # failing, so the demo degrades instead of breaking.
+      - key: AGENTIC_LLM_PROVIDER
+        value: anthropic
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: AGENTIC_LLM_MODEL
+        sync: false
+      - fromGroup: paymentflow-shared
+
+# ── Kafka ───────────────────────────────────────────────────────────────────────────────
+#
+# Not declared here: Render has no managed Kafka, and self-hosting a broker on it needs
+# persistent disk, stable identity and advertised listeners — fragile and expensive for no demo
+# value. Use an external managed broker and put its connection in the `paymentflow-kafka`
+# environment group:
+#
+#   SPRING_KAFKA_BOOTSTRAP_SERVERS         host:port (the provider's TLS port, NOT always 9092)
+#   SPRING_KAFKA_SECURITY_PROTOCOL         SASL_SSL
+#   SPRING_KAFKA_PROPERTIES_SASL_MECHANISM SCRAM-SHA-256 (or PLAIN — the provider decides)
+#   SPRING_KAFKA_PROPERTIES_SASL_JAAS_CONFIG
+#       org.apache.kafka.common.security.scram.ScramLoginModule required \
+#           username="..." password="...";
+#
+# Verified against a real managed SASL_SSL broker: no application change is needed. The
+# transaction-service image, given exactly these four variables and nothing else, resolved
+# security.protocol=SASL_SSL and sasl.mechanism=SCRAM-SHA-256, authenticated, discovered the
+# group coordinator, joined `transaction-service-payment.events` and took its partition
+# assignment. Spring's relaxed binding maps SPRING_KAFKA_PROPERTIES_* onto the
+# `spring.kafka.properties` map, so the existing configuration already supports a SASL broker.
+#
+# The jaas config embeds the username and password, so the whole group is dashboard-managed.
+# Consumer-group configuration needs nothing — group ids are fixed per service in
+# application.yaml.
+#
+# ⚠ THE BROKER MUST HAVE ROOM FOR ALL TEN TOPICS AT THEIR DECLARED PARTITION COUNTS.
+#
+# This is the one provider property that is not negotiable, and getting it wrong FAILS SILENTLY.
+# Topics are created at boot by KafkaAdmin from the NewTopic beans:
+#
+#     api.request.events        6    gateway-service
+#     webhook.deliveries        6    notification-service
+#     webhook.deliveries.retry  6    notification-service
+#     webhook.deliveries.dlq    3    notification-service
+#     payment.events            3    payment-service
+#     payment.events.retry      3    notification-service
+#     payment.events.dlq        3    notification-service
+#     identity.events           3    identity-service
+#     merchant.events           3    merchant-service
+#     sandbox.scheduled.events  3    sandbox-service
+#
+# KafkaAdmin is not fatal-if-unavailable. If the broker refuses a topic, the service logs
+# `Could not configure topics` at ERROR and then starts up perfectly healthy — and the affected
+# producer fails on send while the matching consumer sits idle for ever. A green deploy is
+# therefore NOT evidence that the event fabric works. Run `render/verify-kafka.sh` against the
+# broker before the first sync; it turns this silent failure into a loud one.
+#
+# ⚠ THE BROKER PRINCIPAL NEEDS ACLs ON TOPIC AND GROUP, NOT JUST CLUSTER.
+#
+# A cluster-scoped grant alone looks like it works and is not enough. CreateTopics is a CLUSTER
+# operation, so topic creation succeeds — but listing and describing need Describe on the TOPIC
+# resource, and a denied list comes back filtered to EMPTY rather than refused. The platform then
+# deploys green and moves nothing: producers need Write on TOPIC, consumers need Read on TOPIC
+# and Read on GROUP (nine consumer groups, fixed in application.yaml). Grant all three:
+#
+#   kafka-acls.sh --add --allow-principal User:<user> --allow-host '*' \
+#                 --operation All --topic '*' --group '*'
+#
+# Replication factor: do NOT pin one. The beans ask for `.replicas(1)` and providers disagree in
+# both directions — Aiven silently raises 1 to its minimum of 2, Redpanda Serverless refuses
+# anything but exactly 3 (`InvalidReplicationFactorException: replication factor must be 3`).
+# Pre-create the topics with the broker's own default and the `.replicas(1)` beans are fine as
+# written: KafkaAdmin only ever *increases partitions*, it never reconciles replication factor,
+# so an existing topic at the broker's RF is left alone. This is why step 1 of the runbook
+# provisions the topics before the first deploy rather than leaving it to KafkaAdmin.
+#
+# ⚠ Provider notes, measured rather than assumed:
+#
+#   Aiven FREE tier      unusable for this platform. Hard policy limits of 5 user topics and
+#                        2 partitions per topic; the platform needs 10 topics and up to 6
+#                        partitions. Creating an eleventh topic or a third partition returns
+#                        PolicyViolationException. Confirmed against a live free-tier service.
+#   Aiven Dev tier       ≈$35/month; 20 topics and 100 partitions — enough, and a one-click
+#                        upgrade from free.
+#   Redpanda Serverless  what the platform runs on. Free tier, 5,000 partitions, no restrictive
+#                        topic cap; Kafka-API compatible over SASL/SCRAM-SHA-256 + TLS on port
+#                        9092, with a publicly trusted certificate (no truststore config).
+#                        Requires replication factor exactly 3, and ACLs as described above.
+#                        Verified end to end: all ten topics provisioned at their declared
+#                        partition counts, transaction-service and payment-service joined their
+#                        consumer groups and took full partition assignments, and KafkaAdmin
+#                        logged nothing at all.
+#   Upstash Kafka        not an option. Deprecated 2024-09-11, discontinued 2025-03-11.
+#
+# The four variables are provider-neutral, so nothing in this file changes with that choice —
+# only the topic headroom, the replication factor and the ACL model do.
+
+# ── Deliberately absent ──────────────────────────────────────────────────────────────────────
+#
+# SPRING_PROFILES_ACTIVE          application-local.yaml holds local defaults; on Render every
+#                                 value comes from the environment.
+# MANAGEMENT_OPENTELEMETRY_*      no collector is deployed. Left unset the OTLP exporter stays
+#                                 off; pointed at a dead endpoint it retries noisily in every
+#                                 service's logs.
+# healthCheckPath on pserv        Render supports healthCheckPath on web services only, so the
+#                                 eight private services have none. Their images still carry the
+#                                 Dockerfile HEALTHCHECK, which Render does not use — Render
+#                                 restarts a private service on process exit, not on a probe.
+# developer-portal                deployed to Vercel, not Render.
+# mock-project                    local-only. Never deployed, never tracked.

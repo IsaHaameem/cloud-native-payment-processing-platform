@@ -37,8 +37,26 @@ desktop.ini
 .env
 *.env
 !.env.example
+# Framework-local env files that `*.env` does not match (they end `.local`, not `.env`).
+.env.local
+.env.*.local
 *.pem
 *.key
+# Registry credential files. The SDK release workflows publish over OIDC and never
+# create these, but a manual `npm publish` / `twine upload` can leave a token behind.
+.npmrc
+.pypirc
+# Kafka client property files. A SASL_SSL broker's jaas config embeds the username and password
+# in plain text, so any *-client.properties handed to kafka-topics.sh / kafka-console-* is a
+# credential file. Aiven's is `aiven-client.properties`; the glob covers the others.
+*-client.properties
+aiven-client.properties
+# PGP material for the Maven Central signing key. sdks/PUBLISHING.md says to paste the armoured
+# block straight from `gpg --armor --export-secret-keys` into the GitHub secret and never write
+# it to a file; this is the net under that instruction.
+*.asc
+*.gpg
+secring.*
 # Anchored to the repo root only — an unanchored "secrets/" also matched
 # terraform/modules/secrets/ (a legitimate Terraform module defining secret
 # *infrastructure*, no real secret values) and silently kept it out of every
@@ -72,6 +90,11 @@ override.tf
 sdks/node/dist/
 sdks/python/dist/
 sdks/python/build/
+# Release archives. `npm pack` and the release workflow's tarball-content assertion both drop a
+# .tgz beside package.json; it is a build artifact of the publish, never source. The same for a
+# stray wheel or sdist built outside sdks/python/dist/.
+sdks/node/*.tgz
+*.whl
 *.egg-info/
 __pycache__/
 *.py[cod]
@@ -86,3 +109,13 @@ load-tests/src/gatling/resources/data/
 
 # Claude Code local state (the launch config is shared; the lock file is per-machine).
 .claude/scheduled_tasks.lock
+
+# Design source archive — not part of the build, kept locally only.
+Design palette and scope.zip
+
+# ── Local-only Knitt mock merchant ─────────────────────────────────────
+# mock-project/ is a local demonstration storefront kept on disk for E2E testing
+# against PaymentFlow. It is deliberately NOT part of this repository: it has its
+# own dependencies, its own .env with local credentials, and its own build
+# output, none of which should ever be committed.
+mock-project/

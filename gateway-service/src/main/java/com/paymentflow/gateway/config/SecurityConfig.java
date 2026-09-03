@@ -45,7 +45,9 @@ import java.util.List;
  *       only "skip authentication here" (which would be fail-open, not fail-closed) —
  *       hence two chains, not one chain with an extra {@code permitAll()}.</li>
  *   <li><b>everything else</b> (chain #2): byte-for-byte V1's original rule set — auth
- *       endpoints/JWKS/health public, everything else requires a valid RS256 access
+ *       endpoints/JWKS/health public (the actuator probes, plus {@code GET|HEAD /health}
+ *       -- see {@link com.paymentflow.gateway.web.HealthController}), everything else
+ *       requires a valid RS256 access
  *       token verified against identity-service's JWKS. Untouched, not refactored.</li>
  * </ul>
  */
@@ -90,6 +92,13 @@ public class SecurityConfig {
                 .authorizeExchange(exchange -> exchange
                         .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .pathMatchers("/api/v1/auth/**", "/oauth2/jwks").permitAll()
+                        // The public liveness probe (HealthController). An external checker --
+                        // Render, an uptime monitor -- holds no credential, so this has to be
+                        // open; HEAD as well as GET because monitors commonly poll with HEAD.
+                        // It is shallow by construction and discloses nothing a TCP handshake
+                        // does not, unlike the actuator aggregate beside it.
+                        .pathMatchers(HttpMethod.GET, "/health").permitAll()
+                        .pathMatchers(HttpMethod.HEAD, "/health").permitAll()
                         .pathMatchers(HttpMethod.GET, "/actuator/health/**", "/actuator/info",
                                 "/actuator/prometheus", "/actuator/metrics", "/actuator/metrics/**").permitAll()
                         .anyExchange().authenticated())
