@@ -125,13 +125,28 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
-    # Restricts to this exact repository (any branch/PR/tag) — not the whole
-    # GitHub org, and not any other repo that happens to reuse this account's
-    # OIDC provider.
+    # Restricts to this exact repository, on main only — not the whole GitHub
+    # org, not any other repo reusing this account's OIDC provider, and not
+    # any other branch/PR/tag (cd.yml is workflow_dispatch-only with no other
+    # trigger, so main is the only ref this role is ever meant to serve).
+    #
+    # A literal value, not "repo:${var.github_repository}:*": GitHub's actual
+    # subject claim is not the plain "owner/repo" shape that pattern assumes.
+    # Confirmed against live CloudTrail evidence for this exact role — every
+    # AssumeRoleWithWebIdentity attempt (239 events, both workflow attempts)
+    # carried the identical sub below, which is GitHub's "immutable IDs"
+    # format: owner and repository each suffixed with their numeric GitHub
+    # ID, so a future rename of either can never silently start matching (or
+    # failing to match) a different repository. The previous StringLike
+    # pattern's wildcard hid this — its "/" never matched the token's "@" and
+    # every attempt was denied, 100% of the time, from the day the role was
+    # created (see the account's own CloudTrail: 0 successful assumes ever).
+    # StringEquals, not StringLike, because this value is now a complete,
+    # exact string with no wildcard left to match.
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:*"]
+      values   = ["repo:IsaHaameem@184862146/cloud-native-payment-processing-platform@1304115598:ref:refs/heads/main"]
     }
   }
 }
