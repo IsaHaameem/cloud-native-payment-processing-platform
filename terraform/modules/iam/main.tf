@@ -176,6 +176,7 @@ data "aws_iam_policy_document" "github_actions_cicd" {
     sid = "EcrPush"
     actions = [
       "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
       "ecr:GetDownloadUrlForLayer",
       "ecr:InitiateLayerUpload",
       "ecr:UploadLayerPart",
