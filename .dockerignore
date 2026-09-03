@@ -37,4 +37,8 @@ sdks/
 # names and Gradle therefore configures on every invocation. Excluded because the context is sent
 # to the daemon nine times per matrix run and this tree is a Node application, not a JVM one.
 developer-portal/
+# Project 3: the Knitt mock-merchant demo. Same reasoning as developer-portal — a Node
+# application, not a Gradle module, consumed by no service image. `DockerBuildContextConsistencyTest`
+# discovers it by its package.json and fails until it is listed here.
+mock-project/
 README*.md

@@ -191,6 +191,37 @@ class GatewayIntegrationTest {
     }
 
     @Test
+    void healthEndpointIsPublicAndShallow() {
+        // The deliberate exception to the rule asserted immediately below: the gateway fails
+        // closed on everything unlisted, and /health is one of the few paths listed open,
+        // because an external checker (Render, an uptime monitor) holds no credential. No
+        // Authorization header is sent here on purpose.
+        client.get().uri("/health")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("Cache-Control", "no-store")
+                .expectBody()
+                .jsonPath("$.status").isEqualTo("ok");
+    }
+
+    @Test
+    void healthEndpointStaysUpWhenADownstreamServiceIsUnreachable() {
+        // What separates this from /actuator/health, and the reason it exists. The fake
+        // identity-service backs /api/v1/**; nothing about its availability may change the
+        // liveness answer, or a dependency outage would restart a healthy gateway.
+        client.get().uri("/api/v1/users/me")
+                .header("Authorization", "Bearer not-a-real-jwt")
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        client.get().uri("/health")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.status").isEqualTo("ok");
+    }
+
+    @Test
     void unmappedPathWithoutAuthenticationFailsClosedWith401() {
         client.get().uri("/does-not-exist")
                 .exchange()

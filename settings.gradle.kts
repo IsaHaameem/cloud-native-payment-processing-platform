@@ -50,6 +50,20 @@ include("notification-service")
 include("analytics-service")
 include("sandbox-service")
 
+// ── Agentic commerce extension (Project 3) ──────────────────────────────
+// The AI Growth & Agentic Commerce layer: LLM runtime, typed tool registry, policy
+// engine, agent action log, catalog, checkout, and the Razorpay provider client.
+//
+// A service, not a library, and deliberately the only module this extension adds. It
+// sits ABOVE the payment platform and reaches it through the public /v1 API like any
+// other consumer — nothing here is on the payment core's compile classpath, and the one
+// inbound call (payment-service asking for a provider decision) crosses the same
+// HMAC-signed internal-context boundary sandbox-service already uses.
+//
+// Deleting this line and the module directory returns the build to its pre-extension
+// state; see project_3_context.md AD-8 for the full removal procedure.
+include("agentic-commerce-service")
+
 // ── Performance / load testing (M14) ────────────────────────────────────
 include("load-tests")
 
