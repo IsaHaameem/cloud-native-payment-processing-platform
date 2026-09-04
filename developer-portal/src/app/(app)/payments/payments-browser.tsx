@@ -251,7 +251,9 @@ function Toolbar({
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <p aria-live="polite" className="text-label text-fg-subtle">
+      {/* A div, not a p: the loading branch renders a Skeleton (a block element), which is
+          invalid inside a <p> and triggers a hydration warning. */}
+      <div aria-live="polite" role="status" className="text-label text-fg-subtle">
         {loading ? (
           <Skeleton className="inline-block h-3.5 w-28 align-middle" />
         ) : (
@@ -261,7 +263,7 @@ function Toolbar({
             {refiltering ? ' · updating…' : ''}
           </>
         )}
-      </p>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" size="sm" onClick={() => void copyLink()}>
@@ -364,12 +366,30 @@ function QueryError({ error, onRetry }: { error: Error; onRetry: () => void }) {
 /* ── Rows ──────────────────────────────────────────────────────────────────────────── */
 
 function PaymentRow({ payment }: { payment: PaymentResponse }) {
+  const router = useRouter();
+  const href = payment.id ? `/payments/${encodeURIComponent(payment.id)}` : undefined;
+
   return (
     <DataTableRow
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.12 }}
+      {...(href
+        ? {
+            role: 'link',
+            tabIndex: 0,
+            'aria-label': `Open payment ${payment.id}`,
+            className: 'cursor-pointer',
+            onClick: () => router.push(href),
+            onKeyDown: (e: React.KeyboardEvent) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                router.push(href);
+              }
+            },
+          }
+        : {})}
     >
       {/*
         The full id is on the cell, not just its tail.

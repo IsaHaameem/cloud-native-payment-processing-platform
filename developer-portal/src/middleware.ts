@@ -6,6 +6,7 @@ import {
   isWellFormedCsrfToken,
   newCsrfToken,
 } from '@/lib/security/csrf';
+import { PUBLIC_MARKETING_PATHS } from '@/lib/public-paths';
 import { safeRedirectPath } from '@/lib/security/redirect';
 import { IdentityUnavailableError, RejectedTokenError } from '@/lib/session/identity';
 import { refreshSession } from '@/lib/session/refresh';
@@ -88,6 +89,9 @@ const PUBLIC_PATHS = new Set([
   '/forgot-password',
   '/reset-password',
   '/api/health',
+  // The marketing surface. Named here rather than pattern-matched so each public page is a
+  // deliberate entry, and the list is shared with the site nav so the two cannot disagree.
+  ...PUBLIC_MARKETING_PATHS,
 ]);
 
 /**

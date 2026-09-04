@@ -94,9 +94,42 @@ function sessionSecret(): string {
   return value;
 }
 
+/**
+ * A shared HMAC secret, 32+ characters. Enforced non-blank only in production, for the same
+ * reason as {@link sessionSecret}: local development uses the platform's committed insecure
+ * default and a real deployment must not.
+ */
+function internalContextSecret(): string {
+  const value = process.env.INTERNAL_CONTEXT_SECRET;
+  if (value === undefined || value.trim() === '') {
+    if (isProduction && !isBuildPhase) {
+      throw new Error(
+        'INTERNAL_CONTEXT_SECRET is not set. The portal signs the agentic service context with ' +
+          'it (D100); refusing to start without it.',
+      );
+    }
+    return 'dev-only-insecure-shared-secret-change-me';
+  }
+  if (value.length < 32) {
+    throw new Error('INTERNAL_CONTEXT_SECRET must be at least 32 characters.');
+  }
+  return value;
+}
+
 export const env = {
   /** Where the gateway lives. Every platform call this server makes goes here. */
   gatewayUrl: url('PF_GATEWAY_URL', 'http://localhost:8080'),
+
+  /**
+   * The agentic-commerce-service, reached server-side only. The browser never sees this and
+   * never calls it — the portal's `/api/agentic/*` routes and Server Actions proxy to it with a
+   * signed internal context derived from the session (D100/D185). Not gateway-routed by
+   * decision (AD-8 detachability).
+   */
+  agenticServiceUrl: url('AGENTIC_SERVICE_URL', 'http://localhost:8095'),
+
+  /** The HMAC secret the portal signs the agentic internal context with. Server-side only. */
+  internalContextSecret: internalContextSecret(),
 
   /** This portal's own origin, used for absolute links and for the CSRF origin check (M23.2). */
   publicOrigin: url('PORTAL_PUBLIC_ORIGIN', 'http://localhost:3000'),

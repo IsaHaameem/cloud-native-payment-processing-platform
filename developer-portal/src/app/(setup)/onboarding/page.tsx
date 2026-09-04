@@ -49,7 +49,7 @@ export default async function OnboardingPage() {
 
   return (
     <div className="w-full max-w-[860px]">
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-12">
+      <div className="grid gap-8 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-12">
         <div className="lg:pt-4">
           <p className="text-label font-[510] text-accent-text">Step 2 of 2</p>
           <h1 className="mt-2 text-title-2 font-[510] tracking-[-0.165px] text-fg sm:text-[2rem] sm:leading-[1.15] sm:tracking-[-0.6px]">
@@ -63,6 +63,8 @@ export default async function OnboardingPage() {
           <ul className="mt-8 flex flex-col gap-4">
             <Point icon={TestTube2} title="You start in test mode">
               Every key, payment and webhook is sandboxed until you switch modes deliberately.
+              Neither mode is wired to a real acquirer in this deployment — no real money moves in
+              test or live.
             </Point>
             <Point icon={KeyRound} title="API keys are issued immediately">
               A publishable and a secret key for each mode, created with the account.

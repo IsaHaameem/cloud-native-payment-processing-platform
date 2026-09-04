@@ -4,23 +4,23 @@ import { ThemeProvider as NextThemeProvider } from 'next-themes';
 import type * as React from 'react';
 
 /**
- * Theme switching (M23.1).
+ * Theme (M23.1; locked to dark in Project 3).
  *
- * `defaultTheme="dark"` because the design language is dark-first, and `enableSystem` because
- * someone whose OS says light should not have to ask twice. `value` maps the two themes onto
- * the class names the tokens are written against — `light` is the variant class, since dark is
- * the base.
+ * PaymentFlow is **dark only**. The token file still carries a derived light ramp, but no
+ * surface may render it: `forcedTheme="dark"` pins the `dark` class on `<html>` and makes
+ * `enableSystem` and any stored preference inert, so a light OS setting or a stale
+ * `localStorage` value can never flip the product. The theme picker has been removed from the
+ * UI to match — there is nothing to pick.
  *
- * `disableTransitionOnChange` suppresses the colour transition during the switch itself. Without
- * it every bordered surface on the page animates independently and the change reads as a slow
- * wash rather than an instant flip.
+ * `disableTransitionOnChange` is kept: it costs nothing and guards against a flash if the
+ * forced value is ever relaxed.
  */
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   return (
     <NextThemeProvider
       attribute="class"
       defaultTheme="dark"
-      enableSystem
+      forcedTheme="dark"
       disableTransitionOnChange
       value={{ light: 'light', dark: 'dark' }}
     >

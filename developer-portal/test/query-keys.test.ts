@@ -156,8 +156,10 @@ describe('the breadcrumb trail', () => {
 
   it('takes its labels from the navigation, not from the URL', () => {
     // `/developers/api-keys` reads "API keys", which title-casing the segment could never produce.
+    // The `/developers` prefix reads "Integration" — the name the nav group carries — via the
+    // section-label override, not the title-cased URL segment.
     const crumbs = buildCrumbs('/developers/api-keys');
-    expect(crumbs.map((c) => c.label)).toEqual(['Developers', 'API keys']);
+    expect(crumbs.map((c) => c.label)).toEqual(['Integration', 'API keys']);
   });
 
   it('does not link a section that is not a page', () => {

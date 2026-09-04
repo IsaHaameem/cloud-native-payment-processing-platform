@@ -51,7 +51,7 @@ const EXITS: readonly Stage[] = [
 export function Lifecycle() {
   return (
     <div>
-      <ol className="relative grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <ol className="relative grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         {STAGES.map((stage, index) => (
           <motion.li
             key={stage.name}
@@ -136,7 +136,7 @@ export function Lifecycle() {
 
       <div className="mt-10 border-t border-border-subtle pt-6">
         <p className="text-label font-[510] text-fg">And the states a happy path leaves out</p>
-        <dl className="mt-4 grid gap-4 sm:grid-cols-3">
+        <dl className="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-3">
           {EXITS.map((exit) => (
             <div key={exit.name}>
               <dt className="font-mono text-label-sm text-fg-muted">{exit.name}</dt>

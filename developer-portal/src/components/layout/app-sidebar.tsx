@@ -66,7 +66,8 @@ export function AppSidebar({
     >
       <div
         className={cn(
-          'flex h-12 shrink-0 items-center',
+          // Matches the sticky header height so the wordmark and the breadcrumb sit on one line.
+          'flex h-14 shrink-0 items-center',
           collapsed ? 'justify-center px-0' : 'px-4',
         )}
       >

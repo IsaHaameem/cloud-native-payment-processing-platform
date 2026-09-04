@@ -4,6 +4,7 @@ import {
   Boxes,
   FlaskConical,
   GitBranch,
+  ListChecks,
   Radio,
   RefreshCw,
   ShieldCheck,
@@ -19,6 +20,7 @@ import { Reveal, RevealItem } from '@/components/marketing/reveal';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { readSession } from '@/lib/session/require';
+import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = {
   title: 'PaymentFlow — payments infrastructure for developers',
@@ -65,7 +67,7 @@ export default async function LandingPage() {
         title="Everything a payment touches, in one place"
         lede="Four services behind one contract: authorization and capture, refunds, the ledger that records both, and the webhooks that tell your systems it happened."
       >
-        <Reveal stagger className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Reveal stagger className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {CAPABILITIES.map(({ icon: Icon, title, body }) => (
             <RevealItem key={title}>
               <Card className="h-full">
@@ -92,12 +94,57 @@ export default async function LandingPage() {
       </Section>
 
       <Section
+        id="agentic"
+        eyebrow="Agentic Commerce"
+        title="Make your catalogue transactable by AI buyers"
+        lede="An agent runtime with a typed tool registry, a checkout that derives its own total, and an action log that records every attempt. The agent proposes; a deterministic policy engine decides, and the platform executes."
+      >
+        <Reveal stagger className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+          {AGENTIC_POINTS.map(({ icon: Icon, title, body }) => (
+            <RevealItem key={title}>
+              <Card className="h-full">
+                <CardContent className="pt-5">
+                  <Icon aria-hidden className="size-4 text-fg-subtle" />
+                  <p className="mt-3 text-label font-[510] text-fg">{title}</p>
+                  <p className="mt-1.5 text-body text-fg-subtle">{body}</p>
+                </CardContent>
+              </Card>
+            </RevealItem>
+          ))}
+        </Reveal>
+        <Reveal className="mt-4 grid gap-3 grid-cols-1 sm:grid-cols-3">
+          {POLICY_BANDS.map(({ outcome, note, tone }) => (
+            <div key={outcome} className="rounded-lg bg-surface p-4 ring-hairline">
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-label-sm font-[510]',
+                  tone === 'success' && 'bg-success-surface text-success',
+                  tone === 'warning' && 'bg-warning-surface text-warning',
+                  tone === 'danger' && 'bg-danger-surface text-danger',
+                )}
+              >
+                {outcome}
+              </span>
+              <p className="mt-2 text-label text-fg-subtle">{note}</p>
+            </div>
+          ))}
+        </Reveal>
+        <Reveal className="mt-6">
+          <Button variant="secondary" size="lg" asChild>
+            <Link href="/agentic-commerce">
+              How the policy engine works <ArrowRight />
+            </Link>
+          </Button>
+        </Reveal>
+      </Section>
+
+      <Section
         id="developers"
         eyebrow="Developers"
         title="API first, and the clients prove it"
         lede="One OpenAPI document is the source of truth. The SDKs, this dashboard and the request validation are all generated or driven from it, so none of them can describe an API the platform is not serving."
       >
-        <Reveal stagger className="grid gap-4 sm:grid-cols-2">
+        <Reveal stagger className="grid gap-4 grid-cols-1 sm:grid-cols-2">
           {DEVELOPER_POINTS.map(({ icon: Icon, title, body }) => (
             <RevealItem key={title}>
               <Card className="h-full">
@@ -118,7 +165,7 @@ export default async function LandingPage() {
         title="Built for the requests that do not go well"
         lede="Retries, circuit breakers and an event log, because the interesting part of a payments platform is what it does when a downstream call times out."
       >
-        <Reveal stagger className="grid gap-4 sm:grid-cols-3">
+        <Reveal stagger className="grid gap-4 grid-cols-1 sm:grid-cols-3">
           {RELIABILITY_POINTS.map(({ icon: Icon, title, body }) => (
             <RevealItem key={title}>
               <Card className="h-full">
@@ -168,6 +215,47 @@ export default async function LandingPage() {
     </main>
   );
 }
+
+const AGENTIC_POINTS = [
+  {
+    icon: Boxes,
+    title: 'A typed tool registry',
+    body: 'Seven tools, each with a fixed risk class — READ, COMMERCE, PAYMENT, REFUND. The agent can only ask for one of these, and risk class is what decides which rules apply.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'A deterministic policy engine',
+    body: 'Seventeen rules with one outcome each, versioned. Hard caps are checked before approval thresholds, so an amount beyond the outer bound is never offered to a person to wave through.',
+  },
+  {
+    icon: ListChecks,
+    title: 'A human approval workflow',
+    body: 'Above the threshold, execution waits. An approval binds the merchant, amount and target, and redemption refuses on the first field that moved.',
+  },
+  {
+    icon: GitBranch,
+    title: 'An append-only action log',
+    body: 'Every tool call, every rejected tool call and every policy decision is recorded — with the idempotency key each platform step derived, so a REPLAYED step proves a retry did not double-charge.',
+  },
+] as const;
+
+const POLICY_BANDS = [
+  {
+    outcome: 'PERMIT',
+    note: 'A refund up to ₹1,000 proceeds automatically.',
+    tone: 'success' as const,
+  },
+  {
+    outcome: 'REQUIRES APPROVAL',
+    note: 'Above ₹1,000, a person decides — inside a 30-minute window.',
+    tone: 'warning' as const,
+  },
+  {
+    outcome: 'REFUSE',
+    note: 'Above ₹20,000, refused outright. No approval permits it.',
+    tone: 'danger' as const,
+  },
+] as const;
 
 const CAPABILITIES = [
   {

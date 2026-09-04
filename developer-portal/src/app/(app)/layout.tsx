@@ -89,7 +89,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <AppHeader session={publicSession} businessName={businessName} csrfToken={csrfToken} />
 
           <main id="main" className="flex-1 px-5 py-8 sm:px-8 lg:px-10">
-            <div className="mx-auto w-full max-w-[1200px]">
+            <div className="mx-auto w-full max-w-[1440px]">
               <PageTransition>{children}</PageTransition>
             </div>
           </main>

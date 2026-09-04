@@ -83,8 +83,8 @@ export function Hero({ signedIn }: { signedIn: boolean }) {
             className="mt-6 max-w-lg text-body-lg text-pretty text-fg-subtle"
           >
             Authorize, capture and refund through one idempotent API. Every movement of money is
-            posted to a double-entry ledger and announced by a signed webhook — and none of it
-            touches real funds until you switch out of test mode.
+            posted to a double-entry ledger and announced by a signed webhook — on a simulated
+            acquirer that moves no real funds, in either mode.
           </motion.p>
 
           <motion.div

@@ -1,6 +1,7 @@
 import { AlertCircle, KeyRound } from 'lucide-react';
 import type { Metadata } from 'next';
 
+import { KeyPlacement } from '@/components/integration/key-placement';
 import { PageHeader } from '@/components/patterns/page-header';
 import { EmptyState } from '@/components/patterns/empty-state';
 import { isLive, keyStatus } from '@/lib/api-keys/status';
@@ -85,6 +86,8 @@ export default async function ApiKeysPage() {
   return (
     <div>
       <Header mode={session.mode} csrfToken={csrfToken} showAction={ordered.length > 0} />
+
+      <KeyPlacement mode={session.mode} />
 
       {/*
        * Shown only when the evidence fits: keys exist, and not one of the live ones has ever
