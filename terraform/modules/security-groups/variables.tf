@@ -23,6 +23,18 @@ variable "gateway_container_port" {
   default     = 8080
 }
 
+variable "enable_agentic_ingress" {
+  description = "When true, also permit ALB -> agentic-commerce-service on var.agentic_container_port (the /api/agentic/ path rule; AD-8, not gateway-routed). Default false leaves the gateway-only edge unchanged."
+  type        = bool
+  default     = false
+}
+
+variable "agentic_container_port" {
+  description = "agentic-commerce-service's container port (8095). Only used when enable_agentic_ingress is true."
+  type        = number
+  default     = 8095
+}
+
 variable "service_ports" {
   description = "Every service's container port, used to scope the self-referencing ECS-tasks ingress rule to only the ports actually in use rather than an all-ports-open rule."
   type        = list(number)

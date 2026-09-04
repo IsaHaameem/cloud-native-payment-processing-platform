@@ -29,7 +29,12 @@ module "security_groups" {
   environment   = var.environment
   vpc_id        = module.networking.vpc_id
   service_ports = local.service_ports
-  tags          = local.common_tags
+
+  # Permit ALB -> agentic-commerce-service on 8095 (the /api/agentic/ path rule).
+  enable_agentic_ingress = true
+  agentic_container_port = local.services["agentic-commerce-service"].port
+
+  tags = local.common_tags
 }
 
 module "ecr" {
@@ -112,7 +117,13 @@ module "alb" {
   security_group_id      = module.security_groups.alb_security_group_id
   gateway_container_port = local.services["gateway-service"].port
   certificate_arn        = var.alb_certificate_arn
-  tags                   = local.common_tags
+
+  # `/api/agentic/*` on this same ALB -> agentic-commerce-service (AD-8: not
+  # gateway-routed). Agentic stays private on 8095; only the ALB may reach it.
+  enable_agentic_ingress = true
+  agentic_container_port = local.services["agentic-commerce-service"].port
+
+  tags = local.common_tags
 }
 
 module "cloudwatch" {
@@ -178,7 +189,10 @@ module "ecs_services" {
   service_connect_namespace_arn = module.ecs_cluster.service_discovery_namespace_arn
 
   enable_load_balancer = each.value.enable_load_balancer
-  target_group_arn     = each.value.enable_load_balancer ? module.alb.gateway_target_group_arn : null
+  target_group_arn = each.value.enable_load_balancer ? {
+    "gateway-service"          = module.alb.gateway_target_group_arn
+    "agentic-commerce-service" = module.alb.agentic_target_group_arn
+  }[each.key] : null
 
   tags = local.common_tags
 }

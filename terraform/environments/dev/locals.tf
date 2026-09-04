@@ -225,6 +225,13 @@ locals {
     MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED = "false"
   }
 
+  # The two ALB-fronted services. gateway-service is the platform edge (Client ->
+  # ALB -> Gateway). agentic-commerce-service is fronted only for the Developer
+  # Portal's server-side `/api/agentic/*` proxy (AD-8: its own target group and
+  # listener rule, never routed through the gateway). Every other service stays
+  # internal-only.
+  alb_fronted_services = ["gateway-service", "agentic-commerce-service"]
+
   # Combines the per-service port/env/secrets into one map, so the ECS services can
   # be instantiated with a single for_each over one module block (main.tf) instead
   # of ten hand-written module blocks.
@@ -233,7 +240,7 @@ locals {
       port                  = cfg.port
       environment_variables = merge(local.common_service_environment_variables, local.service_environment_variables[name])
       secrets               = local.service_secrets[name]
-      enable_load_balancer  = name == "gateway-service"
+      enable_load_balancer  = contains(local.alb_fronted_services, name)
     }
   }
 }

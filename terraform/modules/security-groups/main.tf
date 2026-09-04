@@ -53,6 +53,22 @@ resource "aws_security_group_rule" "alb_egress_to_ecs" {
   description = "Only to gateway-service container port, the ALB never talks to any other service directly."
 }
 
+# The one deliberate exception to gateway-only edge: agentic-commerce-service is
+# reachable from the ALB on its own container port, for the `/api/agentic/*` path
+# rule the Developer Portal proxy uses (AD-8: not gateway-routed). Opt-in, and the
+# port is still only reachable from the ALB SG, never the internet directly.
+resource "aws_security_group_rule" "alb_egress_to_agentic" {
+  count = var.enable_agentic_ingress ? 1 : 0
+
+  security_group_id        = aws_security_group.alb.id
+  type                     = "egress"
+  from_port                = var.agentic_container_port
+  to_port                  = var.agentic_container_port
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.ecs_tasks.id
+  description              = "ALB to agentic-commerce-service container port for the /api/agentic/ path rule."
+}
+
 # ── ECS tasks: every one of the platform's services runs behind this one SG ─
 #
 # One shared SG (not eight per-service ones) because every service currently
@@ -78,6 +94,22 @@ resource "aws_security_group_rule" "ecs_ingress_from_alb" {
   protocol                 = "tcp"
   source_security_group_id = aws_security_group.alb.id
   description              = "ALB to gateway-service only; every other service is internal-only, per the existing gateway-only-edge design (D22/D23)."
+}
+
+# Companion to alb_egress_to_agentic: the ALB may also reach agentic-commerce-service
+# on its container port (the /api/agentic/ path rule, AD-8). No other service becomes
+# ALB-reachable. Service-to-service traffic to this port is already covered by the
+# self-referencing rule below.
+resource "aws_security_group_rule" "ecs_ingress_from_alb_agentic" {
+  count = var.enable_agentic_ingress ? 1 : 0
+
+  security_group_id        = aws_security_group.ecs_tasks.id
+  type                     = "ingress"
+  from_port                = var.agentic_container_port
+  to_port                  = var.agentic_container_port
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.alb.id
+  description              = "ALB to agentic-commerce-service for the /api/agentic/ path rule; still not internet-reachable directly."
 }
 
 # Self-referencing ingress, scoped to the actual set of service ports in use

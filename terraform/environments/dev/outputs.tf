@@ -58,6 +58,18 @@ output "gateway_target_group_arn" {
   value = module.alb.gateway_target_group_arn
 }
 
+output "agentic_target_group_arn" {
+  value = module.alb.agentic_target_group_arn
+}
+
+# The absolute URL the Vercel-hosted Developer Portal must set as AGENTIC_SERVICE_URL.
+# The portal's proxy appends `/api/agentic/<path>` to this; the ALB listener rule
+# forwards that path to agentic-commerce-service. HTTP today (no ACM certificate);
+# becomes https://<domain> once var.alb_certificate_arn and a Route53 record exist.
+output "agentic_service_url" {
+  value = "http://${module.alb.alb_dns_name}"
+}
+
 output "ecs_service_names" {
   value = { for name, svc in module.ecs_services : name => svc.service_name }
 }
