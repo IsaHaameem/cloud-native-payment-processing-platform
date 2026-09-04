@@ -23,3 +23,23 @@ output "redis_auth_token" {
 output "jwt_signing_key_secret_arn" {
   value = aws_secretsmanager_secret.jwt_signing_key.arn
 }
+
+output "internal_context_secret_arn" {
+  value = aws_secretsmanager_secret.internal_context_secret.arn
+}
+
+output "webhook_secret_encryption_key_secret_arn" {
+  value = aws_secretsmanager_secret.webhook_secret_encryption_key.arn
+}
+
+output "agentic_platform_api_key_secret_arn" {
+  value = aws_secretsmanager_secret.agentic_platform_api_key.arn
+}
+
+output "agentic_anthropic_api_key_secret_arn" {
+  value = aws_secretsmanager_secret.agentic_anthropic_api_key.arn
+}
+
+output "agentic_openai_api_key_secret_arn" {
+  value = aws_secretsmanager_secret.agentic_openai_api_key.arn
+}

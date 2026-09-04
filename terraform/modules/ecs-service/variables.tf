@@ -83,14 +83,15 @@ variable "service_connect_namespace_arn" {
 }
 
 variable "enable_load_balancer" {
-  description = "true only for gateway-service — the platform's one ALB-fronted service (matches the Communication Flow: Client -> ALB -> Gateway)."
+  description = "Attach this service to an ALB target group (var.target_group_arn) and give it the LB health-check grace period. gateway-service uses it for the Client -> ALB -> Gateway edge; agentic-commerce-service uses it for the Developer Portal's `/api/agentic/*` path rule (AD-8, a separate target group, not gateway-routed)."
   type        = bool
   default     = false
 }
 
 variable "target_group_arn" {
-  type    = string
-  default = null
+  description = "The ALB target group this service registers into when enable_load_balancer is true."
+  type        = string
+  default     = null
 }
 
 variable "tags" {

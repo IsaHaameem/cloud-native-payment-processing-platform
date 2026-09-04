@@ -29,7 +29,12 @@ module "security_groups" {
   environment   = var.environment
   vpc_id        = module.networking.vpc_id
   service_ports = local.service_ports
-  tags          = local.common_tags
+
+  # Permit ALB -> agentic-commerce-service on 8095 (the /api/agentic/ path rule).
+  enable_agentic_ingress = true
+  agentic_container_port = local.services["agentic-commerce-service"].port
+
+  tags = local.common_tags
 }
 
 module "ecr" {
@@ -68,6 +73,11 @@ module "iam" {
     module.secrets.rds_master_credentials_secret_arn,
     module.secrets.redis_auth_token_secret_arn,
     module.secrets.jwt_signing_key_secret_arn,
+    module.secrets.internal_context_secret_arn,
+    module.secrets.webhook_secret_encryption_key_secret_arn,
+    module.secrets.agentic_platform_api_key_secret_arn,
+    module.secrets.agentic_anthropic_api_key_secret_arn,
+    module.secrets.agentic_openai_api_key_secret_arn,
   ]
   github_repository = var.github_repository
   ecs_cluster_arn   = module.ecs_cluster.cluster_arn
@@ -107,7 +117,13 @@ module "alb" {
   security_group_id      = module.security_groups.alb_security_group_id
   gateway_container_port = local.services["gateway-service"].port
   certificate_arn        = var.alb_certificate_arn
-  tags                   = local.common_tags
+
+  # `/api/agentic/*` on this same ALB -> agentic-commerce-service (AD-8: not
+  # gateway-routed). Agentic stays private on 8095; only the ALB may reach it.
+  enable_agentic_ingress = true
+  agentic_container_port = local.services["agentic-commerce-service"].port
+
+  tags = local.common_tags
 }
 
 module "cloudwatch" {
@@ -115,7 +131,7 @@ module "cloudwatch" {
 
   project_name = var.project_name
   environment  = var.environment
-  # kafka-broker isn't one of the 8 app services (no ECR repo, no
+  # kafka-broker isn't one of the app services (no ECR repo, no
   # self-ingress port in local.service_ports) but still needs its own
   # awslogs group, same shape as every other service's.
   service_names = concat(local.service_names, ["kafka-broker"])
@@ -128,9 +144,12 @@ module "cloudwatch" {
 module "kafka_broker" {
   source = "../../modules/kafka-broker"
 
-  project_name       = var.project_name
-  environment        = var.environment
-  private_subnet_ids = module.networking.private_subnet_ids_list
+  project_name = var.project_name
+  environment  = var.environment
+  # The AZ-keyed map, not _list — see modules/kafka-broker/variables.tf for why:
+  # its aws_efs_mount_target for_each needs statically-known keys, which the plain
+  # list of not-yet-created subnet IDs cannot provide on a from-scratch apply.
+  private_subnet_ids = module.networking.private_subnet_ids
   security_group_id  = module.security_groups.kafka_security_group_id
 
   cluster_arn                   = module.ecs_cluster.cluster_arn
@@ -170,7 +189,10 @@ module "ecs_services" {
   service_connect_namespace_arn = module.ecs_cluster.service_discovery_namespace_arn
 
   enable_load_balancer = each.value.enable_load_balancer
-  target_group_arn     = each.value.enable_load_balancer ? module.alb.gateway_target_group_arn : null
+  target_group_arn = each.value.enable_load_balancer ? {
+    "gateway-service"          = module.alb.gateway_target_group_arn
+    "agentic-commerce-service" = module.alb.agentic_target_group_arn
+  }[each.key] : null
 
   tags = local.common_tags
 }

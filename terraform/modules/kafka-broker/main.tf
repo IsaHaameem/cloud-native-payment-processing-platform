@@ -42,7 +42,9 @@ resource "aws_efs_file_system" "this" {
 }
 
 resource "aws_efs_mount_target" "this" {
-  for_each = toset(var.private_subnet_ids)
+  # Keyed by AZ (each.key), not by subnet ID — see variables.tf. each.value is still
+  # the subnet ID either way; only what for_each iterates over changed.
+  for_each = var.private_subnet_ids
 
   file_system_id  = aws_efs_file_system.this.id
   subnet_id       = each.value
@@ -155,7 +157,7 @@ resource "aws_ecs_service" "this" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = var.private_subnet_ids
+    subnets          = values(var.private_subnet_ids) # this argument wants a plain list, not the AZ-keyed map
     security_groups  = [var.security_group_id]
     assign_public_ip = false
   }

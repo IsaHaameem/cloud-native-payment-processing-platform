@@ -22,3 +22,8 @@ output "https_listener_arn" {
 output "gateway_target_group_arn" {
   value = aws_lb_target_group.gateway.arn
 }
+
+output "agentic_target_group_arn" {
+  description = "Target group for agentic-commerce-service's `/api/agentic/*` ALB path rule. null unless var.enable_agentic_ingress is true."
+  value       = var.enable_agentic_ingress ? aws_lb_target_group.agentic[0].arn : null
+}

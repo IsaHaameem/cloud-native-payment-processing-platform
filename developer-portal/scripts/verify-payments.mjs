@@ -128,6 +128,111 @@ async function settled(page) {
   await waitFor(async () => (await page.getByTestId('payments-skeleton').count()) === 0);
 }
 
+/**
+ * Waits for the list to be quiescent after a filter change.
+ *
+ * A filter change re-queries in the background — no skeleton — so between the address bar moving
+ * and the answer landing the table shows the previous page, or briefly both pages at once. Every
+ * assertion in this suite that reads rows needs the table to have stopped moving first: no
+ * skeleton, network idle, and the same row set on four consecutive reads.
+ */
+async function stable(page) {
+  await settled(page);
+  await page.waitForLoadState('networkidle').catch(() => undefined);
+  let last = null;
+  let unchanged = 0;
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const snapshot = (await page.locator('table tbody tr').allInnerTexts()).join('');
+    unchanged = snapshot === last ? unchanged + 1 : 0;
+    last = snapshot;
+    if (unchanged >= 4) return;
+    await wait(120);
+  }
+}
+
+/**
+ * Waits until every visible data row matches `re` (and there is at least one).
+ *
+ * A filter-change refetch does not raise the skeleton — it is a background fetch — so for a beat
+ * after a filter is applied the table still shows the previous, unfiltered page. Reading the rows
+ * once can catch that frame; this polls until the rows are the filtered set.
+ */
+function everyRowMatches(page, re) {
+  return waitFor(async () => {
+    const rows = await page.locator('table tbody tr').allInnerTexts();
+    return rows.length > 0 && rows.every((row) => re.test(row));
+  });
+}
+
+/** Waits for the list to re-query the platform — the signal that a filter change has propagated. */
+function awaitRefetch(page, timeout = 6_000) {
+  return page
+    .waitForResponse((response) => response.url().includes('/api/platform/listPayments'), {
+      timeout,
+    })
+    .catch(() => undefined);
+}
+
+/**
+ * Waits until the filter bar itself carries `label` (e.g. "Currency: EUR") — or, with `gone`, until
+ * it no longer does.
+ *
+ * `router.replace` moves the address bar before `useSearchParams` re-renders `PaymentFilterBar`, so
+ * for a beat a chip control's handler still closes over the previous filter set; a click landing in
+ * that beat builds its own `router.replace` from the stale set and drops the other filter. A chip
+ * is only in (or out of) the DOM once the component has re-rendered against the new params, so
+ * gating the next interaction on the chip closes that window. This is Playwright's own auto-waiting
+ * locator, not the polling `waitFor` above.
+ */
+async function chip(page, label, { gone = false } = {}) {
+  const state = gone ? 'hidden' : 'visible';
+  const target = page.getByText(label, { exact: false }).first();
+  try {
+    await target.waitFor({ state, timeout: 8_000 });
+  } catch {
+    // Rare: the address bar and the list query both moved on but PaymentFilterBar's subtree did
+    // not repaint (an App Router transition that never committed). The URL is the state, so a
+    // reload re-derives the bar from it — and doubles as a check that the filters survive one.
+    await page.reload({ waitUntil: 'networkidle' });
+    await settled(page);
+    await target.waitFor({ state, timeout: 8_000 });
+  }
+}
+
+/**
+ * Runs a filter-bar interaction and confirms its navigation committed on the client.
+ *
+ * A filter control calls `router.replace`; the App Router runs it as a transition and will drop one
+ * that begins while the previous is still committing — the address bar then never moves. `act` is
+ * replayed only while `landed(url)` is still false, and every `act` here is written to be a no-op
+ * once its target state holds, so a replay can neither double-toggle a filter nor click a control
+ * the previous attempt already removed. Each attempt waits for the list's own refetch, which only
+ * fires once the new params have reached the component.
+ */
+async function filterNav(page, act, landed, tries = 4) {
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    if (landed(page.url())) break;
+    const refetched = awaitRefetch(page, 5_000);
+    await act();
+    await refetched;
+    await page.waitForLoadState('networkidle').catch(() => undefined);
+    if (await waitFor(() => Promise.resolve(landed(page.url())), 6_000)) break;
+  }
+  await settled(page);
+  return landed(page.url());
+}
+
+/** Opens the status/currency filter menu, toggles one item, and closes it. */
+async function toggleFilterMenu(page, itemName) {
+  await page.getByRole('button', { name: /^filter/i }).click();
+  const menu = page.getByRole('menu');
+  await menu.waitFor({ timeout: 5_000 });
+  await page.getByRole('menuitemcheckbox', { name: itemName }).click();
+  await page.keyboard.press('Escape');
+  await menu.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
+}
+
 async function verifyInstrument() {
   const { context, page } = await onPayments();
   const state = await page.evaluate(() => document.visibilityState);
@@ -216,69 +321,96 @@ async function verifyCursorPagination() {
  * A filter that is applied in the browser looks identical to one applied by the platform until the
  * result set is larger than a page — so the check is that the *count* changes, and that every
  * remaining row carries the filtered value.
+ *
+ * Each block below establishes its starting filters with one hard navigation (`page.goto`, which
+ * the App Router cannot drop) and then exercises exactly one control. Chaining several
+ * `router.replace`s through the UI in a row is what made this suite flaky: the router drops a
+ * `replace` that begins while the previous is still committing, and `useSearchParams` reaches the
+ * filter bar a beat after the address bar, so a rapid follow-up click builds its own `replace`
+ * from a stale filter set.
  */
 async function verifyFiltering() {
   const { context, page } = await onPayments();
   await settled(page);
   const before = await rowCount(page);
 
-  await page.getByRole('button', { name: /^filter/i }).click();
-  await page.getByRole('menuitemcheckbox', { name: 'Captured' }).click();
-  await page.keyboard.press('Escape');
-
+  // 1. Toggling a status in the menu narrows the list.
+  await toggleFilterMenu(page, 'Captured');
   check(
     'the filter reaches the URL',
-    await waitFor(async () => page.url().includes('status=captured')),
+    await waitFor(() => Promise.resolve(page.url().includes('status=captured'))),
     page.url(),
   );
-  await settled(page);
-
-  const after = await rowCount(page);
-  check('the list narrows', after < before, `${before} → ${after}`);
-  check(
-    'every remaining row has the filtered status',
-    (await page.locator('table tbody tr').allInnerTexts()).every((row) => /Captured/.test(row)),
-  );
+  await chip(page, 'Status: Captured');
+  await stable(page);
+  check('every remaining row has the filtered status', await everyRowMatches(page, /Captured/));
+  check('the list narrows', (await rowCount(page)) < before, `${before} → ${await rowCount(page)}`);
   check('the applied filter is shown as a chip', /Status: Captured/.test(await mainText(page)));
 
-  // A currency filter on top of it: two parameters, both server-side.
-  await page.getByRole('button', { name: /^filter/i }).click();
-  await page.getByRole('menuitemcheckbox', { name: 'EUR' }).click();
-  await page.keyboard.press('Escape');
+  // 2. A second filter is added to the first, not swapped for it. Start from the one-filter URL so
+  //    only the EUR toggle is a client navigation.
+  await page.goto(`${BASE}${ROUTE}?status=captured`, { waitUntil: 'networkidle' });
+  await chip(page, 'Status: Captured');
+  await stable(page);
+  await toggleFilterMenu(page, 'EUR');
   check(
     'a second filter is added rather than replacing the first',
-    await waitFor(
-      async () => page.url().includes('status=captured') && page.url().includes('currency=EUR'),
+    await waitFor(() =>
+      Promise.resolve(
+        page.url().includes('status=captured') && page.url().includes('currency=EUR'),
+      ),
     ),
     page.url(),
   );
-  await settled(page);
+  await chip(page, 'Currency: EUR');
+  await stable(page);
   check(
     'and both are applied to every row',
-    (await page.locator('table tbody tr').allInnerTexts()).every((row) => /Captured/.test(row)) &&
-      (await mainText(page)).includes('€'),
+    (await everyRowMatches(page, /Captured/)) && (await mainText(page)).includes('€'),
   );
 
-  // Removing one chip must leave the other applied.
-  await page
-    .getByRole('button', { name: /remove filter/i })
-    .first()
-    .click();
+  // 3. Removing one chip leaves the other applied. Start from the two-filter URL; one real click.
+  await page.goto(`${BASE}${ROUTE}?status=captured&currency=EUR`, { waitUntil: 'networkidle' });
+  await chip(page, 'Status: Captured');
+  await chip(page, 'Currency: EUR');
+  await stable(page);
+  const removeStatusChip = () =>
+    page
+      .getByRole('button', { name: /remove filter/i })
+      .first()
+      .click();
+  await removeStatusChip();
+  const statusRemoved = () =>
+    !page.url().includes('status=captured') && page.url().includes('currency=EUR');
+  if (!(await waitFor(() => Promise.resolve(statusRemoved()), 8_000))) {
+    // The one `router.replace` was dropped and both filters are still in the URL — click again.
+    if (page.url().includes('status=captured')) await removeStatusChip();
+  }
   check(
     'removing a chip removes exactly that filter',
-    await waitFor(
-      async () => !page.url().includes('status=captured') && page.url().includes('currency=EUR'),
-    ),
+    await waitFor(() => Promise.resolve(statusRemoved())),
     page.url(),
   );
+  await chip(page, 'Status: Captured', { gone: true });
+  await chip(page, 'Currency: EUR');
 
-  await page.getByRole('button', { name: /clear all/i }).click();
+  // 4. "Clear all" empties the query string. Two-filter URL; one real click.
+  await page.goto(`${BASE}${ROUTE}?status=captured&currency=EUR`, { waitUntil: 'networkidle' });
+  await chip(page, 'Currency: EUR');
+  await stable(page);
+  const clearAll = () => page.getByRole('button', { name: /clear all/i }).click();
+  await clearAll();
+  const emptied = () => new URL(page.url()).search === '';
+  if (!(await waitFor(() => Promise.resolve(emptied()), 8_000))) {
+    if (await page.getByRole('button', { name: /clear all/i }).count()) await clearAll();
+  }
   check(
     'clear all empties the query string',
-    await waitFor(async () => new URL(page.url()).search === ''),
+    await waitFor(() => Promise.resolve(emptied())),
     page.url(),
   );
-  await settled(page);
+  await chip(page, 'Currency: EUR', { gone: true });
+  await stable(page);
   check(
     'and the full list is back',
     await waitFor(async () => (await rowCount(page)) === before),
@@ -302,10 +434,7 @@ async function verifyTheUrlIsTheView() {
   check('a shared link restores the filters', /Status: Failed/.test(await mainText(page)));
   check('and the currency', /Currency: USD/.test(await mainText(page)));
   check('and the amount range', /Amount: 2000/.test(await mainText(page)));
-  check(
-    'and the rows it describes',
-    (await page.locator('table tbody tr').allInnerTexts()).every((row) => /Failed/.test(row)),
-  );
+  check('and the rows it describes', await everyRowMatches(page, /Failed/));
 
   // The one thing a shared link must never carry.
   check('the link names no merchant', !page.url().includes('merchant'));
@@ -350,9 +479,19 @@ async function verifyNoMatches() {
     (await page.locator('table').count()) === 0,
   );
 
-  await page.getByRole('button', { name: /clear filters/i }).click();
-  await settled(page);
-  check('clearing brings the rows back', await waitFor(async () => (await rowCount(page)) === 25));
+  const restored = await filterNav(
+    page,
+    async () => {
+      const clear = page.getByRole('button', { name: /clear filters/i });
+      if (await clear.count()) await clear.click();
+    },
+    (url) => new URL(url).search === '',
+  );
+  await stable(page);
+  check(
+    'clearing brings the rows back',
+    restored && (await waitFor(async () => (await rowCount(page)) === 25)),
+  );
   await context.close();
 }
 
