@@ -5,21 +5,19 @@ import com.paymentflow.gateway.security.GatewayErrorResponseWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebExceptionHandler;
 import reactor.core.publisher.Mono;
 
-import java.net.ConnectException;
-
 /**
  * Reactive equivalent of common-lib's servlet-only {@code GlobalExceptionHandler} (which
  * stays inactive here — see common-lib D11): the catch-all for everything that is not a
  * Spring Security authentication/authorization failure (those go through the entry point
  * and access-denied handler instead) — no route matched, and downstream connectivity
- * failures — mapped onto the standard {@code ApiError} envelope.
+ * failures that were not already turned into a 503 by {@link DownstreamFailureGlobalFilter}
+ * — mapped onto the standard {@code ApiError} envelope.
  *
  * <p>Registered ahead of Boot's {@code DefaultErrorWebExceptionHandler} (order -1).
  */
@@ -45,7 +43,11 @@ public class GatewayErrorWebExceptionHandler implements WebExceptionHandler {
             log.warn("No route matched {}", exchange.getRequest().getPath());
             return errorWriter.write(exchange, CommonErrorCode.NOT_FOUND);
         }
-        if (ex instanceof ConnectException) {
+        // Walks the cause chain, not just the top-level type: reactor-netty wraps a refused
+        // connection in its own exception, and a response-timeout arrives as a 5xx
+        // ResponseStatusException. DownstreamFailureGlobalFilter normally handles these one
+        // step earlier; this is the backstop for anything that reached the WebFilter layer.
+        if (DownstreamFailureGlobalFilter.isDownstreamUnavailable(ex)) {
             log.error("Downstream service unreachable for {}", exchange.getRequest().getPath(), ex);
             return errorWriter.write(exchange, CommonErrorCode.SERVICE_UNAVAILABLE);
         }
