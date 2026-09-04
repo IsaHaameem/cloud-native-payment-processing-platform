@@ -26,8 +26,9 @@ variable "gateway_container_port" {
 }
 
 variable "gateway_health_check_path" {
-  type    = string
-  default = "/actuator/health"
+  description = "Not /actuator/health: that endpoint folds a Redis health indicator into its aggregate and returns 503 whenever Redis blips, which would make the ALB cycle a genuinely-healthy gateway task. /health is the dedicated public liveness probe added for exactly this reason (see README.md and gateway-service's HealthController) — unauthenticated, touches no database/Redis/downstream service, answers only \"is this process serving HTTP?\"."
+  type        = string
+  default     = "/health"
 }
 
 variable "certificate_arn" {

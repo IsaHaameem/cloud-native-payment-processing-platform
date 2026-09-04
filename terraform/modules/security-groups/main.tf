@@ -53,7 +53,7 @@ resource "aws_security_group_rule" "alb_egress_to_ecs" {
   description = "Only to gateway-service container port, the ALB never talks to any other service directly."
 }
 
-# ── ECS tasks: every one of the 8 services runs behind this one SG ─────────
+# ── ECS tasks: every one of the platform's services runs behind this one SG ─
 #
 # One shared SG (not eight per-service ones) because every service currently
 # lives on the same private subnets and calls its peers directly by name —
@@ -64,7 +64,7 @@ resource "aws_security_group_rule" "alb_egress_to_ecs" {
 
 resource "aws_security_group" "ecs_tasks" {
   name        = "${local.name_prefix}-ecs-tasks-sg"
-  description = "All 8 ECS services: ingress from the ALB (gateway-service port only) and from each other; egress unrestricted (ECR/Secrets Manager/CloudWatch/RDS/Redis/MSK all reached via the NAT-provided internet path or in-VPC)."
+  description = "Every ECS service: ingress from the ALB (gateway-service port only) and from each other; egress unrestricted (ECR/Secrets Manager/CloudWatch reached via the NAT-provided internet path, RDS/Redis/the Kafka broker reached in-VPC)."
   vpc_id      = var.vpc_id
 
   tags = merge(var.tags, { Name = "${local.name_prefix}-ecs-tasks-sg" })

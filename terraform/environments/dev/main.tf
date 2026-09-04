@@ -68,6 +68,11 @@ module "iam" {
     module.secrets.rds_master_credentials_secret_arn,
     module.secrets.redis_auth_token_secret_arn,
     module.secrets.jwt_signing_key_secret_arn,
+    module.secrets.internal_context_secret_arn,
+    module.secrets.webhook_secret_encryption_key_secret_arn,
+    module.secrets.agentic_platform_api_key_secret_arn,
+    module.secrets.agentic_anthropic_api_key_secret_arn,
+    module.secrets.agentic_openai_api_key_secret_arn,
   ]
   github_repository = var.github_repository
   ecs_cluster_arn   = module.ecs_cluster.cluster_arn
@@ -115,7 +120,7 @@ module "cloudwatch" {
 
   project_name = var.project_name
   environment  = var.environment
-  # kafka-broker isn't one of the 8 app services (no ECR repo, no
+  # kafka-broker isn't one of the app services (no ECR repo, no
   # self-ingress port in local.service_ports) but still needs its own
   # awslogs group, same shape as every other service's.
   service_names = concat(local.service_names, ["kafka-broker"])
@@ -128,9 +133,12 @@ module "cloudwatch" {
 module "kafka_broker" {
   source = "../../modules/kafka-broker"
 
-  project_name       = var.project_name
-  environment        = var.environment
-  private_subnet_ids = module.networking.private_subnet_ids_list
+  project_name = var.project_name
+  environment  = var.environment
+  # The AZ-keyed map, not _list — see modules/kafka-broker/variables.tf for why:
+  # its aws_efs_mount_target for_each needs statically-known keys, which the plain
+  # list of not-yet-created subnet IDs cannot provide on a from-scratch apply.
+  private_subnet_ids = module.networking.private_subnet_ids
   security_group_id  = module.security_groups.kafka_security_group_id
 
   cluster_arn                   = module.ecs_cluster.cluster_arn

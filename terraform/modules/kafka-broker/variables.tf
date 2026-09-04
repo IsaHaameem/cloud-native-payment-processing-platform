@@ -7,7 +7,8 @@ variable "environment" {
 }
 
 variable "private_subnet_ids" {
-  type = list(string)
+  description = "Keyed by availability zone (module.networking.private_subnet_ids), not a plain list. aws_efs_mount_target below needs one instance per subnet, and a for_each over a list of subnet IDs fails terraform plan on a from-scratch apply: the IDs themselves are unknown until the VPC is created, and for_each requires its full set of keys to be known ahead of time. Keying by AZ name sidesteps that — the AZ names come straight from var.availability_zones, a plain list literal, so they are known before anything is applied."
+  type        = map(string)
 }
 
 variable "security_group_id" {
