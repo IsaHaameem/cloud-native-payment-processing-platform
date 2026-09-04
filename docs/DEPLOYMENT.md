@@ -1,16 +1,74 @@
 # Deployment
 
-Three targets, deployed independently:
+There are **two independent backend deployment targets** plus the portal. They are
+alternatives, not layers — pick one for the backend.
 
-| Component | Target | Declared by |
-|---|---|---|
-| Ten backend services, Postgres, Key Value | Render | `render.yaml` |
-| Developer Portal | Vercel | `developer-portal/` |
-| Kafka | Redpanda Cloud Serverless (external) | not declared — see step 1 |
+| Target | What runs there | Kafka | Declared by |
+|---|---|---|---|
+| **AWS `dev`** (primary) | All 10 services + self-managed Kafka, on ECS Fargate | Single-broker KRaft on Fargate + EFS (`modules/kafka-broker`) | `terraform/environments/dev` |
+| **Render** (secondary, smaller) | Core five (`gateway`, `identity`, `merchant`, `payment`, `sandbox`) | Redpanda Cloud Serverless (external) — or none | `render.yaml` |
+| **Developer Portal** | Next.js app, calls whichever backend's gateway | — | `developer-portal/` (Vercel) |
 
 `mock-project/` is **local-only**. It is not tracked, not built, and never deployed.
 
 Nothing here is committed, pushed, or synced automatically. Every step is manual and explicit.
+
+---
+
+## AWS `dev` environment
+
+The live target. Everything is Terraform under `terraform/environments/dev`; the images come
+from `.github/workflows/cd.yml` (manual `workflow_dispatch`), which builds and pushes all 10
+service images to ECR and rolls each ECS service.
+
+**Provision / update**
+
+```
+cd terraform/environments/dev
+terraform init
+terraform plan
+terraform apply
+```
+
+State is remote (S3 + DynamoDB lock, `terraform/bootstrap`). `apply` creates a VPC across two
+AZs, an internet-facing ALB fronting `gateway-service` only, the ECS Fargate cluster and its 10
+services, the Kafka broker task, RDS PostgreSQL (`db.t4g.micro`), ElastiCache Redis (TLS + auth
+token), one ECR repo per service, and Secrets Manager entries. Service-to-service discovery is
+ECS Service Connect: each service is reachable in-cluster as `http://<service-name>:<port>`,
+the same name the Docker Compose network uses.
+
+**Public entrypoint**
+
+```
+terraform output alb_dns_name     # http://<name>.<region>.elb.amazonaws.com  (port 80)
+```
+
+HTTP only. An HTTPS listener is created when `var.alb_certificate_arn` is set to an ACM
+certificate ARN; until then external API traffic is unencrypted, which is acceptable for a
+demo but not for anything real.
+
+**Kafka** is self-managed, *not* Redpanda/Aiven/MSK — a single KRaft broker on Fargate with an
+EFS-backed data volume, advertised in-cluster as `kafka-broker:9092`. `KAFKA_AUTO_CREATE_TOPICS_ENABLE`
+is `false`, so a topic exists only once a producing service's `NewTopic` bean has run against
+the real broker; every Kafka-touching service therefore needs `SPRING_KAFKA_BOOTSTRAP_SERVERS`
+(wired in `locals.tf`). The topics in use are `payment.events`, `merchant.events`,
+`identity.events`, `sandbox.scheduled.events`, `api.request.events` and `webhook.deliveries` —
+not the "10 topics / 39 partitions" the Render/Redpanda path below provisions up front.
+
+**Per-environment configuration** (`terraform/environments/dev/locals.tf` and `variables.tf`)
+
+| Setting | Purpose |
+|---|---|
+| `PAYMENTFLOW_SERVICES_*_BASE_URI` (gateway) | Service Connect address for every service the gateway routes to — identity, merchant, payment, sandbox, notification, transaction, audit, analytics. A missing one makes that gateway route fail. |
+| `SPRING_KAFKA_BOOTSTRAP_SERVERS` (every Kafka service) | `kafka-broker:9092`. Without it a service falls back to the compose default and drops its events. |
+| `MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED=false` (all) | No Tempo is deployed here; tracing stays on for log correlation, the OTLP span exporter is off. |
+| `var.gateway_cors_allowed_origins` | Browser CORS allow-list. Default is the local dev origin; set it to the Developer Portal origin before any browser calls the API directly. The portal's own server-side calls are not CORS-checked. |
+| `PAYMENTFLOW_EXTERNAL_PROVIDER_ENABLED` | Stays `false`. Payments run entirely on the internal sandbox path; no real provider is contacted. |
+
+**Known limitations of the `dev` environment**: single-AZ RDS/Redis, `db.t4g.micro` (HikariCP is
+capped to 5/service to fit its connection ceiling), 0.25 vCPU per task (cold starts of 60–180 s),
+no HTTPS until a certificate is supplied, `agentic-commerce-service` has no ALB ingress yet
+(the portal reaches it server-side; see `AGENTIC_SERVICE_URL`).
 
 ---
 

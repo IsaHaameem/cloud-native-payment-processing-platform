@@ -51,3 +51,9 @@ variable "image_tag" {
   type        = string
   default     = "latest"
 }
+
+variable "gateway_cors_allowed_origins" {
+  description = "Browser origins the gateway's CORS layer permits (paymentflow.gateway.cors.allowed-origins → PAYMENTFLOW_GATEWAY_CORS_ALLOWED_ORIGINS). The portal's normal data path is server-side and unaffected by CORS; this matters for any browser-direct call (an API explorer, a future SPA) and must list the Developer Portal's real origin once it is deployed. Defaults to the local dev origin so an unconfigured apply keeps today's behaviour."
+  type        = list(string)
+  default     = ["http://localhost:3000"]
+}

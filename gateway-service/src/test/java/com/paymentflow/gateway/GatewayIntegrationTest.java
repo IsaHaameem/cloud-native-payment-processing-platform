@@ -222,6 +222,29 @@ class GatewayIntegrationTest {
     }
 
     @Test
+    void authenticatedRequestToAnUnreachableDownstreamReturns503ApiError() throws Exception {
+        // Regression for the silent 200: an authenticated caller whose route proxies to a
+        // service that is down must get the standard ApiError 503 envelope, never a
+        // 200 Content-Length: 0. merchant-service has no stub in this test, so its
+        // base-uri default (localhost:8082) refuses the connection.
+        String token = signedJwt(UUID.randomUUID().toString());
+
+        client.get().uri("/api/v1/merchants/me")
+                .header("Authorization", "Bearer " + token)
+                .header("X-Correlation-Id", "downstream-down-1")
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SERVICE_UNAVAILABLE)
+                .expectHeader().contentTypeCompatibleWith("application/json")
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("SERVICE_UNAVAILABLE")
+                .jsonPath("$.type").isEqualTo("api_error")
+                .jsonPath("$.status").isEqualTo(503)
+                .jsonPath("$.correlationId").isEqualTo("downstream-down-1")
+                .jsonPath("$.requestId").exists()
+                .jsonPath("$.message").exists();
+    }
+
+    @Test
     void unmappedPathWithoutAuthenticationFailsClosedWith401() {
         client.get().uri("/does-not-exist")
                 .exchange()
