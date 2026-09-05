@@ -266,7 +266,7 @@ async function verifyRouteFocus() {
 
   await page.keyboard.press('Control+k');
   await wait(400);
-  await paletteInput(page).fill('Design foundation');
+  await paletteInput(page).fill('Settings');
   await wait(400);
   await page.keyboard.press('Enter');
   await wait(1200);

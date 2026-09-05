@@ -170,10 +170,11 @@ async function verifyPublicNavigation() {
     .locator('a')
     .evaluateAll((links) => links.map((link) => link.getAttribute('href')));
   check('the navbar has navigation', hrefs.length >= 4, hrefs.join(' '));
-  // Every destination is either a section of this page or a route that exists. Nothing dead.
+  // Every destination is its own real route now (the marketing site is multi-page), not an
+  // anchor into this one. Nothing dead.
   check(
-    'no navbar link points at a route that does not exist',
-    hrefs.every((href) => href?.startsWith('#')),
+    'every navbar link is a real route, not a dead anchor',
+    hrefs.every((href) => href?.startsWith('/')),
     hrefs.join(' '),
   );
 
@@ -185,11 +186,14 @@ async function verifyPublicNavigation() {
       .getAttribute('href')) === '/login',
   );
 
-  // Following an anchor must land on the section, not behind the sticky header.
-  await page.getByRole('link', { name: 'Lifecycle' }).first().click();
-  await wait(600);
-  const top = await page.locator('#lifecycle').evaluate((el) => el.getBoundingClientRect().top);
-  check('an in-page link clears the sticky navbar', top >= 0 && top < 200, `${Math.round(top)}px`);
+  // Following a navbar link is a real navigation, not an in-page scroll: it must land on that
+  // route's own page.
+  await nav.getByRole('link', { name: 'Platform' }).click();
+  await page.waitForURL((url) => url.pathname === '/platform', { timeout: 10_000 });
+  check(
+    'a navbar link navigates to its own page',
+    await page.getByRole('heading', { level: 1 }).first().isVisible(),
+  );
 
   await context.close();
 }
@@ -203,11 +207,11 @@ async function verifyMobileNavigation() {
    * Scoped to the header, and that is not incidental.
    *
    * `getByRole` reads the accessibility tree, which excludes `display:none` — so an unscoped
-   * `getByRole('link', { name: 'Lifecycle' })` does not match the hidden desktop nav at all and
+   * `getByRole('link', { name: 'Platform' })` does not match the hidden desktop nav at all and
    * silently resolves to the *footer's* copy of the same label, which is visible at every width.
    * The check then asserts nothing. Naming the header is what keeps this measuring the navbar.
    */
-  const headerLink = page.locator('header').getByRole('link', { name: 'Lifecycle' });
+  const headerLink = page.locator('header').getByRole('link', { name: 'Platform' });
 
   check('the desktop nav is hidden on a phone', (await headerLink.count()) === 0);
 

@@ -548,6 +548,7 @@ jobs:
           PF_GATEWAY_URL=http://localhost:4600 \
           PORTAL_PUBLIC_ORIGIN=http://localhost:3601 \
           PORTAL_SESSION_SECRET=ci-only-session-secret-not-used-anywhere-else \
+          INTERNAL_CONTEXT_SECRET=ci-only-internal-context-secret-not-a-real-deployment \
           PORT=3601 npm start &
           for _ in $(seq 1 60); do
             if curl -sf -o /dev/null http://localhost:3601/login; then exit 0; fi
