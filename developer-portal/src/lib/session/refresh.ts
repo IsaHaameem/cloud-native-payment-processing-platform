@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { RejectedTokenError, refresh as rotateAtIdentity } from './identity';
+import { processScoped } from './process-state';
 import { type Session } from './session';
 
 /**
@@ -72,6 +73,24 @@ const REPLAY_TTL_MS = 30_000;
  */
 const MAX_REPLAY_ENTRIES = 1000;
 
+/**
+ * A ceiling on the set of signed-out chains, for the same reason `MAX_REPLAY_ENTRIES` bounds the
+ * cache: it is keyed by token, so a busy process would otherwise accumulate one entry per
+ * sign-out for as long as it runs. Evicting the oldest costs nothing — an evicted tombstone only
+ * means a request racing a long-finished sign-out is answered by identity-service rejecting a
+ * revoked token, which is where it ended up before any of this existed.
+ */
+const MAX_ENDED_CHAINS = 1000;
+
+/**
+ * A ceiling on how far the chain walk will go in one call.
+ *
+ * Refresh tokens are unique, so the chain cannot cycle and in practice is one or two links — the
+ * generations a request in flight can be behind. This is a guard against a bug in this module
+ * becoming an unbounded loop on a request path, not a limit the design expects to reach.
+ */
+const MAX_CHAIN_HOPS = 16;
+
 interface Rotation {
   readonly accessToken: string;
   readonly accessExpiresAt: number;
@@ -83,9 +102,29 @@ interface CachedRotation {
   readonly expiresAt: number;
 }
 
-/** Keyed by `hash(refreshToken)`. */
-const inFlight = new Map<string, Promise<Rotation>>();
-const replayable = new Map<string, CachedRotation>();
+/**
+ * Keyed by `hash(refreshToken)`.
+ *
+ * Process-scoped rather than module-scoped: middleware and the app server are separate bundles
+ * with separate module registries, so a plain `const` here is two mutexes and two caches that
+ * cannot see each other — and `endSession`, which runs in a Route Handler while every rotation
+ * runs in middleware, would consult the empty one. See `process-state.ts`.
+ */
+const inFlight = processScoped(
+  'session/refresh:inFlight',
+  () => new Map<string, Promise<Rotation>>(),
+);
+const replayable = processScoped(
+  'session/refresh:replayable',
+  () => new Map<string, CachedRotation>(),
+);
+
+/**
+ * The chains that have been signed out, by the key of every token in them.
+ *
+ * Insertion-ordered like the cache above, so the bound is enforced the same way.
+ */
+const ended = processScoped('session/refresh:ended', () => new Set<string>());
 
 /**
  * FNV-1a over the token. Not a security boundary — it keeps raw refresh tokens out of a
@@ -121,6 +160,75 @@ function remember(key: string, rotation: Rotation, now: number): void {
   replayable.set(key, { rotation, expiresAt: now + REPLAY_TTL_MS });
 }
 
+function markEnded(key: string): void {
+  if (ended.size >= MAX_ENDED_CHAINS) {
+    const oldest = ended.values().next();
+    if (!oldest.done) ended.delete(oldest.value);
+  }
+  ended.add(key);
+}
+
+/**
+ * Walks forward from a token to the credential that is actually live, through every rotation this
+ * process knows about — completed or still in flight.
+ *
+ * ── Why one hop is not enough ─────────────────────────────────────────────────────────
+ *
+ * A cached rotation names the live credential only until that credential is *itself* rotated.
+ * Returning the first entry found therefore answers a two-generation-old cookie with a token
+ * identity-service revoked some time ago. That is not a stale read that corrects itself: the
+ * caller persists what it was given, so the cookie now names a dead token while the live one has
+ * nothing referencing it. `destroySession` then revokes the dead one — and because
+ * `RefreshTokenService.revoke` is idempotent and ignores an unknown token, identity answers 204
+ * and the live token is orphaned **silently**, to live out its TTL. `verify-auth.mjs`'s "no
+ * refresh token is left alive" is the assertion that catches it.
+ *
+ * A cookie two generations behind is not exotic. Every response carrying a rotation is a
+ * `Set-Cookie` the browser may not have applied yet, so any request already in flight — a
+ * prefetch, a parallel RSC fetch, the sign-out POST itself — arrives holding whatever generation
+ * was current when it was dispatched. Under load that is routinely not the newest.
+ *
+ * ── Why `inFlight` is part of the walk ────────────────────────────────────────────────
+ *
+ * Checking only completed rotations leaves the same defect in a narrower window: a caller can
+ * read an entry naming token X in the instant another request is *already rotating* X, and be
+ * handed a credential that is dead by the time it is persisted. Following into the pending
+ * promise closes it — the rotation in progress produces the successor, so awaiting it is the only
+ * way to name the token that will still be live afterwards.
+ *
+ * ── What bounds it ────────────────────────────────────────────────────────────────────
+ *
+ * Each link keeps its own `REPLAY_TTL_MS`, set when that rotation completed, and entries are
+ * never rewritten. So the window in which any one superseded cookie is still honoured stays
+ * bounded from its own rotation rather than being extended each time the session rotates again.
+ * An expired or evicted link simply ends the walk: the caller rotates what it holds, and a dead
+ * token then fails as it always has.
+ *
+ * @returns the newest rotation reachable from the one given — itself, if this process knows of
+ *          nothing that replaced it.
+ */
+async function liveEndOf(rotation: Rotation): Promise<Rotation> {
+  let latest = rotation;
+
+  for (let hop = 0; hop < MAX_CHAIN_HOPS; hop++) {
+    const key = keyFor(latest.refreshToken);
+
+    // A rotation of this token is in progress. Its result is the successor, so wait for it rather
+    // than returning the credential it is in the middle of revoking.
+    const pending = inFlight.get(key);
+    if (pending) {
+      latest = await pending;
+      continue;
+    }
+
+    const done = readReplayable(key, Date.now());
+    if (!done) break;
+    latest = done;
+  }
+
+  return latest;
+}
+
 /**
  * Refreshes a session's credentials, at most once per refresh token.
  *
@@ -140,15 +248,120 @@ export async function refreshSession(session: Session): Promise<Session> {
   };
 }
 
+/**
+ * Ends a session's refresh-token chain and names the credential that has to be revoked (D197).
+ *
+ * ── Why sign-out has to come through here ─────────────────────────────────────────────
+ *
+ * `destroySession` used to revoke whatever token the request's cookie happened to carry. That is
+ * the one thing in this design that is *not* a reliable name for the session's credential, and
+ * this module exists because it is not: a rotation performed during a render cannot be persisted,
+ * a `Set-Cookie` the browser has not applied yet leaves every request already in flight holding
+ * the previous generation, and both are ordinary rather than exotic. A sign-out reading the
+ * cookie directly therefore revokes a token identity-service already destroyed. `revoke` is
+ * idempotent and ignores an unknown token, so it answers 204 — and the credential that *is* live
+ * survives, unreferenced, for the whole seven days of its TTL. Nothing reports it; the browser
+ * has been signed out and looks it.
+ *
+ * ── Resolving the chain is only half of it ────────────────────────────────────────────
+ *
+ * Walking to the live end fixes a cookie that is behind. It does not fix a cookie that is about
+ * to *become* behind, and there is real time between the two: parsing the sign-out form, checking
+ * its CSRF token, reading the cookie, and the round trip to identity-service. A page holds twenty
+ * prefetchable links, so a request rotating inside that window is not a coincidence to be
+ * tolerated — it is the common case under load, and it puts the rotation *after* the revocation
+ * chose its target. Precisely the orphan again, one generation further along.
+ *
+ * So the walk marks each link as it passes, and `rotate` refuses a marked chain before it does
+ * anything else. Once this function has looked at a token, no rotation of it can begin, and the
+ * token returned is therefore still the live one when the caller revokes it. Marking happens
+ * *before* each `await` for the same reason the mutex is registered before its first: a gap
+ * between deciding and recording is a gap something else can rotate in.
+ *
+ * A rotation already under way is waited for rather than raced. It will succeed — identity has
+ * the token — so its result is the credential that must be revoked, and abandoning it would
+ * orphan exactly what this exists to prevent.
+ *
+ * ── What it deliberately does not do ──────────────────────────────────────────────────
+ *
+ * It does not touch the user's other sessions. Every entry here is keyed by a token in *this*
+ * chain, and a second browser holds a chain that shares no token with it, so signing out of one
+ * device leaves the others exactly as they were — which is what `RefreshTokenService.revoke`
+ * promises and what `revokeAllForUser`, deliberately not used here, would break.
+ *
+ * @returns the token to revoke: the live end of the chain if this process knows of one, and
+ *          otherwise the token it was given, which is then the best name available.
+ */
+export async function endSession(refreshToken: string): Promise<string> {
+  let live = refreshToken;
+
+  for (let hop = 0; hop < MAX_CHAIN_HOPS; hop++) {
+    const key = keyFor(live);
+    markEnded(key);
+
+    const pending = inFlight.get(key);
+    if (pending) {
+      /*
+       * Its result supersedes this token, so it is the one that needs revoking. Awaiting is safe:
+       * the chain is already closed behind us, so nothing new can start while we wait.
+       *
+       * A rejection is not a failure of the sign-out, and must not be raised as one. Sign-out has
+       * to work when nothing else does — `logout` in `identity.ts` returns `false` rather than
+       * throwing for exactly this reason, and a throw from here would land upstream of it and
+       * turn `POST /logout` into a 500, leaving the user signed in and looking at an error. A
+       * rotation that failed consumed nothing and produced no successor, so the token in hand is
+       * still the right one to revoke: stop walking and revoke it.
+       */
+      let succeeded;
+      try {
+        succeeded = await pending;
+      } catch {
+        break;
+      }
+      live = succeeded.refreshToken;
+      continue;
+    }
+
+    const done = readReplayable(key, Date.now());
+    if (!done) break;
+    live = done.refreshToken;
+  }
+
+  // The end of the walk is a token no rotation has consumed yet, so it needs a tombstone of its
+  // own — it is the one a racing request is most likely to be holding.
+  markEnded(keyFor(live));
+  return live;
+}
+
 async function rotate(refreshToken: string): Promise<Rotation> {
   const key = keyFor(refreshToken);
-  const now = Date.now();
 
-  const alreadyDone = readReplayable(key, now);
-  if (alreadyDone) return alreadyDone;
+  /*
+   * Checked first, and synchronously, because this is the half of `endSession` that actually
+   * closes the race. A request already queued when the user signed out arrives holding a token
+   * from a chain that is over; rotating it would mint a credential *after* the revocation chose
+   * what to revoke, and nothing would ever revoke the replacement.
+   *
+   * `RejectedTokenError` is the honest classification and the one the callers already handle:
+   * the middleware clears the cookie and redirects to `/login`, and `callAs` reports the 401 it
+   * already had. That is the correct end for a request that raced its own sign-out, and it is
+   * where such a request ended up anyway once identity-service saw the revoked token — the
+   * difference is that now no orphan is created on the way there.
+   */
+  if (ended.has(key)) throw new RejectedTokenError('the session this token belongs to has ended');
 
+  /*
+   * Both lookups are synchronous and both are deliberately before any `await`. A caller that
+   * yields before reaching the registration below has left a window in which every other caller
+   * also finds nothing — which is ten rotations instead of one, the exact failure the mutex
+   * exists to prevent. Only once something *is* found is it safe to await, and `liveEndOf` then
+   * walks from there to the credential that is actually live.
+   */
   const pending = inFlight.get(key);
-  if (pending) return pending;
+  if (pending) return liveEndOf(await pending);
+
+  const alreadyDone = readReplayable(key, Date.now());
+  if (alreadyDone) return liveEndOf(alreadyDone);
 
   const attempt = (async () => {
     const issued = await rotateAtIdentity(refreshToken);
@@ -165,6 +378,8 @@ async function rotate(refreshToken: string): Promise<Rotation> {
 
   try {
     const rotation = await attempt;
+    // One entry per consumed token. Each is a link, and `liveEndOf` walks them, so an entry is
+    // never rewritten — which is what keeps every link's expiry bounded from its own rotation.
     remember(key, rotation, Date.now());
     return rotation;
   } catch (error) {
@@ -184,9 +399,14 @@ async function rotate(refreshToken: string): Promise<Rotation> {
 export function resetRefreshCoordinatorForTesting(): void {
   inFlight.clear();
   replayable.clear();
+  ended.clear();
 }
 
-/** Test seam: how many rotations are in flight, and how many results are replayable. */
-export function refreshCoordinatorStateForTesting(): { inFlight: number; replayable: number } {
-  return { inFlight: inFlight.size, replayable: replayable.size };
+/** Test seam: how many rotations are in flight, how many results are replayable, how many ended. */
+export function refreshCoordinatorStateForTesting(): {
+  inFlight: number;
+  replayable: number;
+  ended: number;
+} {
+  return { inFlight: inFlight.size, replayable: replayable.size, ended: ended.size };
 }

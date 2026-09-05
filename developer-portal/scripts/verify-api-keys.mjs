@@ -62,6 +62,18 @@ async function waitFor(predicate, timeout = 20_000) {
 const mainText = (page) => page.locator('main').innerText();
 const waitForMain = (page, pattern) => waitFor(async () => pattern.test(await mainText(page)));
 
+/**
+ * Whether `text` contains a key value, as opposed to the "where does this key go?" reference
+ * card the page shows regardless of mode (`sk_test_…`, `sk_live_…`, and the
+ * `PAYMENTFLOW_API_KEY=sk_${mode}_your_key_here` sample line) — none of which is a rendered
+ * secret, so a bare `sk_test`/`sk_live` substring search flags that documentation as a leak. A
+ * real prefix is always followed by more of the key; the card's is always followed by the
+ * ellipsis or the literal placeholder words.
+ */
+function hasRealKeyMaterial(text) {
+  return /sk_(test|live)_(?!…|your_key_here)|pk_(test|live)_(?!…|your_key_here)/.test(text);
+}
+
 /** What the platform actually holds for the test account — never carries a secret. */
 async function storedKeys() {
   const response = await fetch(`${STUB}/__stub/keys?email=${CREDENTIALS.email}`);
@@ -236,10 +248,7 @@ async function verifyEmptyState() {
     'and offers the one action available',
     (await page.getByRole('button', { name: /create key/i }).count()) >= 1,
   );
-  check(
-    'the empty state does not pretend a key exists',
-    !/sk_test|pk_test/.test(await page.content()),
-  );
+  check('the empty state does not pretend a key exists', !hasRealKeyMaterial(await page.content()));
   await context.close();
 }
 
@@ -469,7 +478,7 @@ async function verifyModeIsolation() {
   check('and hides the live one', !/Live only/.test(testBody));
   check(
     'no live key material appears in a test-mode document',
-    !(await page.content()).includes('sk_live_'),
+    !/sk_live_(?!…|your_key_here)/.test(await page.content()),
   );
 
   await context.close();

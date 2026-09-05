@@ -3,6 +3,7 @@
 import { MotionConfig } from 'framer-motion';
 import type * as React from 'react';
 
+import { ToastProvider } from '@/components/ui/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { QueryProvider } from '@/providers/query-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
@@ -33,7 +34,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ThemeProvider>
       <QueryProvider>
         <MotionConfig reducedMotion="user">
-          <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
+          <TooltipProvider delayDuration={200}>
+            <ToastProvider>{children}</ToastProvider>
+          </TooltipProvider>
         </MotionConfig>
       </QueryProvider>
     </ThemeProvider>

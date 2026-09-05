@@ -14,7 +14,7 @@ export default function AppLoading() {
         <Skeleton className="h-5 w-40" />
         <Skeleton className="h-4 w-72" />
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
         <Skeleton className="h-28 rounded-lg" />
         <Skeleton className="h-28 rounded-lg" />
         <Skeleton className="h-28 rounded-lg" />

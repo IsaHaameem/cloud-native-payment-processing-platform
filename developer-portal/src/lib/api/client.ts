@@ -5,6 +5,7 @@ import { type CallOptions, type OperationId, call } from '@/lib/api/transport';
 import { IdentityUnavailableError, RejectedTokenError } from '@/lib/session/identity';
 import { refreshSession } from '@/lib/session/refresh';
 import { type Session } from '@/lib/session/session';
+import { carryForwardDurableFacts } from '@/lib/session/continuity';
 import { writeSession } from '@/lib/session/store';
 
 /**
@@ -85,11 +86,16 @@ async function retryAfterRefresh<T>(
     throw error;
   }
 
+  // Reconciled for the same reason the middleware reconciles: this re-seals a snapshot that is
+  // only as new as the request it came in on, and writing it verbatim can drop a `merchantId` a
+  // newer cookie already carried. See `continuity.ts`.
+  const carried = carryForwardDurableFacts(refreshed);
+
   // Best-effort. See the note at the top of the file.
-  await writeSession(refreshed);
+  await writeSession(carried);
 
   return call<T>(operationId, {
     ...options,
-    credentials: { accessToken: refreshed.accessToken, mode: refreshed.mode },
+    credentials: { accessToken: carried.accessToken, mode: carried.mode },
   });
 }

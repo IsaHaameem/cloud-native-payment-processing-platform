@@ -1,11 +1,11 @@
 import { BookOpen } from 'lucide-react';
+import Link from 'next/link';
 
 import { AccountMenu } from '@/components/layout/account-menu';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 import { CommandMenu } from '@/components/layout/command-menu';
 import { MobileNav } from '@/components/layout/mobile-nav';
 import { ModeSwitch } from '@/components/layout/mode-switch';
-import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { Button } from '@/components/ui/button';
 import { type PublicSession } from '@/lib/session/session';
 
@@ -39,7 +39,7 @@ export function AppHeader({
   csrfToken: string;
 }) {
   return (
-    <header className="glass sticky top-0 z-30 flex h-12 shrink-0 items-center gap-2 border-b border-border-subtle px-4">
+    <header className="glass sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-border-subtle px-4">
       <MobileNav />
 
       {/*
@@ -78,16 +78,10 @@ export function AppHeader({
 
       <div className="flex shrink-0 items-center gap-0.5">
         <Button variant="ghost" size="icon" asChild>
-          <a
-            href="https://github.com/"
-            target="_blank"
-            rel="noreferrer noopener"
-            aria-label="Documentation"
-          >
+          <Link href="/docs" aria-label="Documentation">
             <BookOpen />
-          </a>
+          </Link>
         </Button>
-        <ThemeToggle />
         <AccountMenu email={session.email} businessName={businessName} csrfToken={csrfToken} />
       </div>
     </header>

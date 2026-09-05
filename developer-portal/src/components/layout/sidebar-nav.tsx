@@ -37,17 +37,19 @@ export function SidebarNav({
 
   return (
     <nav aria-label="Main" className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-4">
-      {NAV_SECTIONS.map((section) => (
-        <div key={section.label} className="flex flex-col gap-0.5">
-          {!collapsed ? (
+      {NAV_SECTIONS.map((section, sectionIndex) => (
+        <div key={section.label || `section-${sectionIndex}`} className="flex flex-col gap-0.5">
+          {!collapsed && section.label ? (
             <p className="px-2 pb-1 text-caption font-[510] tracking-[0.04em] text-fg-subtle uppercase">
               {section.label}
             </p>
-          ) : (
-            // The rail still needs the grouping, but a truncated word is noise. A hairline
-            // says "these belong together" without pretending to be a label.
+          ) : section.label || sectionIndex > 0 ? (
+            // The rail still needs the grouping, but a truncated word — or the lead group, which
+            // has no label at all — is noise. A hairline says "these belong together" without
+            // pretending to be a heading. The very first group gets neither, so nothing sits
+            // above "Overview".
             <div aria-hidden className="mx-2 mb-1 h-px bg-border-subtle" />
-          )}
+          ) : null}
 
           <ul className="flex flex-col gap-px">
             {section.items.map((item) => (
@@ -112,9 +114,7 @@ function NavEntry({
             {body}
           </span>
         </TooltipTrigger>
-        <TooltipContent side="right">
-          {item.label} — arrives in {item.milestone}
-        </TooltipContent>
+        <TooltipContent side="right">{item.note ?? `${item.label} — coming soon`}</TooltipContent>
       </Tooltip>
     );
   }

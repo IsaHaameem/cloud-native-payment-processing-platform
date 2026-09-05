@@ -121,7 +121,7 @@ export default async function SettingsPage({
           description="Your sign-in identity. These details are managed by the platform and are not editable here."
         >
           {user ? (
-            <dl className="grid gap-4 sm:grid-cols-2">
+            <dl className="grid gap-4 grid-cols-1 sm:grid-cols-2">
               <Fact label="Email">
                 <span className="flex flex-wrap items-center gap-2">
                   <span className="truncate">{user.email}</span>

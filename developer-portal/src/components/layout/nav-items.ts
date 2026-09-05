@@ -1,117 +1,173 @@
 import {
   Activity,
   BarChart3,
+  Boxes,
   CreditCard,
+  FileClock,
+  FlaskConical,
+  GitBranch,
   KeyRound,
   LayoutDashboard,
+  ListChecks,
+  MessagesSquare,
+  Package,
   Receipt,
-  ScrollText,
+  Rocket,
   Settings,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
   Wallet,
   Webhook,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
+import { PUBLIC_MARKETING_PATHS } from '@/lib/public-paths';
+
 /**
- * The information architecture, in one place (M23.1).
+ * The information architecture, in one place (M23.1; expanded for the full frontend build).
  *
- * ── Why every M24 destination is already listed ───────────────────────────────────────
+ * ── Why the whole tree is listed now ─────────────────────────────────────────────────
  *
- * §6.1 fixes the IA for both portal milestones, and a navigation that grows an item at a time
- * reshuffles under the user twice. Listing the full set now means the sidebar's shape is
- * decided once — and `enabled: false` is honest about which entries lead somewhere: they render
- * as visibly unavailable rather than as links that 404, which is what a hidden-until-built
- * approach would produce the moment someone typed the URL.
+ * `frontend_Design.md §5` fixes the IA for the entire product — five groups, ~30 destinations —
+ * and a navigation that grows an item at a time reshuffles under the user. Listing the full set
+ * once means the sidebar's shape is decided once.
  *
- * The alternative, showing only what exists, was rejected for the same reason the route table
- * in the M23 specification exists: a surface that appears late looks like a feature that was
- * missing, not one that was scheduled.
+ * `enabled: false` is honest about which entries lead somewhere yet: they render as visibly
+ * unavailable with a tooltip, rather than as links that 404. As each build phase lands its
+ * routes, the corresponding entries flip to `enabled: true`.
+ *
+ * ── `gap` is a different thing from `enabled` ────────────────────────────────────────
+ *
+ * A `gap` route is fully built and reachable — it just has no backend API behind part of it, so
+ * the page carries the project's `BackendGapNotice` treatment. The nav entry is a normal link;
+ * the honesty lives on the page, not in a greyed-out sidebar row. See `frontend_Design.md §38`
+ * for the G-numbers.
  */
 export interface NavItem {
   readonly label: string;
   readonly href: string;
   readonly icon: LucideIcon;
-  /** False for a destination a later milestone builds. Rendered, unclickable, marked. */
+  /** False for a destination not yet built. Rendered, unclickable, marked with `note`. */
   readonly enabled: boolean;
-  /** The milestone that turns it on — shown in the tooltip so "why is this greyed out" has an answer. */
-  readonly milestone: string;
+  /** Shown in the tooltip of a disabled item, or as context for a backend-gap route. */
+  readonly note?: string;
+  /** A live count badge fed by a client island: the pending-approvals or failing-webhooks number. */
+  readonly badge?: 'approvals' | 'webhooks';
 }
 
 export interface NavSection {
+  /** Empty string renders the group with a hairline instead of a heading (the lead group). */
   readonly label: string;
   readonly items: readonly NavItem[];
 }
 
 export const NAV_SECTIONS: readonly NavSection[] = [
   {
-    label: 'Business',
+    label: '',
+    items: [{ label: 'Overview', href: '/dashboard', icon: LayoutDashboard, enabled: true }],
+  },
+  {
+    label: 'Payments',
     items: [
-      // The first entry to be turned on. M23.2a built `/dashboard` as the authenticated entry
-      // point the whole sign-up flow leads to; the figures §6.2 specifies for it arrive in M23.8,
-      // which is a change to what the page shows rather than to whether it exists.
-      {
-        label: 'Overview',
-        href: '/dashboard',
-        icon: LayoutDashboard,
-        enabled: true,
-        milestone: 'M23.8',
-      },
-      // Turned on by M23.6: the list, its filters and cursor pagination. The row does not link
-      // anywhere yet — `/payments/[id]` is M23.7's, and a row that navigated to a 404 would be
-      // worse than one that does not invite the click.
-      {
-        label: 'Payments',
-        href: '/payments',
-        icon: CreditCard,
-        enabled: true,
-        milestone: 'M23.6',
-      },
-      { label: 'Refunds', href: '/refunds', icon: Receipt, enabled: false, milestone: 'M23.7' },
-      { label: 'Balance', href: '/balance', icon: Wallet, enabled: false, milestone: 'M24' },
+      { label: 'Payments', href: '/payments', icon: CreditCard, enabled: true },
+      { label: 'Refunds', href: '/refunds', icon: Receipt, enabled: true },
+      { label: 'Balance', href: '/balance', icon: Wallet, enabled: true },
     ],
   },
   {
-    label: 'Developers',
+    label: 'Agentic commerce',
     items: [
-      // Turned on by M23.5. Create, reveal-once, rotate and revoke are all real; the secret is
-      // shown at the one moment it exists and never reconstructible afterwards.
+      { label: 'Overview', href: '/agentic', icon: LayoutDashboard, enabled: true },
       {
-        label: 'API keys',
-        href: '/developers/api-keys',
-        icon: KeyRound,
+        label: 'Catalog',
+        href: '/agentic/catalog',
+        icon: Package,
         enabled: true,
-        milestone: 'M23.5',
+        note: 'No catalog HTTP API yet (gap G-2)',
       },
+      {
+        label: 'Agent',
+        href: '/agentic/agent',
+        icon: SlidersHorizontal,
+        enabled: true,
+        note: 'Config is server-side only (gap G-3)',
+      },
+      {
+        label: 'Policies',
+        href: '/agentic/policies',
+        icon: ShieldCheck,
+        enabled: true,
+        note: 'Read-only from committed config (gap G-3)',
+      },
+      {
+        label: 'Approvals',
+        href: '/agentic/approvals',
+        icon: ListChecks,
+        enabled: true,
+        badge: 'approvals',
+      },
+      {
+        label: 'Conversations',
+        href: '/agentic/conversations',
+        icon: MessagesSquare,
+        enabled: true,
+        note: 'No conversation list endpoint (gap G-4)',
+      },
+      { label: 'Actions', href: '/agentic/actions', icon: GitBranch, enabled: true },
+      {
+        label: 'Checkouts',
+        href: '/agentic/checkouts',
+        icon: Boxes,
+        enabled: true,
+        note: 'No checkout controller (gap G-2)',
+      },
+    ],
+  },
+  {
+    label: 'Integration',
+    items: [
+      { label: 'Overview', href: '/developers/overview', icon: LayoutDashboard, enabled: true },
+      { label: 'Quickstart', href: '/developers/quickstart', icon: Rocket, enabled: true },
+      { label: 'API keys', href: '/developers/api-keys', icon: KeyRound, enabled: true },
+      { label: 'AI integration', href: '/developers/ai', icon: Sparkles, enabled: true },
+      { label: 'SDKs', href: '/developers/sdks', icon: Boxes, enabled: true },
       {
         label: 'Webhooks',
         href: '/developers/webhooks',
         icon: Webhook,
-        enabled: false,
-        milestone: 'M24',
+        enabled: true,
+        badge: 'webhooks',
       },
-      {
-        label: 'Request logs',
-        href: '/developers/logs',
-        icon: ScrollText,
-        enabled: false,
-        milestone: 'M24',
-      },
-      {
-        label: 'Events',
-        href: '/developers/events',
-        icon: Activity,
-        enabled: false,
-        milestone: 'M24',
-      },
+      { label: 'Events', href: '/developers/events', icon: Activity, enabled: true },
+      { label: 'Request logs', href: '/developers/logs', icon: FileClock, enabled: true },
+      { label: 'Sandbox', href: '/developers/sandbox', icon: FlaskConical, enabled: true },
     ],
   },
   {
     label: 'Insights',
     items: [
-      { label: 'Analytics', href: '/analytics', icon: BarChart3, enabled: false, milestone: 'M24' },
-      // Turned on by M23.4. The account and business halves are real; team and the API version
-      // pin are named on the page as waiting on the platform, not hidden.
-      { label: 'Settings', href: '/settings', icon: Settings, enabled: true, milestone: 'M23.4' },
+      { label: 'Analytics', href: '/analytics', icon: BarChart3, enabled: true },
+      { label: 'Settings', href: '/settings', icon: Settings, enabled: true },
     ],
   },
 ];
+
+/**
+ * The public marketing routes, shared by the site header and footer so the two cannot drift.
+ * Every one is a real page under the `(marketing)` route group.
+ */
+export interface SiteNavItem {
+  readonly label: string;
+  readonly href: string;
+}
+
+export const SITE_NAV: readonly SiteNavItem[] = [
+  { label: 'Platform', href: '/platform' },
+  { label: 'Agentic Commerce', href: '/agentic-commerce' },
+  { label: 'Developers', href: '/developers' },
+  { label: 'Pricing', href: '/pricing' },
+  { label: 'Security', href: '/security' },
+];
+
+export { PUBLIC_MARKETING_PATHS };

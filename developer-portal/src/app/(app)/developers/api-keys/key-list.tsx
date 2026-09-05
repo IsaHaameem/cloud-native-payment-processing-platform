@@ -638,7 +638,7 @@ function ChoiceGroup({
   return (
     <fieldset>
       <legend className="mb-1.5 text-label font-[510] text-fg">{legend}</legend>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
         {options.map((option) => (
           <label
             key={option.value}

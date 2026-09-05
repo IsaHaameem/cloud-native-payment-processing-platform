@@ -1,24 +1,10 @@
 'use client';
 
-import {
-  Activity,
-  BarChart3,
-  CreditCard,
-  KeyRound,
-  LayoutDashboard,
-  Moon,
-  Receipt,
-  ScrollText,
-  Search,
-  Settings,
-  Sun,
-  Wallet,
-  Webhook,
-} from 'lucide-react';
-import { useTheme } from 'next-themes';
+import { Activity, CreditCard, Home, Receipt, Search } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
 
+import { NAV_SECTIONS } from '@/components/layout/nav-items';
 import {
   CommandPalette,
   useCommandShortcut,
@@ -89,7 +75,6 @@ export function CommandMenu() {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const router = useRouter();
-  const { setTheme } = useTheme();
 
   useCommandShortcut(React.useCallback(() => setOpen(true), []));
 
@@ -97,126 +82,35 @@ export function CommandMenu() {
 
   const items = React.useMemo<CommandItem[]>(() => {
     const go = (href: string) => () => router.push(href);
+
+    // Every enabled destination in the sidebar IA, so "jump to" and the sidebar can never
+    // disagree about what the product contains. Section-prefixed so a duplicate label
+    // ("Overview" appears three times) still reads unambiguously.
+    const destinations: CommandItem[] = NAV_SECTIONS.flatMap((section) =>
+      section.items
+        .filter((item) => item.enabled)
+        .map((item) => ({
+          id: `nav:${item.href}`,
+          label: section.label ? `${section.label} · ${item.label}` : item.label,
+          group: 'Go to',
+          icon: item.icon,
+          keywords: [item.label.toLowerCase(), section.label.toLowerCase()],
+          onSelect: go(item.href),
+        })),
+    );
+
     return [
       {
-        id: 'dashboard',
-        label: 'Overview',
-        group: 'Go to',
-        icon: LayoutDashboard,
-        keywords: ['dashboard', 'home', 'start'],
-        onSelect: go('/dashboard'),
-      },
-      {
-        id: 'foundation',
-        label: 'Design foundation',
-        group: 'Go to',
-        icon: LayoutDashboard,
-        keywords: ['design', 'system', 'components'],
-        onSelect: go('/foundation'),
-      },
-      {
         id: 'home',
-        label: 'Home',
+        label: 'Marketing home',
         group: 'Go to',
-        icon: Search,
-        keywords: ['landing', 'start'],
+        icon: Home,
+        keywords: ['landing', 'public', 'site'],
         onSelect: go('/'),
       },
-
-      /*
-       * These are the destinations M23.4–M24 build. They are listed with the milestone in the
-       * label rather than hidden, because the palette is also how someone discovers what the
-       * product will be — but they navigate nowhere yet, so they are grouped apart and say so.
-       */
-      {
-        id: 'dashboard',
-        label: 'Overview — M23.8',
-        group: 'Coming soon',
-        icon: LayoutDashboard,
-        onSelect: () => {},
-      },
-      {
-        id: 'payments',
-        label: 'Payments — M23.6',
-        group: 'Coming soon',
-        icon: CreditCard,
-        onSelect: () => {},
-      },
-      {
-        id: 'refunds',
-        label: 'Refunds — M23.7',
-        group: 'Coming soon',
-        icon: Receipt,
-        onSelect: () => {},
-      },
-      {
-        id: 'keys',
-        label: 'API keys — M23.5',
-        group: 'Coming soon',
-        icon: KeyRound,
-        onSelect: () => {},
-      },
-      {
-        id: 'balance',
-        label: 'Balance — M24',
-        group: 'Coming soon',
-        icon: Wallet,
-        onSelect: () => {},
-      },
-      {
-        id: 'webhooks',
-        label: 'Webhooks — M24',
-        group: 'Coming soon',
-        icon: Webhook,
-        onSelect: () => {},
-      },
-      {
-        id: 'logs',
-        label: 'Request logs — M24',
-        group: 'Coming soon',
-        icon: ScrollText,
-        onSelect: () => {},
-      },
-      {
-        id: 'events',
-        label: 'Events — M24',
-        group: 'Coming soon',
-        icon: Activity,
-        onSelect: () => {},
-      },
-      {
-        id: 'analytics',
-        label: 'Analytics — M24',
-        group: 'Coming soon',
-        icon: BarChart3,
-        onSelect: () => {},
-      },
-      {
-        id: 'settings',
-        label: 'Settings — M23.4',
-        group: 'Coming soon',
-        icon: Settings,
-        onSelect: () => {},
-      },
-
-      {
-        id: 'theme-dark',
-        label: 'Switch to dark',
-        group: 'Theme',
-        icon: Moon,
-        keywords: ['appearance', 'night'],
-        onSelect: () => setTheme('dark'),
-      },
-      {
-        id: 'theme-light',
-        label: 'Switch to light',
-        group: 'Theme',
-        icon: Sun,
-        keywords: ['appearance', 'day'],
-        onSelect: () => setTheme('light'),
-      },
+      ...destinations,
     ];
-  }, [router, setTheme]);
+  }, [router]);
 
   /**
    * The resolved object, as a row the palette pins above its static results.

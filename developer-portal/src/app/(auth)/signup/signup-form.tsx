@@ -1,10 +1,12 @@
 'use client';
 
+import * as React from 'react';
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
 
 import { AuthField } from '@/components/auth/auth-field';
 import { FormAlert } from '@/components/auth/form-alert';
+import { PasswordStrength } from '@/components/auth/password-strength';
 import { Button } from '@/components/ui/button';
 import { CSRF_FIELD } from '@/lib/security/csrf-field';
 
@@ -39,6 +41,10 @@ export function SignupForm({ csrfToken, next }: { csrfToken: string; next: strin
     field: undefined,
   });
 
+  // Tracked only to drive the advisory strength meter — the input stays uncontrolled so the
+  // Server Action reads the value from `FormData` exactly as before.
+  const [password, setPassword] = React.useState('');
+
   const fieldError = (field: SignupState['field']) =>
     state.field === field ? state.error : undefined;
 
@@ -67,19 +73,23 @@ export function SignupForm({ csrfToken, next }: { csrfToken: string; next: strin
         required
         error={fieldError('email')}
       />
-      <AuthField
-        label="Password"
-        name="password"
-        hint="8–72 characters"
-        type="password"
-        autoComplete="new-password"
-        placeholder="••••••••••••"
-        minLength={8}
-        maxLength={72}
-        required
-        reveal
-        error={fieldError('password')}
-      />
+      <div>
+        <AuthField
+          label="Password"
+          name="password"
+          hint="8–72 characters"
+          type="password"
+          autoComplete="new-password"
+          placeholder="••••••••••••"
+          minLength={8}
+          maxLength={72}
+          required
+          reveal
+          error={fieldError('password')}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <PasswordStrength value={password} />
+      </div>
 
       {/* Field-attached messages are rendered on the field; anything else lands here. */}
       <FormAlert>{state.field === undefined ? state.error : undefined}</FormAlert>

@@ -26,7 +26,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         style={{ background: 'var(--accent)' }}
       />
 
-      <div id="main" className="relative w-full max-w-[380px]">
+      <div id="main" className="relative w-full max-w-[392px]">
         <div className="mb-7 flex justify-center">
           <Link
             href="/"
@@ -37,6 +37,21 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </Link>
         </div>
         {children}
+
+        {/*
+         * The trust note the reference puts on every entry page: it states the one security
+         * property a developer evaluating the product wants confirmed before they type a
+         * password. Amber dot, deliberately outside the status palette — this is context, not a
+         * warning.
+         */}
+        <div className="mt-7 flex items-start gap-2 border-t border-border-subtle pt-4">
+          <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-mode-test" />
+          <p className="text-label-sm text-pretty text-fg-subtle">
+            Sessions are issued by <span className="font-mono text-fg-muted">identity-service</span>{' '}
+            as a JWT and held server-side — the browser never holds a platform credential and never
+            calls the gateway directly.
+          </p>
+        </div>
       </div>
     </div>
   );

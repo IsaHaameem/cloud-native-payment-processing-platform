@@ -52,11 +52,25 @@ const NAV_LABELS: ReadonlyMap<string, string> = new Map(
  * Derived from the navigation rather than listed: any path that is a strict prefix of a nav
  * destination but is not itself one is a grouping segment.
  */
+/**
+ * A section prefix whose title-cased URL segment is not the name the navigation gives it.
+ * `/developers/*` lives under the "Integration" group, so the trail should say so.
+ */
+const SECTION_LABEL_OVERRIDES: Readonly<Record<string, string>> = {
+  '/developers': 'Integration',
+};
+
 const SECTION_LABELS: ReadonlyMap<string, string> = new Map(
   [...NAV_LABELS.keys()]
     .map((href) => href.split('/').slice(0, 2).join('/'))
     .filter((prefix) => prefix.length > 1 && !NAV_LABELS.has(prefix))
-    .map((prefix) => [prefix, prefix.slice(1).replace(/^./, (c) => c.toUpperCase())] as const),
+    .map(
+      (prefix) =>
+        [
+          prefix,
+          SECTION_LABEL_OVERRIDES[prefix] ?? prefix.slice(1).replace(/^./, (c) => c.toUpperCase()),
+        ] as const,
+    ),
 );
 
 export function buildCrumbs(pathname: string): readonly Crumb[] {

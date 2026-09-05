@@ -3,44 +3,40 @@
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { Menu, X } from 'lucide-react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import * as React from 'react';
 
 import { Wordmark } from '@/components/layout/logo';
-import { SITE_NAV } from '@/components/marketing/site-nav';
+import { SITE_NAV } from '@/components/layout/nav-items';
 import { Button } from '@/components/ui/button';
 import { duration, ease } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
 /**
- * The public navbar (M23.2a).
+ * The public navbar (M23.2a; expanded to a multi-page marketing site).
  *
  * ── It changes once, at 8px of scroll ─────────────────────────────────────────────────
  *
- * At the top of the page the bar is transparent and borderless, so the hero starts at the top of
- * the viewport rather than under a stripe. Past a few pixels it takes the `glass` treatment and a
- * hairline — the same backdrop blur the product header uses, so the public and authenticated
- * chrome are visibly one system.
+ * Transparent and borderless at the top of the page so a hero starts flush with the viewport;
+ * past a few pixels it takes the `glass` treatment and a hairline — the same backdrop blur the
+ * product header uses, so the public and authenticated chrome read as one system. Driven by
+ * `useScroll`/`useTransform` on the compositor, never a scroll listener setting React state.
  *
- * Driven by `useScroll` mapped through `useTransform` rather than by a scroll listener setting
- * React state: the listener version re-renders the whole subtree on every frame of a scroll,
- * which is the standard way a sticky header becomes the jankiest element on a page. This one
- * writes two style values on the compositor and never re-renders.
+ * ── The full nav collapses below `lg` ────────────────────────────────────────────────
  *
- * ── Reduced motion is not a special case here ─────────────────────────────────────────
+ * Five section links plus Documentation plus the auth pair do not fit a tablet width, so below
+ * `lg` the links move into a disclosure panel and only the wordmark, "Get started" and the
+ * menu trigger stay on the bar.
  *
- * The only movement is a 140ms opacity change on a background. `MotionConfig reducedMotion="user"`
- * in the providers drops transforms and keeps opacity, which is exactly the right degradation:
- * the bar still becomes legible over content, it simply does not animate into it.
- *
- * ── The right-hand pair is the whole point of the page ────────────────────────────────
+ * ── The right-hand pair is the whole point ───────────────────────────────────────────
  *
  * "Sign in" is quiet and "Get started" is the single accented control on the screen — the
- * reference's own rule that the primary colour belongs to one action per screen, applied to the
- * one action this page exists to produce.
+ * reference's rule that the primary colour belongs to one action per screen.
  */
 export function SiteHeader({ signedIn }: { signedIn: boolean }) {
   const { scrollY } = useScroll();
   const backgroundOpacity = useTransform(scrollY, [0, 8], [0, 1]);
+  const pathname = usePathname();
 
   const [open, setOpen] = React.useState(false);
 
@@ -55,6 +51,10 @@ export function SiteHeader({ signedIn }: { signedIn: boolean }) {
     };
   }, [open]);
 
+  // Close the panel whenever the route changes — a menu left open over the page it navigated to
+  // is the most common way a mobile nav feels broken.
+  React.useEffect(() => setOpen(false), [pathname]);
+
   return (
     <header className="sticky top-0 z-40">
       <motion.div
@@ -68,23 +68,35 @@ export function SiteHeader({ signedIn }: { signedIn: boolean }) {
           <Wordmark />
         </Link>
 
-        <nav aria-label="Site" className="hidden flex-1 items-center gap-1 md:flex">
-          {SITE_NAV.map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
-              className={cn(
-                'rounded-md px-2.5 py-1.5 text-label text-fg-subtle',
-                'transition-colors duration-(--duration-fast) ease-(--ease-out-quart)',
-                'hover:bg-surface-hover hover:text-fg',
-              )}
-            >
-              {item.label}
-            </a>
-          ))}
+        <nav aria-label="Site" className="hidden flex-1 items-center gap-1 lg:flex">
+          {SITE_NAV.map((item) => {
+            const active = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'rounded-md px-2.5 py-1.5 text-label',
+                  'transition-colors duration-(--duration-fast) ease-(--ease-out-quart)',
+                  'hover:bg-surface-hover hover:text-fg',
+                  active ? 'text-fg' : 'text-fg-subtle',
+                )}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2 md:ml-0">
+        <div className="ml-auto flex items-center gap-2 lg:ml-0">
+          <Link
+            href="/docs"
+            className="hidden rounded-md px-2.5 py-1.5 text-label text-fg-subtle transition-colors duration-(--duration-fast) hover:bg-surface-hover hover:text-fg lg:inline-flex"
+          >
+            Documentation
+          </Link>
+
           {signedIn ? (
             <Button variant="primary" size="md" asChild>
               <Link href="/dashboard">Go to dashboard</Link>
@@ -103,7 +115,7 @@ export function SiteHeader({ signedIn }: { signedIn: boolean }) {
           <Button
             variant="ghost"
             size="icon"
-            className="md:hidden"
+            className="lg:hidden"
             aria-expanded={open}
             aria-controls="site-mobile-nav"
             aria-label={open ? 'Close menu' : 'Open menu'}
@@ -115,14 +127,9 @@ export function SiteHeader({ signedIn }: { signedIn: boolean }) {
       </div>
 
       {/*
-       * A panel rather than a Radix `Sheet`.
-       *
-       * The product's drawer is a modal dialog, and correctly so: it covers the application, so
-       * it needs a focus trap, scroll lock and `aria-modal`. This one is four in-page anchors
-       * that close themselves the moment one is followed. Making it a modal would trap focus in
-       * a menu whose links move the page *behind* the trap, and would announce a dialog for what
-       * is a disclosure. So: `aria-expanded` on the trigger, `Escape` to close, and the links
-       * are ordinary links.
+       * A disclosure panel, not a Radix `Sheet`. These are ordinary in-page links that close
+       * themselves the moment one is followed; a modal would trap focus in a menu whose links
+       * move the page behind the trap. So: `aria-expanded` on the trigger, `Escape` to close.
        */}
       {open ? (
         <motion.div
@@ -133,23 +140,21 @@ export function SiteHeader({ signedIn }: { signedIn: boolean }) {
           onKeyDown={(event) => {
             if (event.key === 'Escape') setOpen(false);
           }}
-          className="glass relative border-b border-border-subtle px-5 pb-4 md:hidden"
+          className="glass relative border-b border-border-subtle px-5 pb-4 lg:hidden"
         >
           <nav aria-label="Site" className="flex flex-col">
-            {SITE_NAV.map((item) => (
-              <a
+            {[...SITE_NAV, { label: 'Documentation', href: '/docs' }].map((item) => (
+              <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setOpen(false)}
                 className="rounded-md px-2 py-2.5 text-body text-fg-muted transition-colors duration-(--duration-fast) hover:bg-surface-hover hover:text-fg"
               >
                 {item.label}
-              </a>
+              </Link>
             ))}
             {!signedIn ? (
               <Link
                 href="/login"
-                onClick={() => setOpen(false)}
                 className="rounded-md px-2 py-2.5 text-body text-fg-muted transition-colors duration-(--duration-fast) hover:bg-surface-hover hover:text-fg sm:hidden"
               >
                 Sign in

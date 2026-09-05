@@ -44,10 +44,20 @@ import * as React from 'react';
  * one. Focus never moved, silently, which is exactly how an accessibility feature ends up
  * shipped and broken.
  *
- * So it observes instead. Any heading that appears inside `main` is the new page's, and the
- * outgoing one — which may still be mounted when this runs — is remembered and skipped so focus
- * never lands on an element that is about to be removed. The wait is bounded: after a second,
- * whatever is happening is not a page arriving, and focus stays where the user left it.
+ * So it observes instead, and it asks the DOM which page it is looking at rather than inferring
+ * it. `PageTransition` publishes its `key` as `data-pathname`, so the incoming heading is the one
+ * inside the subtree belonging to the current route — true no matter how the two pages interleave
+ * during a `popLayout` fade.
+ *
+ * The earlier version instead snapshotted `main h1` when the effect ran and treated that element
+ * as the outgoing page's, skipping it forever after. That holds only if the DOM has not caught up
+ * yet, and under load it has: the incoming subtree commits in the same tick as the pathname
+ * change, the snapshot captures the *arriving* heading, and the effect then spends its whole
+ * window refusing to focus the only correct target. Focus stayed on `<body>` — silently, and only
+ * on a slow machine, which is the shape of bug that reaches a user and never a developer.
+ *
+ * The wait is bounded: if no heading for this route appears within a second, whatever is
+ * happening is not a page arriving, and focus stays where the user left it.
  *
  * ── And it keeps watching, because one focus call is not enough ───────────────────────
  *
@@ -73,8 +83,27 @@ import * as React from 'react';
  * respect, so the element focused when the pathname changed is remembered and exempted.
  */
 
-/** How long to wait for the incoming page's heading before giving up. */
+/** How long to wait for the incoming page's heading to appear at all before giving up. */
 const HEADING_WINDOW_MS = 1000;
+
+/**
+ * How much longer to keep watching after each heading this focuses.
+ *
+ * A separate number from the one above because they answer different questions. The first is
+ * "has the page arrived?"; this one is "has the transition finished moving it?" — and the second
+ * is not bounded by the first. `popLayout` re-mounts the incoming subtree after it first appears,
+ * so the heading holding focus is detached and replaced *after* the arrival everyone was waiting
+ * for. Measured under CPU throttling: the arrival is immediate and the replacement lands 450-630ms
+ * later at 10x, and past a second when the machine is slower still — which is a CI runner sharing
+ * two cores with the server and the browser.
+ *
+ * Treating one deadline as both is what let focus end up on `<body>`: the observer was told to
+ * give up a second after the navigation, the replacement landed after that, and nothing was left
+ * watching to put focus back. Each successful focus therefore extends the watch, so the window
+ * measures quiet rather than elapsed time. It still always terminates: only a *new* heading
+ * extends it, and a transition mounts finitely many.
+ */
+const SETTLE_WINDOW_MS = 1000;
 
 export function RouteFocus() {
   const pathname = usePathname();
@@ -87,10 +116,6 @@ export function RouteFocus() {
     }
     if (previous.current === pathname) return;
     previous.current = pathname;
-
-    // The outgoing page's heading, if it is still mounted. Focusing it would be worse than doing
-    // nothing: it is on its way out, and focus would fall back to the body when it goes.
-    const outgoing = document.querySelector<HTMLElement>('main h1');
 
     /*
      * Where focus was when the navigation started — usually the sidebar link that was just
@@ -105,12 +130,30 @@ export function RouteFocus() {
     let settled = false;
     let focused: HTMLElement | undefined;
     const observer = new MutationObserver(() => attempt());
-    const timer = setTimeout(() => stop(), HEADING_WINDOW_MS);
+    let timer = setTimeout(() => stop(), HEADING_WINDOW_MS);
 
     const stop = () => {
       settled = true;
       observer.disconnect();
       clearTimeout(timer);
+    };
+
+    /**
+     * The incoming page's heading, or `null` while it is not mounted yet.
+     *
+     * Selected through the transition wrapper's `data-pathname` (page-transition.tsx) rather than
+     * as "the first `main h1`". During a `popLayout` fade both pages are mounted, so document
+     * order is not evidence of which is which — and under load the incoming subtree can commit in
+     * the same tick as the pathname change, which made the previous "whatever `main h1` was when
+     * the effect ran is the outgoing one" snapshot identify the *arriving* heading as the one to
+     * avoid. Focus then never moved, and stayed on `<body>`. Asking which route a subtree belongs
+     * to answers the question instead of guessing at it.
+     */
+    const incomingHeading = (): HTMLElement | null => {
+      for (const page of document.querySelectorAll<HTMLElement>('main [data-pathname]')) {
+        if (page.dataset.pathname === pathname) return page.querySelector<HTMLElement>('h1');
+      }
+      return null;
     };
 
     const attempt = (): void => {
@@ -130,11 +173,16 @@ export function RouteFocus() {
       // Already done, and still attached. Keep watching: the transition may yet replace it.
       if (focused !== undefined && active === focused && focused.isConnected) return;
 
-      const heading = document.querySelector<HTMLElement>('main h1');
-      if (!heading || heading === outgoing) return;
+      const heading = incomingHeading();
+      if (!heading || heading === focused) return;
 
       focused = heading;
       heading.focus();
+
+      // The page is still moving, so keep watching for the replacement rather than counting down
+      // to a deadline set before any of this happened. See SETTLE_WINDOW_MS.
+      clearTimeout(timer);
+      timer = setTimeout(() => stop(), SETTLE_WINDOW_MS);
     };
 
     // Occasionally the new page is already committed — a cached route, or a navigation with no
