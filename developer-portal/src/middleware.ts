@@ -8,6 +8,7 @@ import {
 } from '@/lib/security/csrf';
 import { PUBLIC_MARKETING_PATHS } from '@/lib/public-paths';
 import { safeRedirectPath } from '@/lib/security/redirect';
+import { carryForwardDurableFacts } from '@/lib/session/continuity';
 import { IdentityUnavailableError, RejectedTokenError } from '@/lib/session/identity';
 import { refreshSession } from '@/lib/session/refresh';
 import {
@@ -228,7 +229,13 @@ async function refreshAndContinue(
     throw error;
   }
 
-  const cookie = await encodeSession(refreshed);
+  /*
+   * A rotation carries the session forward; it does not get to decide what is in it. The snapshot
+   * this request arrived with is only as new as the request, so re-sealing it verbatim can
+   * publish a `merchantId` that a newer, already-written cookie had — the onboarding race in
+   * `continuity.ts`. Reconciled before sealing, so both writes below carry the repair.
+   */
+  const cookie = await encodeSession(carryForwardDurableFacts(refreshed));
 
   /*
    * Written twice, and both are necessary.

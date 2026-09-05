@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { RejectedTokenError, refresh as rotateAtIdentity } from './identity';
+import { processScoped } from './process-state';
 import { type Session } from './session';
 
 /**
@@ -101,16 +102,29 @@ interface CachedRotation {
   readonly expiresAt: number;
 }
 
-/** Keyed by `hash(refreshToken)`. */
-const inFlight = new Map<string, Promise<Rotation>>();
-const replayable = new Map<string, CachedRotation>();
+/**
+ * Keyed by `hash(refreshToken)`.
+ *
+ * Process-scoped rather than module-scoped: middleware and the app server are separate bundles
+ * with separate module registries, so a plain `const` here is two mutexes and two caches that
+ * cannot see each other — and `endSession`, which runs in a Route Handler while every rotation
+ * runs in middleware, would consult the empty one. See `process-state.ts`.
+ */
+const inFlight = processScoped(
+  'session/refresh:inFlight',
+  () => new Map<string, Promise<Rotation>>(),
+);
+const replayable = processScoped(
+  'session/refresh:replayable',
+  () => new Map<string, CachedRotation>(),
+);
 
 /**
  * The chains that have been signed out, by the key of every token in them.
  *
  * Insertion-ordered like the cache above, so the bound is enforced the same way.
  */
-const ended = new Set<string>();
+const ended = processScoped('session/refresh:ended', () => new Set<string>());
 
 /**
  * FNV-1a over the token. Not a security boundary — it keeps raw refresh tokens out of a

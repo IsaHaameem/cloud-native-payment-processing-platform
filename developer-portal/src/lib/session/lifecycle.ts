@@ -12,6 +12,7 @@ import {
   login as loginAtIdentity,
   logout as logoutAtIdentity,
 } from './identity';
+import { rememberDurableFacts } from './continuity';
 import { resolveMerchantId } from './merchant';
 import { endSession } from './refresh';
 import { type Session, SESSION_VERSION, SESSION_MAX_AGE_SECONDS } from './session';
@@ -130,8 +131,18 @@ export async function destroySession(): Promise<boolean> {
   return revoked;
 }
 
-/** Persists a freshly established session. Only valid where a response is being built. */
+/**
+ * Persists a session whose contents were just *decided* — sign-in, onboarding, the mode switch.
+ *
+ * The recording step is what makes {@link carryForwardDurableFacts} safe, and it is why the three
+ * writers that decide session state go through here while a rotation re-seal goes straight to
+ * `writeSession`: only a decision is recorded, so the record is never behind a request that is
+ * merely carrying state forward. See `continuity.ts`.
+ *
+ * Only valid where a response is being built.
+ */
 export async function persistSession(session: Session): Promise<boolean> {
+  rememberDurableFacts(session);
   return writeSession(session);
 }
 
