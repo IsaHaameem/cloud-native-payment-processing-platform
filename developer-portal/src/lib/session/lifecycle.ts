@@ -13,6 +13,7 @@ import {
   logout as logoutAtIdentity,
 } from './identity';
 import { resolveMerchantId } from './merchant';
+import { endSession } from './refresh';
 import { type Session, SESSION_VERSION, SESSION_MAX_AGE_SECONDS } from './session';
 import { clearSession, readSessionCookie, writeSession } from './store';
 
@@ -106,6 +107,17 @@ export async function establishSession(email: string, password: string): Promise
  * from. Revoking first means the worst case is a cleared cookie and a token that dies of old
  * age — a session the user has certainly left, rather than one they think they left.
  *
+ * ── The cookie names the session, not the credential ──────────────────────────────────
+ *
+ * Which is why the token to revoke is asked of `endSession` rather than read straight out of the
+ * cookie. The refresh coordinator is this process's only account of which token in a chain is
+ * live, precisely because a cookie routinely is not: a rotation during a render cannot be
+ * persisted, and a `Set-Cookie` in flight leaves every concurrent request holding the previous
+ * generation. Revoking the cookie's token directly hits one identity-service has already
+ * destroyed — which answers 204, because revocation is idempotent — and leaves the live token
+ * alive and unreferenced for the rest of its TTL. `endSession` also closes the chain, so a
+ * request that was already queued cannot rotate a replacement out from under this revocation.
+ *
  * The access token stays valid for its remaining minutes either way. That is inherent to
  * stateless access tokens and is why identity-service keeps their TTL at fifteen minutes.
  *
@@ -113,7 +125,7 @@ export async function establishSession(email: string, password: string): Promise
  */
 export async function destroySession(): Promise<boolean> {
   const session = await readSessionCookie();
-  const revoked = session ? await logoutAtIdentity(session.refreshToken) : true;
+  const revoked = session ? await logoutAtIdentity(await endSession(session.refreshToken)) : true;
   await clearSession();
   return revoked;
 }
