@@ -34,7 +34,15 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['test/**/*.test.ts'],
+    /*
+     * `.mjs` is included for exactly one file. `test/stub-reset.test.mjs` covers
+     * `scripts/lib/stub-reset.mjs`, which is harness code for the browser suites rather than
+     * application code — plain Node ESM, like every other file under `scripts/`. Writing its
+     * test in TypeScript would mean hand-writing a declaration file for a module the
+     * application never imports, and a hand-written declaration is one more thing that can
+     * drift from the code it describes.
+     */
+    include: ['test/**/*.test.ts', 'test/**/*.test.mjs'],
     // Each file gets a fresh module registry, which the coordinator and throttle tests depend on:
     // both assert on module-level state, and a shared registry would let one file's leftovers
     // decide another file's result.

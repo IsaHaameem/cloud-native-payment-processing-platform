@@ -25,6 +25,8 @@
 
 import { chromium } from 'playwright-core';
 
+import { resetStubWhenQuiet, waitForQuietStub } from './lib/stub-reset.mjs';
+
 const BASE = process.env.BASE ?? 'http://localhost:3000';
 const STUB = process.env.STUB ?? 'http://localhost:4600';
 
@@ -45,6 +47,19 @@ async function stub(path) {
   const response = await fetch(`${STUB}${path}`);
   return response.json();
 }
+
+/*
+ * Scenario boundaries.
+ *
+ * Every scenario here signs in as the same account against one shared stub, and closing a
+ * Playwright context does not cancel work the portal has already accepted — so a scenario's
+ * last sign-in can reach the platform *after* the next scenario has cleared it, leaving a live
+ * refresh token nothing in the run will ever sign out. `scripts/lib/stub-reset.mjs` carries the
+ * full account; the short version is that `fetch('/__stub/reset')` was never a boundary, only a
+ * hope, and these two make it one.
+ */
+const resetStub = () => resetStubWhenQuiet({ stub: STUB });
+const settleStub = () => waitForQuietStub({ stub: STUB });
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 
@@ -150,7 +165,7 @@ async function verifyUnauthenticatedAccess() {
 }
 
 async function verifyLogin() {
-  await fetch(`${STUB}/__stub/reset`);
+  await resetStub();
   const context = await freshContext();
   const page = await context.newPage();
 
@@ -254,7 +269,7 @@ async function verifyCookieFlags() {
 }
 
 async function verifyRefresh() {
-  await fetch(`${STUB}/__stub/reset`);
+  await resetStub();
   const context = await freshContext();
   const page = await context.newPage();
   await signIn(page);
@@ -292,7 +307,7 @@ async function verifyRefresh() {
 }
 
 async function verifyRefreshRace() {
-  await fetch(`${STUB}/__stub/reset`);
+  await resetStub();
   const context = await freshContext();
   const page = await context.newPage();
   await signIn(page);
@@ -421,17 +436,49 @@ async function verifyTamperedCookie() {
   const page = await context.newPage();
   await signIn(page);
 
+  /*
+   * ── Why this settles first, and proves the cookie works before breaking it ──────────
+   *
+   * Under `STUB_ACCESS_TTL=60` every request sits inside the middleware's refresh skew, so a
+   * prefetch the page fired during sign-in may still be in flight — and it answers with a valid
+   * rotated `Set-Cookie`. Landing *after* the tampering below, it puts a good cookie back in the
+   * jar, the navigation is served normally, and this check fails while reporting that the portal
+   * accepted a tampered session. It never saw one; the tampering had already been overwritten.
+   *
+   * So the portal is allowed to go quiet before the cookie is touched. And because a rotation
+   * whose response the browser discarded can leave the jar holding a session the platform has
+   * already rotated away — which redirects to /login for a reason that has nothing to do with
+   * tampering, and would let this pass vacuously — the cookie is proved *accepted* first.
+   *
+   * One byte, two opposite outcomes, from the same cookie. That is the claim being made here,
+   * and now it is the claim being tested.
+   */
+  await settleStub();
+  await page.goto(`${BASE}/foundation`, { waitUntil: 'networkidle' });
+  check(
+    'the untampered session is accepted, so one flipped byte is the only difference',
+    !page.url().includes('/login'),
+    page.url(),
+  );
+  await settleStub();
+
   const cookie = await sessionCookie(context);
+  let tampered;
   if (cookie) {
     const parts = cookie.value.split('.');
     const body = parts[2] ?? '';
-    await context.addCookies([
-      {
-        ...cookie,
-        value: `${parts[0]}.${parts[1]}.${body[0] === 'A' ? 'B' : 'A'}${body.slice(1)}`,
-      },
-    ]);
+    tampered = `${parts[0]}.${parts[1]}.${body[0] === 'A' ? 'B' : 'A'}${body.slice(1)}`;
+    await context.addCookies([{ ...cookie, value: tampered }]);
   }
+
+  // Asserted, not assumed: if a late rotation still managed to replace the tampered value, this
+  // says so directly instead of letting the next check misreport it as the portal's failure.
+  const held = await sessionCookie(context);
+  check(
+    'the browser is holding the tampered cookie, not a rotated replacement',
+    tampered !== undefined && held?.value === tampered,
+    held === undefined ? 'no session cookie' : `${held.value.slice(0, 24)}…`,
+  );
 
   await page.goto(`${BASE}/foundation`, { waitUntil: 'networkidle' });
   check('a tampered session cookie is refused', page.url().includes('/login'), page.url());
@@ -502,11 +549,33 @@ async function verifyOpenRedirect() {
 }
 
 async function verifyLogout() {
-  await fetch(`${STUB}/__stub/reset`);
+  /*
+   * `no refresh token is left alive` below reads the stub's *global* live-token count, so this
+   * scenario is only meaningful from a stub that holds nothing — and it is the last scenario in
+   * the run, so it inherits whatever every earlier one left behind. See
+   * `scripts/lib/stub-reset.mjs` for the straggler this closes.
+   *
+   * The clean start is asserted rather than assumed. A contaminated one is a harness fault, and
+   * it has to say so here, in its own words, instead of surfacing thirty lines later as
+   * "no refresh token is left alive — 1 live" — which reads as the portal failing to revoke.
+   */
+  const reset = await resetStub();
+  check(
+    'the scenario starts from a stub holding no session',
+    reset.clean,
+    `${reset.resets} reset(s), ${reset.stragglers} straggler(s) caught, reached quiet: ${reset.quiesced}`,
+  );
+
   const context = await freshContext();
   const page = await context.newPage();
   await signIn(page);
   await page.goto(`${BASE}/foundation`, { waitUntil: 'networkidle' });
+
+  // What this scenario alone put on the platform, read before it signs out. It is reported in
+  // the detail below so that a future failure classifies itself: one sign-in and one live token
+  // here means the count after sign-out is genuinely the portal's; anything more means the run
+  // was contaminated despite the reset above, which is a different bug in a different place.
+  const before = await stub('/__stub/calls');
 
   await page.getByRole('button', { name: 'Account' }).click();
   await wait(300);
@@ -522,7 +591,12 @@ async function verifyLogout() {
 
   const { logoutCount, liveRefreshTokens } = await stub('/__stub/calls');
   check('the refresh token was revoked server-side', logoutCount > 0, `${logoutCount} calls`);
-  check('no refresh token is left alive', liveRefreshTokens === 0, `${liveRefreshTokens} live`);
+  check(
+    'no refresh token is left alive',
+    liveRefreshTokens === 0,
+    `${liveRefreshTokens} live; this scenario signed in ${before.loginCount} time(s) and held ` +
+      `${before.liveRefreshTokens} before signing out`,
+  );
 
   await page.goto(`${BASE}/foundation`, { waitUntil: 'networkidle' });
   check('a protected page is unreachable after logout', page.url().includes('/login'), page.url());
