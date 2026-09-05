@@ -287,9 +287,24 @@ export async function endSession(refreshToken: string): Promise<string> {
 
     const pending = inFlight.get(key);
     if (pending) {
-      // Its result supersedes this token, so it is the one that needs revoking. Awaiting is safe:
-      // the chain is already closed behind us, so nothing new can start while we wait.
-      live = (await pending).refreshToken;
+      /*
+       * Its result supersedes this token, so it is the one that needs revoking. Awaiting is safe:
+       * the chain is already closed behind us, so nothing new can start while we wait.
+       *
+       * A rejection is not a failure of the sign-out, and must not be raised as one. Sign-out has
+       * to work when nothing else does — `logout` in `identity.ts` returns `false` rather than
+       * throwing for exactly this reason, and a throw from here would land upstream of it and
+       * turn `POST /logout` into a 500, leaving the user signed in and looking at an error. A
+       * rotation that failed consumed nothing and produced no successor, so the token in hand is
+       * still the right one to revoke: stop walking and revoke it.
+       */
+      let succeeded;
+      try {
+        succeeded = await pending;
+      } catch {
+        break;
+      }
+      live = succeeded.refreshToken;
       continue;
     }
 

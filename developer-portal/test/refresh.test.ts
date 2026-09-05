@@ -333,6 +333,29 @@ describe('ending a session', () => {
     });
   });
 
+  it('still names a token when a rotation in flight fails, rather than failing the sign-out', async () => {
+    const session = aSession('the-live-token');
+
+    // The platform goes unwell mid-rotation, with the sign-out already waiting on it.
+    rotateAtIdentity.mockImplementationOnce(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      throw new IdentityUnavailableError('down');
+    });
+    const doomed = refreshSession(session);
+
+    /*
+     * Sign-out has to work when nothing else does. Raising the rotation's failure here would land
+     * upstream of `logout`, which returns `false` rather than throwing precisely so that it
+     * cannot — and `POST /logout` would answer 500, leaving a user who asked to leave signed in
+     * and looking at an error page.
+     *
+     * The failed rotation consumed nothing and produced no successor, so the token in hand is
+     * still the one to revoke.
+     */
+    await expect(endSession(session.refreshToken)).resolves.toBe('the-live-token');
+    await expect(doomed).rejects.toBeInstanceOf(IdentityUnavailableError);
+  });
+
   it('falls back to the token it was given when this process knows of no rotation', async () => {
     // A cookie sealed by another replica, or one whose replay entry has expired. There is nothing
     // better to revoke than what the browser presented, and that is usually right.
